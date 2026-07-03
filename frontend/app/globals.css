@@ -77,3 +77,85 @@ body {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+/* ────────────────────────────────────────────────────────────
+   iOS-style glassmorphism + motion
+   ──────────────────────────────────────────────────────────── */
+.glass {
+  background: rgba(255, 255, 255, 0.62);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.55);
+}
+.glass-strong {
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+}
+.glass-dark {
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+/* Soft app background gradient the glass floats over (maroon-tinted). */
+.app-bg {
+  background:
+    radial-gradient(1200px 600px at 15% -10%, rgba(122,28,28,0.20), transparent 60%),
+    radial-gradient(1000px 500px at 110% 10%, rgba(160,60,60,0.16), transparent 55%),
+    radial-gradient(900px 700px at 50% 120%, rgba(217,180,120,0.16), transparent 55%),
+    #f3eeee;
+}
+
+/* Natural spring-ish easing used across transitions. */
+.ease-spring { transition-timing-function: cubic-bezier(0.34, 1.56, 0.64, 1); }
+
+@keyframes sheet-up {
+  from { transform: translateY(100%); opacity: 0.4; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+.animate-sheet-up { animation: sheet-up 0.42s cubic-bezier(0.22, 1, 0.36, 1); }
+
+@keyframes scrim-in { from { opacity: 0; } to { opacity: 1; } }
+.animate-scrim-in { animation: scrim-in 0.28s ease-out; }
+
+@keyframes pop-in {
+  0%   { transform: scale(0.92) translateY(12px); opacity: 0; }
+  100% { transform: scale(1)    translateY(0);    opacity: 1; }
+}
+.animate-pop-in { animation: pop-in 0.4s cubic-bezier(0.34, 1.56, 0.64, 1); }
+
+@keyframes fade-up {
+  from { transform: translateY(10px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+.animate-fade-up { animation: fade-up 0.45s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+@keyframes story-fill { from { width: 0%; } to { width: 100%; } }
+.animate-story-fill { animation: story-fill linear forwards; }
+
+@keyframes modal-float {
+  0%   { transform: translateY(26px) scale(0.95); opacity: 0; }
+  100% { transform: translateY(0)    scale(1);    opacity: 1; }
+}
+.animate-modal-float { animation: modal-float 0.5s cubic-bezier(0.22, 1, 0.36, 1); }
+
+/* Glowing pulse used to highlight the "Pending Verification" status. */
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(217,119,6,0.55), 0 0 8px 1px rgba(217,119,6,0.35); }
+  50%      { box-shadow: 0 0 0 5px rgba(217,119,6,0), 0 0 16px 4px rgba(217,119,6,0.55); }
+}
+.glow-pending { animation: pulse-glow 1.8s ease-in-out infinite; }
+
+@keyframes dot-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(217,119,6,0.6); }
+  50%      { box-shadow: 0 0 0 6px rgba(217,119,6,0); }
+}
+.glow-dot { animation: dot-glow 1.6s ease-in-out infinite; }
+
+@keyframes expand-down {
+  from { grid-template-rows: 0fr; opacity: 0; }
+  to   { grid-template-rows: 1fr; opacity: 1; }
+}

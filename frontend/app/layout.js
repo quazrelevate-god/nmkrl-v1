@@ -1,5 +1,6 @@
 import "./globals.css";
 import SplashWrapper from "@/components/SplashWrapper";
+import ReportProvider from "@/components/ReportProvider";
 
 export const metadata = {
   title: "FixMyStreet India",
@@ -16,7 +17,9 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en">
       <body>
-        <SplashWrapper>{children}</SplashWrapper>
+        <SplashWrapper>
+          <ReportProvider>{children}</ReportProvider>
+        </SplashWrapper>
       </body>
     </html>
   );

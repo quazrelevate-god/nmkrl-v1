@@ -25,9 +25,9 @@ function Recenter({ center }) {
 
 // Warm gradient stops from low → high intensity.
 function heatColor(t) {
-  if (t < 0.33) return "#3b82f6";
-  if (t < 0.66) return "#f59e0b";
-  return "#ef4444";
+  if (t < 0.33) return "#f59e0b";
+  if (t < 0.66) return "#dc2626";
+  return "#7a1c1c";
 }
 
 export default function AdminHeatMap({ issues, mode = "complaints", center, wards = [] }) {

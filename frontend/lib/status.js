@@ -14,8 +14,8 @@ export const STATUS_META = {
   },
   ACTIVE: {
     label: "Assigned",
-    badge: "bg-blue-100 text-blue-700 border border-blue-200",
-    pin: "#2563eb", // blue
+    badge: "bg-brand-100 text-brand-700 border border-brand-200",
+    pin: "#7a1c1c", // maroon
     open: true,
   },
   IN_PROGRESS: {

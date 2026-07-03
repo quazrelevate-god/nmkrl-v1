@@ -44,9 +44,10 @@ export default function UpvoteModal({ issue, onConfirm, onClose }) {
   }
 
   return (
-    <div className="absolute inset-0 z-[600] flex items-end justify-center bg-black/60">
-      <div className="no-scrollbar w-full overflow-y-auto rounded-t-3xl bg-white shadow-2xl" style={{ maxHeight: "90%" }}>
-        <div className="mx-auto mb-1 mt-3 h-1 w-10 rounded-full bg-slate-300" />
+    <div className="absolute inset-0 z-[660] flex items-center justify-center px-4 pb-24 pt-6">
+      <div className="animate-scrim-in absolute inset-0 bg-slate-900/45 backdrop-blur-md" onClick={onClose} />
+      <div className="animate-modal-float glass-strong no-scrollbar relative z-10 flex max-h-full w-full flex-col overflow-y-auto rounded-[30px] shadow-[0_30px_80px_-20px_rgba(15,23,42,0.55)] ring-1 ring-black/5">
+        <div className="mx-auto mb-1 mt-3 h-1 w-10 rounded-full bg-slate-300/80" />
 
         <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3">
           <div>
@@ -127,7 +128,7 @@ export default function UpvoteModal({ issue, onConfirm, onClose }) {
           <button
             onClick={confirm}
             disabled={busy}
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand py-3 text-sm font-bold text-white shadow-lg shadow-blue-500/30 disabled:opacity-60"
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand py-3 text-sm font-bold text-white shadow-lg shadow-brand/30 disabled:opacity-60"
           >
             <ThumbsUp size={15} /> {busy ? "Adding…" : "Verify & Upvote"}
           </button>

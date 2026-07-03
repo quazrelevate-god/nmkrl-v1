@@ -102,13 +102,13 @@ export default function MapView({
       <Circle
         center={centerArr}
         radius={radius}
-        pathOptions={{ color: "#2563eb", fillColor: "#3b82f6", fillOpacity: 0.08 }}
+        pathOptions={{ color: "#7a1c1c", fillColor: "#a03c3c", fillOpacity: 0.08 }}
       />
       {/* "You are here" dot */}
       <CircleMarker
         center={centerArr}
         radius={6}
-        pathOptions={{ color: "#fff", weight: 2, fillColor: "#2563eb", fillOpacity: 1 }}
+        pathOptions={{ color: "#fff", weight: 2, fillColor: "#7a1c1c", fillOpacity: 1 }}
       />
 
       {issues.map((issue) => (

@@ -156,9 +156,9 @@ export default function AdminScreen() {
               <div className="absolute bottom-2 right-2 z-[500] flex items-center gap-2 rounded-lg bg-white/90 px-3 py-1.5 text-[10px] font-medium shadow ring-1 ring-slate-200">
                 <span className="text-slate-500">{view === "upvotes" ? "Upvote intensity" : "Complaint density"}</span>
                 <span className="flex items-center gap-0.5">
-                  <span className="inline-block h-2 w-2 rounded-full" style={{ background: "#3b82f6" }} />
                   <span className="inline-block h-2 w-2 rounded-full" style={{ background: "#f59e0b" }} />
-                  <span className="inline-block h-2 w-2 rounded-full" style={{ background: "#ef4444" }} />
+                  <span className="inline-block h-2 w-2 rounded-full" style={{ background: "#dc2626" }} />
+                  <span className="inline-block h-2 w-2 rounded-full" style={{ background: "#7a1c1c" }} />
                 </span>
                 <span className="text-slate-400">low → high</span>
               </div>
@@ -258,7 +258,7 @@ export default function AdminScreen() {
 function Overview({ counts, total, issues }) {
   const cards = [
     { key: "SUBMITTED",            label: "Pending Verification", cls: "bg-violet-50 text-violet-700 ring-violet-200" },
-    { key: "ACTIVE",               label: "Assigned",             cls: "bg-blue-50 text-blue-700 ring-blue-200" },
+    { key: "ACTIVE",               label: "Assigned",             cls: "bg-brand-50 text-brand-700 ring-brand-200" },
     { key: "IN_PROGRESS",          label: "In Progress",          cls: "bg-orange-50 text-orange-700 ring-orange-200" },
     { key: "PENDING_VERIFICATION", label: "Citizen Verify",       cls: "bg-amber-50 text-amber-700 ring-amber-200" },
     { key: "CLOSED",               label: "Completed",            cls: "bg-green-50 text-green-700 ring-green-200" },
@@ -389,7 +389,7 @@ function FragmentRow({ issue, meta, open, busy, onToggle, onVerify, onStart, onR
                 </div>
 
                 {issue.phone && (
-                  <div className="flex items-center gap-2 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2">
+                  <div className="flex items-center gap-2 rounded-lg border border-brand-100 bg-brand-50 px-3 py-2">
                     <Phone size={14} className="text-brand" />
                     <span className="text-sm font-bold text-slate-800">+91 {issue.phone}</span>
                   </div>
@@ -403,7 +403,7 @@ function FragmentRow({ issue, meta, open, busy, onToggle, onVerify, onStart, onR
                 {issue.summary_highlights?.length > 0 && (
                   <div className="flex flex-wrap gap-1.5">
                     {issue.summary_highlights.map((h, i) => (
-                      <span key={i} className="rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-medium text-brand ring-1 ring-blue-100">{h}</span>
+                      <span key={i} className="rounded-full bg-brand-50 px-2.5 py-0.5 text-xs font-medium text-brand ring-1 ring-brand-100">{h}</span>
                     ))}
                   </div>
                 )}

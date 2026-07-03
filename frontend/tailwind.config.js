@@ -8,9 +8,15 @@ module.exports = {
   theme: {
     extend: {
       colors: {
+        // Maroon primary palette (replaces the previous blue brand).
         brand: {
-          DEFAULT: "#1d4ed8", // primary blue used across the app
-          dark: "#1e3a8a",
+          50:  "#f8ecec",
+          100: "#eecfcf",
+          200: "#ddaaaa",
+          DEFAULT: "#7a1c1c",
+          600: "#7a1c1c",
+          700: "#5f1414",
+          dark: "#4c0f0f",
         },
       },
       boxShadow: {

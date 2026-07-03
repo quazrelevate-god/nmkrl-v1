@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 
 const STATS = [
-  { icon: ClipboardList, value: "24",    label: "Grievances Submitted", cls: "bg-blue-50 text-brand" },
+  { icon: ClipboardList, value: "24",    label: "Grievances Submitted", cls: "bg-brand-50 text-brand" },
   { icon: ThumbsUp,      value: "56",    label: "Upvotes Received",     cls: "bg-green-50 text-green-600" },
   { icon: Users,         value: "4.8/5", label: "Contribution Rating",  cls: "bg-violet-50 text-violet-600" },
   { icon: Award,         value: "Top 15%", label: "Active Contributor", cls: "bg-amber-50 text-amber-600" },
@@ -76,7 +76,7 @@ export default function ProfileCard({ name = "Raj Kumar" }) {
       {/* Today's Motivation */}
       <div className="relative mt-4 overflow-hidden rounded-xl border border-slate-100 bg-slate-50/70 p-3">
         <div className="relative z-10 flex gap-2.5">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-50">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-50">
             <Quote size={16} className="fill-brand text-brand" />
           </div>
           <div className="min-w-0">

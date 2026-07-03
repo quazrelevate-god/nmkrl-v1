@@ -1,23 +1,43 @@
 "use client";
 
 import BottomNav from "./BottomNav";
+import ReportModal from "./ReportModal";
+import { useReport } from "./ReportProvider";
 
 /**
  * MobileShell
  * -----------
- * Phone-frame wrapper (max-w-md, slate-50 bg, shadow).
+ * Phone-frame wrapper with an iOS glass backdrop. Renders the shared Report
+ * pop-up and the glass pill nav.
  *
  * Props
  *   noPad     – skip horizontal padding (full-bleed screens like map)
- *   splitView – switches <main> to flex-col + overflow-hidden so children
- *               can split the height explicitly (map-history unified view)
+ *   splitView – <main> becomes flex-col + overflow-hidden so children split
+ *               the height explicitly (map-history unified view)
+ *   fullBleed – the page owns the whole frame: content scrolls edge-to-edge and
+ *               the page provides its own fixed glass bars (community feed). No
+ *               status bar / main padding is injected here.
  */
-export default function MobileShell({ children, noPad = false, splitView = false }) {
+export default function MobileShell({ children, noPad = false, splitView = false, fullBleed = false }) {
+  const { open, closeReport } = useReport();
+
+  if (fullBleed) {
+    return (
+      <div className="flex min-h-screen w-full justify-center">
+        <div className="app-bg relative flex h-screen w-full max-w-md flex-col overflow-hidden shadow-phone">
+          {children}
+          <ReportModal open={open} onClose={closeReport} />
+          <BottomNav />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex min-h-screen w-full justify-center">
-      <div className="relative flex h-screen w-full max-w-md flex-col overflow-hidden bg-slate-50 shadow-phone">
+      <div className="app-bg relative flex h-screen w-full max-w-md flex-col overflow-hidden shadow-phone">
         {/* Faux status bar */}
-        <div className="flex shrink-0 items-center justify-between bg-white px-5 pt-3 pb-1 text-[12px] font-semibold text-slate-800">
+        <div className="z-20 flex shrink-0 items-center justify-between px-5 pt-3 pb-1 text-[12px] font-semibold text-slate-800">
           <span>9:41</span>
           <span className="flex items-center gap-1.5">
             <span className="inline-block h-2.5 w-2.5 rounded-full bg-slate-700" />
@@ -26,17 +46,20 @@ export default function MobileShell({ children, noPad = false, splitView = false
           </span>
         </div>
 
-        {/* Screen body — 80px bottom padding for the fixed nav */}
+        {/* Screen body — no z-index so full-screen overlays (story/comments,
+            z-750+) can paint above the nav (z-700) while the report modal
+            (z-600) stays below it. */}
         <main
           className={[
-            "no-scrollbar relative flex-1 min-h-0",
+            "no-scrollbar relative min-h-0 flex-1",
             splitView ? "flex flex-col overflow-hidden" : "overflow-y-auto",
-            !noPad && !splitView ? "px-4 pt-2 pb-20" : "pb-20",
+            !noPad && !splitView ? "px-4 pt-1 pb-28" : "pb-28",
           ].join(" ")}
         >
           {children}
         </main>
 
+        <ReportModal open={open} onClose={closeReport} />
         <BottomNav />
       </div>
     </div>

@@ -63,7 +63,9 @@ function IssueCard({ issue, expanded, onToggle, dist, onUpvote }) {
                 {dist < 1 ? `${Math.round(dist * 1000)} m` : `${dist.toFixed(1)} km`}
               </span>
             )}
-            <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${m.badge}`}>{m.label}</span>
+            <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${m.badge} ${
+              (issue.status === "PENDING_VERIFICATION" || issue.status === "SUBMITTED") ? "glow-pending" : ""
+            }`}>{m.label}</span>
           </div>
         </div>
         {expanded
@@ -101,7 +103,7 @@ function IssueCard({ issue, expanded, onToggle, dist, onUpvote }) {
           </div>
 
           {(issue.transcript || (issue.summary_highlights?.length > 0)) && (
-            <div className="rounded-xl bg-blue-50 border border-blue-100 p-2.5">
+            <div className="rounded-xl bg-brand-50 border border-brand-100 p-2.5">
               <div className="flex items-center gap-1.5 mb-1.5">
                 <Sparkles size={12} className="text-brand" />
                 <span className="text-[10px] font-bold text-brand uppercase tracking-wide">AI Summary</span>
@@ -112,27 +114,33 @@ function IssueCard({ issue, expanded, onToggle, dist, onUpvote }) {
               {issue.summary_highlights?.length > 0 && (
                 <div className="flex flex-wrap gap-1">
                   {issue.summary_highlights.map((h, i) => (
-                    <span key={i} className="rounded-full bg-white px-2 py-0.5 text-[10px] font-medium text-brand ring-1 ring-blue-200">{h}</span>
+                    <span key={i} className="rounded-full bg-white px-2 py-0.5 text-[10px] font-medium text-brand ring-1 ring-brand-200">{h}</span>
                   ))}
                 </div>
               )}
             </div>
           )}
 
-          {/* Lifecycle progress */}
-          <div className="flex items-center justify-between">
-            {LIFECYCLE.map((step, idx) => (
-              <div key={step} className="flex flex-1 flex-col items-center">
-                <div className="flex w-full items-center">
-                  {idx > 0 && <div className={`h-0.5 flex-1 ${idx <= pi ? "bg-brand" : "bg-slate-200"}`} />}
-                  <div className={`flex h-4 w-4 items-center justify-center rounded-full text-[8px] ${idx <= pi ? "bg-brand text-white" : "bg-slate-200 text-slate-400"}`}>
-                    {idx < pi ? "✓" : ""}
+          {/* Lifecycle progress — current step glows */}
+          <div className="flex items-start justify-between">
+            {LIFECYCLE.map((step, idx) => {
+              const done = idx < pi;
+              const active = idx === pi;
+              return (
+                <div key={step} className="flex flex-1 flex-col items-center">
+                  <div className="flex w-full items-center">
+                    {idx > 0 && <div className={`h-0.5 flex-1 ${idx <= pi ? "bg-brand" : "bg-slate-200"}`} />}
+                    <div className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[8px] ${
+                      active ? "glow-dot bg-amber-500 text-white ring-2 ring-amber-300"
+                        : done ? "bg-brand text-white" : "bg-slate-200 text-slate-400"}`}>
+                      {done ? "✓" : ""}
+                    </div>
+                    {idx < LIFECYCLE.length - 1 && <div className={`h-0.5 flex-1 ${idx < pi ? "bg-brand" : "bg-slate-200"}`} />}
                   </div>
-                  {idx < LIFECYCLE.length - 1 && <div className={`h-0.5 flex-1 ${idx < pi ? "bg-brand" : "bg-slate-200"}`} />}
+                  <span className={`mt-1 flex h-6 items-start justify-center text-center text-[6px] leading-tight ${active ? "font-bold text-amber-600" : "text-slate-400"}`}>{step}</span>
                 </div>
-                <span className="mt-1 text-center text-[6px] leading-tight text-slate-400">{step}</span>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           {onUpvote && (
@@ -365,7 +373,7 @@ export default function MapHistoryScreen() {
             {selected.summary_highlights?.length > 0 && (
               <div className="mt-2 flex flex-wrap gap-1">
                 {selected.summary_highlights.map((h, i) => (
-                  <span key={i} className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-brand">{h}</span>
+                  <span key={i} className="rounded-full bg-brand-50 px-2 py-0.5 text-[10px] font-medium text-brand">{h}</span>
                 ))}
               </div>
             )}
@@ -388,7 +396,7 @@ export default function MapHistoryScreen() {
       </div>
 
       {/* ── BOTTOM 60%: tabs ── */}
-      <div className="no-scrollbar flex-1 overflow-y-auto bg-slate-50 px-4 py-3">
+      <div className="no-scrollbar flex-1 overflow-y-auto bg-slate-50 px-4 pt-3 pb-28">
         {/* Tab switcher */}
         <div className="mb-3 flex gap-1 rounded-xl bg-slate-200/70 p-1">
           <button

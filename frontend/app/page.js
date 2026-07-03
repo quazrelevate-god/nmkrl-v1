@@ -1,292 +1,116 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import {
-  MapPin, RotateCcw, Camera, Mic, Square,
-  Trash2, Send,
-} from "lucide-react";
+/**
+ * Community — default landing.
+ * Fullscreen feed that scrolls edge-to-edge *behind* a fixed glass header and
+ * the glass pill nav. The profile↔stories header morphs continuously, driven in
+ * real time by the user's drag / wheel delta and snapped with spring easing.
+ */
+
+import { useCallback, useEffect, useRef, useState } from "react";
 import MobileShell from "@/components/MobileShell";
-import ProfileCard from "@/components/ProfileCard";
-import DuplicateModal from "@/components/DuplicateModal";
-import VerifyModal from "@/components/VerifyModal";
-import SuccessModal from "@/components/SuccessModal";
-import { reportIssue, upvoteIssue } from "@/lib/api";
-import { useGeolocation, useRecorder } from "@/lib/hooks";
-import { getUserId } from "@/lib/user";
-import { ticketNumber } from "@/lib/ticket";
+import CommunityHeader from "@/components/community/CommunityHeader";
+import StoryViewer from "@/components/community/StoryViewer";
+import PostCard from "@/components/community/PostCard";
+import { FEED } from "@/lib/communityData";
 
-export default function ReportScreen() {
-  const { coords, areaName, status: geoStatus, refresh } = useGeolocation();
-  const recorder = useRecorder();
+const TRAVEL = 130;          // px of drag / wheel for a full 0→1 morph
+const SNAP_DELAY = 160;      // ms of wheel inactivity before snapping
 
-  const [userId, setUserId]       = useState("demo-user");
-  const [title, setTitle]         = useState("");
-  const [imageFile, setImageFile] = useState(null);
-  const [imagePreview, setImagePreview] = useState(null);
+export default function CommunityScreen() {
+  const [progress, setProgress] = useState(0);
+  const [dragging, setDragging] = useState(false);
+  const [activeStory, setActiveStory] = useState(null);
+  const [padTop, setPadTop] = useState(170);
 
-  const [submitting, setSubmitting] = useState(false);
-  const [duplicate, setDuplicate]   = useState(null);
-  const [verifyIssue, setVerifyIssue] = useState(null);
-  const [ticket, setTicket]         = useState(null);
-  const [error, setError]           = useState(null);
-  const [info, setInfo]             = useState(null);
+  const scrollRef = useRef(null);
+  const pRef = useRef(0);         // live progress for native listeners
+  const drag = useRef(null);      // touch drag session
+  const snapTimer = useRef(null);
 
-  const cameraInputRef  = useRef(null);
+  const setP = useCallback((v) => {
+    const c = Math.max(0, Math.min(1, v));
+    pRef.current = c;
+    setProgress(c);
+  }, []);
 
-  useEffect(() => { setUserId(getUserId()); }, []);
+  const snap = useCallback(() => {
+    setDragging(false);
+    setP(pRef.current >= 0.5 ? 1 : 0);
+  }, [setP]);
 
-  function onPickImage(e) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setImageFile(file);
-    setImagePreview(URL.createObjectURL(file));
-  }
+  // Real-time, gesture-responsive morph via native (non-passive) listeners so
+  // we can preventDefault the scroll while the header is being pulled open.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
 
-  function clearImage() {
-    setImageFile(null);
-    if (imagePreview) URL.revokeObjectURL(imagePreview);
-    setImagePreview(null);
-  }
-
-  // Full reset — called after OTP verified so the screen is completely fresh.
-  function resetAll() {
-    clearImage();
-    recorder.reset();
-    setTitle("");
-    setError(null);
-    setInfo(null);
-    setDuplicate(null);
-    setVerifyIssue(null);
-    if (cameraInputRef.current)  cameraInputRef.current.value  = "";
-  }
-
-  async function doSubmit(force = false) {
-    setError(null);
-    setInfo(null);
-    if (!coords) { setError("Waiting for your location…"); return; }
-    if (!imageFile && !recorder.audioBlob) {
-      setError("Add a photo or a voice note to describe the issue.");
-      return;
-    }
-    setSubmitting(true);
-    try {
-      const res = await reportIssue({
-        imageFile,
-        audioBlob: recorder.audioBlob,
-        latitude: coords.lat,
-        longitude: coords.lng,
-        userId,
-        title: title.trim() || "Street Issue",
-        force,
-      });
-      if (res.duplicate_exists) {
-        setDuplicate(res.existing_issue);
-      } else {
-        setDuplicate(null);
-        setVerifyIssue(res);
+    const onTouchStart = (e) => {
+      drag.current = { y: e.touches[0].clientY, start: pRef.current };
+    };
+    const onTouchMove = (e) => {
+      if (!drag.current) return;
+      const atTop = el.scrollTop <= 0;
+      const dy = e.touches[0].clientY - drag.current.y;
+      if (pRef.current > 0 || (atTop && dy > 0)) {
+        const np = Math.max(0, Math.min(1, drag.current.start + dy / TRAVEL));
+        setDragging(true);
+        setP(np);
+        if (np > 0) e.preventDefault(); // hold the scroll while morphing
       }
-    } catch (err) {
-      setError(err.message || "Submission failed");
-    } finally {
-      setSubmitting(false);
-    }
-  }
+    };
+    const onTouchEnd = () => { drag.current = null; snap(); };
 
-  async function handleUpvoteExisting() {
-    if (!duplicate) return;
-    setSubmitting(true);
-    try {
-      await upvoteIssue(duplicate.id, userId);
-      setInfo("Thanks! Your upvote was added to the existing report.");
-      setDuplicate(null);
-    } catch (err) {
-      setError(err.message || "Could not upvote");
-    } finally {
-      setSubmitting(false);
-    }
-  }
+    const onWheel = (e) => {
+      const atTop = el.scrollTop <= 0;
+      const opening = e.deltaY < 0 && atTop && pRef.current < 1;
+      const closing = e.deltaY > 0 && pRef.current > 0 && atTop;
+      if (opening || closing) {
+        e.preventDefault();
+        setDragging(true);
+        setP(pRef.current - e.deltaY / TRAVEL);
+        clearTimeout(snapTimer.current);
+        snapTimer.current = setTimeout(snap, SNAP_DELAY);
+      }
+    };
 
-  function handleVerified() {
-    const issue = verifyIssue;
-    setVerifyIssue(null);
-    setTicket(ticketNumber(issue?.id));
-    resetAll();
-  }
-
-  const mm = String(Math.floor(recorder.seconds / 60)).padStart(2, "0");
-  const ss = String(recorder.seconds % 60).padStart(2, "0");
+    el.addEventListener("touchstart", onTouchStart, { passive: true });
+    el.addEventListener("touchmove", onTouchMove, { passive: false });
+    el.addEventListener("touchend", onTouchEnd, { passive: true });
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => {
+      el.removeEventListener("touchstart", onTouchStart);
+      el.removeEventListener("touchmove", onTouchMove);
+      el.removeEventListener("touchend", onTouchEnd);
+      el.removeEventListener("wheel", onWheel);
+      clearTimeout(snapTimer.current);
+    };
+  }, [setP, snap]);
 
   return (
-    <MobileShell>
-      {/* Citizen profile */}
-      <div className="pt-2">
-        <ProfileCard />
+    <MobileShell fullBleed>
+      <CommunityHeader
+        progress={progress}
+        dragging={dragging}
+        onOpenStory={setActiveStory}
+        onSetProgress={(v) => { setDragging(false); setP(v); }}
+        onCompact={setPadTop}
+      />
+
+      <div
+        ref={scrollRef}
+        className="no-scrollbar absolute inset-0 overflow-y-auto overscroll-contain"
+        style={{ paddingTop: padTop + 8, paddingBottom: 116 }}
+      >
+        <div className="space-y-3 px-4">
+          {FEED.map((post, i) => (
+            <PostCard key={post.id} post={post} index={i} />
+          ))}
+          <p className="py-4 text-center text-xs text-slate-400">You're all caught up · {FEED.length} posts</p>
+        </div>
       </div>
 
-      {/* Header */}
-      <header className="mt-5">
-        <h1 className="text-2xl font-extrabold tracking-tight text-slate-900">
-          Report Street Issue
-        </h1>
-        <p className="text-sm text-slate-500">
-          Help us build better and safer streets for everyone
-        </p>
-      </header>
-
-      {/* Location card */}
-      <section className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="flex items-start justify-between">
-          <div className="flex items-start gap-2">
-            <MapPin size={16} className="mt-0.5 text-brand shrink-0" />
-            <div>
-              <p className="text-sm font-semibold text-slate-800">Current Location</p>
-              {coords ? (
-                areaName
-                  ? <p className="text-xs font-medium text-slate-700">{areaName}</p>
-                  : <p className="text-xs text-slate-400">{coords.lat.toFixed(4)}° N, {coords.lng.toFixed(4)}° E</p>
-              ) : (
-                <p className="text-xs text-slate-400">Locating…</p>
-              )}
-            </div>
-          </div>
-          <span className={`rounded-full px-2 py-1 text-[10px] font-semibold ${
-            geoStatus === "ready" ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"
-          }`}>
-            {geoStatus === "ready"
-              ? `±${Math.round(coords?.accuracy || 0)} m`
-              : geoStatus === "fallback" ? "Default location" : "Locating…"}
-          </span>
-        </div>
-        <button onClick={refresh} className="mt-2 flex items-center gap-1 text-xs font-medium text-brand">
-          <RotateCcw size={12} /> Refresh location
-        </button>
-      </section>
-
-      {/* Title */}
-      <section className="mt-4">
-        <label className="mb-1 block text-xs font-semibold text-slate-600">
-          Issue title (optional)
-        </label>
-        <input
-          value={title}
-          onChange={e => setTitle(e.target.value)}
-          placeholder="e.g. Broken road near 8th Main"
-          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-brand"
-        />
-      </section>
-
-      {/* Image capture — camera only */}
-      <section className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        <p className="mb-1 text-sm font-semibold text-slate-800">Capture Photo of the Issue</p>
-        <p className="mb-3 text-xs text-slate-400">Live camera capture only — gallery uploads are disabled.</p>
-        <div className="flex gap-3">
-          <button
-            onClick={() => cameraInputRef.current?.click()}
-            className="flex flex-1 flex-col items-center gap-1.5 rounded-xl bg-blue-50 py-4 text-xs font-medium text-brand"
-          >
-            <Camera size={22} />
-            Capture Photo
-          </button>
-          {imagePreview && (
-            <div className="relative h-24 w-24 shrink-0">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={imagePreview} alt="preview" className="h-24 w-24 rounded-xl object-cover" />
-              <button
-                onClick={clearImage}
-                className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full bg-slate-800 text-white"
-              >
-                <span className="text-xs">✕</span>
-              </button>
-            </div>
-          )}
-        </div>
-        <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={onPickImage} />
-      </section>
-
-      {/* Voice recorder */}
-      <section className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        <p className="mb-3 text-sm font-semibold text-slate-800">
-          Describe the issue in your language
-        </p>
-        <div className="flex items-center gap-4">
-          <button
-            onClick={recorder.isRecording ? recorder.stop : recorder.start}
-            className={`flex h-16 w-16 shrink-0 items-center justify-center rounded-full text-white transition ${
-              recorder.isRecording ? "recording-pulse bg-red-500" : "bg-brand"
-            }`}
-          >
-            {recorder.isRecording
-              ? <Square size={20} className="fill-white" />
-              : <Mic size={24} />}
-          </button>
-
-          <div className="flex-1">
-            {recorder.isRecording ? (
-              <div className="flex items-center gap-2">
-                <span className="font-mono text-sm font-semibold text-slate-700">{mm}:{ss}</span>
-                <div className="flex h-6 items-end gap-0.5">
-                  {Array.from({ length: 16 }).map((_, i) => (
-                    <span key={i} className="eq-bar w-1 rounded-full bg-brand"
-                      style={{ height: "100%", animationDelay: `${(i % 8) * 0.08}s` }} />
-                  ))}
-                </div>
-              </div>
-            ) : recorder.audioUrl ? (
-              <div className="space-y-2">
-                <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
-                  ✓ Voice Recorded ({mm}:{ss})
-                </span>
-                <audio src={recorder.audioUrl} controls className="h-8 w-full" />
-              </div>
-            ) : (
-              <p className="text-sm text-slate-400">
-                Tap the mic to record your description (any Indian language).
-              </p>
-            )}
-          </div>
-
-          {recorder.audioUrl && !recorder.isRecording && (
-            <button onClick={recorder.reset} className="text-red-400" title="Delete recording">
-              <Trash2 size={18} />
-            </button>
-          )}
-        </div>
-        {recorder.error && <p className="mt-2 text-xs text-red-500">{recorder.error}</p>}
-      </section>
-
-      {/* Inline messages */}
-      {error && (
-        <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">{error}</div>
-      )}
-      {info && (
-        <div className="mt-4 rounded-xl border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">{info}</div>
-      )}
-
-      {/* Submit */}
-      <div className="my-5">
-        <button
-          onClick={() => doSubmit(false)}
-          disabled={submitting}
-          className="flex w-full items-center justify-center gap-2 rounded-2xl bg-brand py-4 text-base font-bold text-white shadow-lg shadow-blue-500/30 disabled:opacity-60"
-        >
-          {submitting ? "Processing…" : <><Send size={18} /> Submit Grievance</>}
-        </button>
-      </div>
-
-      {/* Modals */}
-      <DuplicateModal
-        issue={duplicate}
-        busy={submitting}
-        onUpvote={handleUpvoteExisting}
-        onSubmitAnyway={() => doSubmit(true)}
-        onClose={() => setDuplicate(null)}
-      />
-      <VerifyModal
-        issue={verifyIssue}
-        onVerified={handleVerified}
-        onClose={() => setVerifyIssue(null)}
-      />
-      <SuccessModal ticket={ticket} onClose={() => setTicket(null)} />
+      {activeStory && <StoryViewer story={activeStory} onClose={() => setActiveStory(null)} />}
     </MobileShell>
   );
 }
