@@ -36,7 +36,7 @@ import os
 import sys
 import xml.etree.ElementTree as ET
 
-from shapely.geometry import MultiPolygon, Point, Polygon
+from shapely.geometry import MultiPolygon, Point, Polygon, mapping
 from shapely.strtree import STRtree
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -46,6 +46,10 @@ WARDS_KML = os.path.join(GEODATA_DIR, "wards.kml")
 
 # The single KML namespace, registered under an explicit prefix for XPath queries.
 _NS = {"kml": "http://www.opengis.net/kml/2.2"}
+
+# Douglas–Peucker tolerance (~11m) used only for the GeoJSON we ship to the map;
+# the full-resolution polygons are kept in memory for accurate point-in-polygon.
+SIMPLIFY_TOLERANCE = 0.0001
 
 
 # ── In-memory caches (populated once by load_boundaries) ─────────────────────
@@ -58,6 +62,9 @@ _ZONE_INDEX: STRtree | None = None
 _WARD_INDEX: STRtree | None = None
 _ZONE_GEOMS: list = []
 _WARD_GEOMS: list = []
+
+# Simplified GeoJSON FeatureCollections, built once and served to the map.
+_GEOJSON: dict = {"zones": None, "wards": None}
 
 _loaded = False
 
@@ -214,12 +221,55 @@ def load_boundaries() -> dict:
     _ZONE_INDEX = STRtree(_ZONE_GEOMS) if _ZONE_GEOMS else None
     _WARD_INDEX = STRtree(_WARD_GEOMS) if _WARD_GEOMS else None
 
+    # Tag each ward with its parent zone (via a representative interior point),
+    # so the map can colour wards by zone and the admin can filter wards by zone.
+    for w in _WARDS:
+        pt = w["geometry"].representative_point()
+        zrec = _match(pt, _ZONES, _ZONE_INDEX, _ZONE_GEOMS)
+        w["zone"] = zrec["zone"] if zrec else None
+        w["zone_name"] = zrec["zone_name"] if zrec else None
+
+    _build_geojson()
+
     _loaded = True
     print(
         f"[boundaries] loaded {len(_ZONES)} zones, {len(_WARDS)} wards.",
         file=sys.stderr,
     )
     return {"zones": len(_ZONES), "wards": len(_WARDS)}
+
+
+def _build_geojson() -> None:
+    """Precompute simplified GeoJSON FeatureCollections for zones and wards."""
+    global _GEOJSON
+
+    def feature(geom, props):
+        simple = geom.simplify(SIMPLIFY_TOLERANCE, preserve_topology=True)
+        return {"type": "Feature", "properties": props, "geometry": mapping(simple)}
+
+    zone_features = [
+        feature(z["geometry"], {
+            "zone": z["zone"], "zone_name": z["zone_name"], "region": z["region"],
+        })
+        for z in _ZONES
+    ]
+    ward_features = [
+        feature(w["geometry"], {
+            "ward": w["ward"], "zone": w.get("zone"), "zone_name": w.get("zone_name"),
+        })
+        for w in _WARDS
+    ]
+    _GEOJSON = {
+        "zones": {"type": "FeatureCollection", "features": zone_features},
+        "wards": {"type": "FeatureCollection", "features": ward_features},
+    }
+
+
+def geojson() -> dict:
+    """Return the cached {zones, wards} GeoJSON FeatureCollections for the map."""
+    if not _loaded:
+        load_boundaries()
+    return _GEOJSON
 
 
 # ── Point-in-polygon lookup ──────────────────────────────────────────────────

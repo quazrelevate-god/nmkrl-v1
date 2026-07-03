@@ -97,9 +97,9 @@ export async function fetchHistory(userId) {
   return handle(res);
 }
 
-/** Fetch the 200-block Chennai ward grid (drawn on the maps). */
-export async function fetchWards() {
-  const res = await fetch(`${API_BASE}/api/wards`);
+/** Fetch the real GCC zone + ward boundary polygons (GeoJSON) for the maps. */
+export async function fetchBoundaries() {
+  const res = await fetch(`${API_BASE}/api/boundaries`);
   return handle(res);
 }
 
@@ -145,11 +145,13 @@ export async function verifyIssue(issueId, userId, response) {
   return handle(res);
 }
 
-/** Admin: filterable issue queue. */
-export async function fetchAdminIssues({ status, sort } = {}) {
+/** Admin: filterable issue queue (by status, zone, ward). */
+export async function fetchAdminIssues({ status, sort, zone, ward } = {}) {
   const params = new URLSearchParams();
   if (status) params.set("status", status);
   if (sort)   params.set("sort", sort);
+  if (zone)   params.set("zone", zone);
+  if (ward != null && ward !== "") params.set("ward", ward);
   const qs = params.toString();
   const res = await fetch(`${API_BASE}/api/admin/issues${qs ? `?${qs}` : ""}`);
   return handle(res);

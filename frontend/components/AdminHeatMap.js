@@ -15,7 +15,7 @@
 import { Fragment, useEffect, useMemo } from "react";
 import { MapContainer, TileLayer, CircleMarker, Tooltip, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
-import WardLayer from "@/components/WardLayer";
+import BoundaryLayer from "@/components/BoundaryLayer";
 
 function Recenter({ center }) {
   const map = useMap();
@@ -30,19 +30,22 @@ function heatColor(t) {
   return "#7a1c1c";
 }
 
-export default function AdminHeatMap({ issues, mode = "complaints", center, wards = [] }) {
+export default function AdminHeatMap({
+  issues, mode = "complaints", center, boundaries = null,
+  highlightZone = null, highlightWard = null,
+}) {
   const centerArr = useMemo(
     () => (center ? [center.lat, center.lng] : [13.0827, 80.2081]),
     [center]
   );
 
-  // Aggregate by ward → one weighted blob per ward (keeps the layer light).
+  // Aggregate by real ward → one weighted blob per ward (keeps the layer light).
   const points = useMemo(() => {
     const byWard = new Map();
     for (const i of issues) {
       if (i.latitude == null || i.longitude == null) continue;
       const key = i.ward_no ?? `${i.latitude},${i.longitude}`;
-      const e = byWard.get(key) || { key, sumLat: 0, sumLng: 0, count: 0, upvotes: 0 };
+      const e = byWard.get(key) || { key, ward: i.ward_no, zone: i.zone, sumLat: 0, sumLng: 0, count: 0, upvotes: 0 };
       e.sumLat += i.latitude;
       e.sumLng += i.longitude;
       e.count += 1;
@@ -51,6 +54,8 @@ export default function AdminHeatMap({ issues, mode = "complaints", center, ward
     }
     const arr = [...byWard.values()].map(e => ({
       key: e.key,
+      ward: e.ward,
+      zone: e.zone,
       lat: e.sumLat / e.count,
       lng: e.sumLng / e.count,
       count: e.count,
@@ -62,13 +67,13 @@ export default function AdminHeatMap({ issues, mode = "complaints", center, ward
   }, [issues, mode]);
 
   return (
-    <MapContainer center={centerArr} zoom={13} scrollWheelZoom className="h-full w-full">
+    <MapContainer center={centerArr} zoom={12} scrollWheelZoom className="h-full w-full">
       <TileLayer
         attribution='&copy; OpenStreetMap'
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
       />
       <Recenter center={centerArr} />
-      <WardLayer wards={wards} />
+      <BoundaryLayer data={boundaries} highlightZone={highlightZone} highlightWard={highlightWard} />
 
       {points.map((p) => {
         const color = heatColor(p.t);
@@ -90,7 +95,9 @@ export default function AdminHeatMap({ issues, mode = "complaints", center, ward
               pathOptions={{ stroke: false, fillColor: color, fillOpacity: 0.6 }}
             >
               <Tooltip direction="top" offset={[0, -4]}>
-                <span className="text-xs font-semibold">Ward {p.key}</span>
+                <span className="text-xs font-semibold">
+                  Ward {p.ward ?? "—"}{p.zone ? ` · Zone ${p.zone}` : ""}
+                </span>
                 <br />
                 {mode === "upvotes" ? `${p.upvotes} total upvotes` : `${p.count} complaints`}
               </Tooltip>

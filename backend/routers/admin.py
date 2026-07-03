@@ -22,20 +22,33 @@ VALID_STATUSES = {"SUBMITTED", "ACTIVE", "IN_PROGRESS", "PENDING_VERIFICATION", 
 def list_admin_issues(
     status: str = Query(None),
     sort: str = Query("upvotes"),
+    zone: str = Query(None),
+    ward: int = Query(None),
     conn=Depends(get_db),
 ):
     """
     Return issues with optional filtering.
     - status: SUBMITTED, ACTIVE, IN_PROGRESS, PENDING_VERIFICATION, CLOSED,
       or omit for ALL issues (the dashboard/heatmap needs the full set).
+    - zone: filter to a single GCC zone (roman numeral, e.g. "VIII").
+    - ward: filter to a single ward number.
     - sort: 'upvotes' (default) or 'recent'
     """
+    clauses, params = [], []
     if status and status.upper() in VALID_STATUSES:
-        rows = conn.execute(
-            "SELECT * FROM issues WHERE status = ?", (status.upper(),)
-        ).fetchall()
-    else:
-        rows = conn.execute("SELECT * FROM issues").fetchall()
+        clauses.append("status = ?")
+        params.append(status.upper())
+    if zone:
+        clauses.append("zone = ?")
+        params.append(zone)
+    if ward is not None:
+        clauses.append("ward_no = ?")
+        params.append(ward)
+
+    sql = "SELECT * FROM issues"
+    if clauses:
+        sql += " WHERE " + " AND ".join(clauses)
+    rows = conn.execute(sql, params).fetchall()
 
     issues = [serialize_issue(r) for r in rows]
 

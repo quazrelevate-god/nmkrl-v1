@@ -27,28 +27,29 @@ from database import get_connection, init_db
 from gemini_service import keyword_department
 from routers import admin, issues
 from utils import UPLOAD_DIR, ensure_upload_dirs, new_id, now_iso
-from wards import WARDS, ward_for_coords
 
 load_dotenv()
 
 
-def _backfill_wards_and_departments() -> None:
-    """One-time backfill of ward_no/department for pre-existing rows.
+def _backfill_zones_and_departments() -> None:
+    """One-time backfill of real zone/ward + department for pre-existing rows.
 
-    Wards are deterministic (no LLM). Departments use the offline keyword
-    classifier here to avoid LLM calls on startup; new submissions route via
-    Gemini at report time.
+    Zone/ward come from the KML point-in-polygon lookup. Departments use the
+    offline keyword classifier here to avoid LLM calls on startup; new
+    submissions route via Gemini at report time.
     """
     with get_connection() as conn:
         rows = conn.execute(
-            "SELECT id, title, transcript, latitude, longitude, ward_no, department "
-            "FROM issues"
+            "SELECT id, title, transcript, latitude, longitude, ward_no, "
+            "zone, department FROM issues"
         ).fetchall()
         for r in rows:
             updates, params = [], []
-            if r["ward_no"] is None:
-                updates.append("ward_no = ?")
-                params.append(ward_for_coords(r["latitude"], r["longitude"]))
+            if r["ward_no"] is None or not r["zone"]:
+                loc = boundaries.locate(r["latitude"], r["longitude"])
+                ward = int(loc["ward"]) if loc["ward"] is not None else None
+                updates += ["ward_no = ?", "zone = ?", "zone_name = ?"]
+                params += [ward, loc["zone"], loc["zone_name"]]
             if not r["department"]:
                 updates.append("department = ?")
                 params.append(keyword_department(f"{r['title']} {r['transcript'] or ''}"))
@@ -66,7 +67,7 @@ async def lifespan(app: FastAPI):
     init_db()
     # Parse zones.kml + wards.kml into in-memory shapely polygons exactly once.
     boundaries.load_boundaries()
-    _backfill_wards_and_departments()
+    _backfill_zones_and_departments()
     yield
 
 
@@ -108,10 +109,10 @@ def root():
     }
 
 
-@app.get("/api/wards")
-def list_wards():
-    """The 200-block Chennai ward grid (single source of truth for the maps)."""
-    return {"count": len(WARDS), "wards": WARDS}
+@app.get("/api/boundaries")
+def get_boundaries():
+    """Real GCC zone + ward polygons as GeoJSON FeatureCollections (for the map)."""
+    return boundaries.geojson()
 
 
 class LocateRequest(BaseModel):

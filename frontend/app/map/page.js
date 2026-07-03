@@ -11,7 +11,7 @@ import MobileShell from "@/components/MobileShell";
 import UpvoteModal from "@/components/UpvoteModal";
 import LocationDetector from "@/components/LocationDetector";
 import {
-  fetchNearby, fetchHistory, fetchWards, fetchWardIssues,
+  fetchNearby, fetchHistory, fetchBoundaries, fetchWardIssues,
   upvoteIssue, verifyIssue, mediaUrl,
 } from "@/lib/api";
 import { useGeolocation } from "@/lib/hooks";
@@ -165,7 +165,7 @@ export default function MapHistoryScreen() {
   const [selected, setSelected]   = useState(null);
   const [upvoteTarget, setUpvoteTarget] = useState(null);
   const [query, setQuery]         = useState("");
-  const [wards, setWards]         = useState([]);
+  const [boundaries, setBoundaries] = useState(null);
   const [tab, setTab]             = useState("ward"); // 'ward' | 'mine'
 
   const [userId, setUserId]       = useState("demo-user");
@@ -177,7 +177,7 @@ export default function MapHistoryScreen() {
   const [detected, setDetected]   = useState(null); // real GCC zone/ward from /api/locate
 
   useEffect(() => { setUserId(getUserId()); }, []);
-  useEffect(() => { fetchWards().then(d => setWards(d.wards || [])).catch(() => {}); }, []);
+  useEffect(() => { fetchBoundaries().then(setBoundaries).catch(() => {}); }, []);
   // Device location is captured once and stays fixed — the radius never drifts.
   useEffect(() => { if (coords && !center) setCenter(coords); }, [coords, center]);
 
@@ -285,7 +285,7 @@ export default function MapHistoryScreen() {
           radius={RADIUS}
           selectedId={selected?.id}
           onSelect={setSelected}
-          wards={wards}
+          boundaries={boundaries}
           currentWard={currentWard}
         />
 

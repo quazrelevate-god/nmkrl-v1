@@ -24,7 +24,7 @@ import {
 } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import WardLayer from "@/components/WardLayer";
+import BoundaryLayer from "@/components/BoundaryLayer";
 
 // Fix Leaflet's broken default icon detection in webpack/Next.js bundles.
 delete L.Icon.Default.prototype._getIconUrl;
@@ -73,7 +73,7 @@ export default function MapView({
   radius,
   selectedId,
   onSelect,
-  wards = [],
+  boundaries = null,
   currentWard = null,
 }) {
   const centerArr = useMemo(
@@ -95,8 +95,8 @@ export default function MapView({
 
       <Recenter center={centerArr} />
 
-      {/* Ward grid overlay */}
-      <WardLayer wards={wards} highlight={currentWard} />
+      {/* Real GCC zone + ward boundaries */}
+      <BoundaryLayer data={boundaries} highlightWard={currentWard} />
 
       {/* Search radius — fixed to device location, immune to panning */}
       <Circle

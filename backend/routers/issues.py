@@ -13,6 +13,7 @@ import json
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
+import boundaries
 from database import get_db
 from gemini_service import check_duplicate, classify_department, process_audio
 from utils import (
@@ -23,7 +24,6 @@ from utils import (
     save_upload,
     serialize_issue,
 )
-from wards import ward_for_coords
 
 router = APIRouter(prefix="/api/issues", tags=["issues"])
 
@@ -96,7 +96,11 @@ async def report_issue(
 
     # --- Persist the new issue ----------------------------------------------
     area_name = reverse_geocode(latitude, longitude)
-    ward_no = ward_for_coords(latitude, longitude)
+    # Real GCC zone + ward via point-in-polygon over the KML boundaries.
+    loc = boundaries.locate(latitude, longitude)
+    ward_no = int(loc["ward"]) if loc["ward"] is not None else None
+    zone = loc["zone"]
+    zone_name = loc["zone_name"]
     department = classify_department(
         title, ai.get("transcript", ""), ai.get("highlights", [])
     )
@@ -107,9 +111,9 @@ async def report_issue(
         """
         INSERT INTO issues (
             id, title, image_url, audio_url, transcript, summary_highlights,
-            latitude, longitude, area_name, ward_no, department, status,
-            upvotes, notify_reporter, created_at, created_by
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SUBMITTED', 0, 0, ?, ?)
+            latitude, longitude, area_name, ward_no, zone, zone_name, department,
+            status, upvotes, notify_reporter, created_at, created_by
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SUBMITTED', 0, 0, ?, ?)
         """,
         (
             issue_id,
@@ -122,6 +126,8 @@ async def report_issue(
             longitude,
             area_name,
             ward_no,
+            zone,
+            zone_name,
             department,
             created_at,
             user_id,

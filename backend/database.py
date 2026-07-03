@@ -96,6 +96,8 @@ def init_db() -> None:
             ("phone", "TEXT DEFAULT ''"),
             ("ward_no", "INTEGER"),
             ("department", "TEXT DEFAULT ''"),
+            ("zone", "TEXT DEFAULT ''"),
+            ("zone_name", "TEXT DEFAULT ''"),
         ]:
             try:
                 conn.execute(f"ALTER TABLE issues ADD COLUMN {col} {defn}")
