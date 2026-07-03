@@ -1,0 +1,168 @@
+/**
+ * lib/api.js
+ * ----------
+ * Thin, typed-ish wrapper around the FastAPI backend. Centralises the base URL,
+ * error handling, and the multipart/form-data plumbing so screens stay clean.
+ *
+ * The integration boundary: every function here maps 1:1 to a backend route in
+ * routers/issues.py or routers/admin.py.
+ */
+
+// /fms prefix is proxied by Next.js rewrites → FastAPI on localhost:8000.
+// Override with NEXT_PUBLIC_API_BASE=http://... to call FastAPI directly.
+export const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "/fms";
+
+/** Resolve a stored media path (e.g. "/uploads/..") to an absolute URL. */
+export function mediaUrl(path) {
+  if (!path) return null;
+  if (path.startsWith("http")) return path;
+  return `${API_BASE}${path}`;
+}
+
+/** Internal: parse JSON and throw a useful Error on non-2xx. */
+async function handle(res) {
+  let body = null;
+  try {
+    body = await res.json();
+  } catch {
+    /* non-JSON response */
+  }
+  if (!res.ok) {
+    const detail = body?.detail || res.statusText || "Request failed";
+    const err = new Error(detail);
+    err.status = res.status;
+    err.body = body;
+    throw err;
+  }
+  return body;
+}
+
+/**
+ * Report a new issue (multipart). Returns either the created issue or, when a
+ * nearby duplicate is found and force=false, { duplicate_exists, existing_issue }.
+ */
+export async function reportIssue({
+  imageFile,
+  audioBlob,
+  latitude,
+  longitude,
+  userId,
+  title = "Street Issue",
+  force = false,
+}) {
+  const fd = new FormData();
+  fd.append("latitude", String(latitude));
+  fd.append("longitude", String(longitude));
+  fd.append("user_id", userId);
+  fd.append("title", title);
+  fd.append("force", String(force));
+  if (imageFile) fd.append("image", imageFile);
+  if (audioBlob) {
+    // Give the blob a filename so FastAPI's UploadFile.filename is populated.
+    const file = new File([audioBlob], "voice-note.webm", {
+      type: audioBlob.type || "audio/webm",
+    });
+    fd.append("audio", file);
+  }
+
+  const res = await fetch(`${API_BASE}/api/issues/report`, {
+    method: "POST",
+    body: fd,
+  });
+  return handle(res);
+}
+
+/** Upvote an issue (one per user). `name` is the OTP-verified upvoter name. */
+export async function upvoteIssue(issueId, userId, name = "") {
+  const fd = new FormData();
+  fd.append("user_id", userId);
+  if (name) fd.append("name", name);
+  const res = await fetch(`${API_BASE}/api/issues/${issueId}/upvote`, {
+    method: "POST",
+    body: fd,
+  });
+  return handle(res);
+}
+
+/** Fetch issues within `radius` meters of (lat, lng). */
+export async function fetchNearby(lat, lng, radius = 500) {
+  const url = `${API_BASE}/api/issues/nearby?lat=${lat}&lng=${lng}&radius=${radius}`;
+  const res = await fetch(url);
+  return handle(res);
+}
+
+/** Fetch a user's submission history. */
+export async function fetchHistory(userId) {
+  const res = await fetch(`${API_BASE}/api/issues/history/${userId}`);
+  return handle(res);
+}
+
+/** Fetch the 200-block Chennai ward grid (drawn on the maps). */
+export async function fetchWards() {
+  const res = await fetch(`${API_BASE}/api/wards`);
+  return handle(res);
+}
+
+/** Fetch public (verified) grievances in a given ward. */
+export async function fetchWardIssues(wardNo) {
+  const res = await fetch(`${API_BASE}/api/issues/ward/${wardNo}`);
+  return handle(res);
+}
+
+/** Save phone number after OTP verification. */
+export async function confirmIssue(issueId, phone) {
+  const fd = new FormData();
+  fd.append("phone", phone);
+  const res = await fetch(`${API_BASE}/api/issues/${issueId}/confirm`, {
+    method: "POST",
+    body: fd,
+  });
+  return handle(res);
+}
+
+/** Citizen verification: response is "APPROVED" or "REJECTED". */
+export async function verifyIssue(issueId, userId, response) {
+  const fd = new FormData();
+  fd.append("user_id", userId);
+  fd.append("response", response);
+  const res = await fetch(`${API_BASE}/api/issues/${issueId}/verify`, {
+    method: "POST",
+    body: fd,
+  });
+  return handle(res);
+}
+
+/** Admin: filterable issue queue. */
+export async function fetchAdminIssues({ status, sort } = {}) {
+  const params = new URLSearchParams();
+  if (status) params.set("status", status);
+  if (sort)   params.set("sort", sort);
+  const qs = params.toString();
+  const res = await fetch(`${API_BASE}/api/admin/issues${qs ? `?${qs}` : ""}`);
+  return handle(res);
+}
+
+/** Admin: approve a submitted grievance -> ACTIVE (makes it public). */
+export async function adminVerifyGrievance(issueId) {
+  const res = await fetch(`${API_BASE}/api/admin/issues/${issueId}/verify`, {
+    method: "POST",
+  });
+  return handle(res);
+}
+
+/** Admin: mark resolved -> PENDING_VERIFICATION. */
+export async function adminCloseIssue(issueId) {
+  const res = await fetch(`${API_BASE}/api/admin/issues/${issueId}/close`, {
+    method: "POST",
+  });
+  return handle(res);
+}
+
+/** Admin: accept an ACTIVE ticket -> IN_PROGRESS. */
+export async function adminStartIssue(issueId) {
+  const res = await fetch(`${API_BASE}/api/admin/issues/${issueId}/progress`, {
+    method: "POST",
+  });
+  return handle(res);
+}
+

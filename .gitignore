@@ -1,0 +1,22 @@
+# Python
+backend/venv/
+__pycache__/
+*.pyc
+backend/.env
+backend/fixmystreet.db
+backend/uploads/images/*
+backend/uploads/audio/*
+!backend/uploads/images/.gitkeep
+!backend/uploads/audio/.gitkeep
+
+# Node / Next.js
+frontend/node_modules/
+frontend/.next/
+frontend/.env.local
+
+# OS
+.DS_Store
+
+# Archives / large local artifacts
+*.zip
+Archive.zip
