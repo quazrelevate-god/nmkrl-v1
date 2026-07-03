@@ -20,11 +20,13 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
+import boundaries
 from database import get_connection, init_db
 from gemini_service import keyword_department
 from routers import admin, issues
-from utils import UPLOAD_DIR, ensure_upload_dirs
+from utils import UPLOAD_DIR, ensure_upload_dirs, new_id, now_iso
 from wards import WARDS, ward_for_coords
 
 load_dotenv()
@@ -59,9 +61,11 @@ def _backfill_wards_and_departments() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Initialise DB + upload dirs before serving requests."""
+    """Initialise DB + upload dirs, and parse the GCC boundary KMLs once."""
     ensure_upload_dirs()
     init_db()
+    # Parse zones.kml + wards.kml into in-memory shapely polygons exactly once.
+    boundaries.load_boundaries()
     _backfill_wards_and_departments()
     yield
 
@@ -110,6 +114,48 @@ def list_wards():
     return {"count": len(WARDS), "wards": WARDS}
 
 
+class LocateRequest(BaseModel):
+    latitude: float
+    longitude: float
+
+
+@app.post("/api/locate")
+def locate_coordinates(body: LocateRequest):
+    """Resolve a coordinate to its real GCC zone + ward via point-in-polygon.
+
+    Runs the coordinate through the in-memory KML boundary polygons, logs the
+    lookup to ``location_logs``, and returns the detected zone/ward. Fields are
+    null when the point falls outside Greater Chennai Corporation limits.
+    """
+    result = boundaries.locate(body.latitude, body.longitude)
+
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO location_logs "
+            "(id, latitude, longitude, detected_zone, detected_zone_name, "
+            " detected_ward, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                new_id(),
+                body.latitude,
+                body.longitude,
+                result["zone"],
+                result["zone_name"],
+                result["ward"],
+                now_iso(),
+            ),
+        )
+
+    return {
+        "latitude": body.latitude,
+        "longitude": body.longitude,
+        "zone": result["zone"],
+        "zone_name": result["zone_name"],
+        "region": result["region"],
+        "ward": result["ward"],
+        "inside": result["inside"],
+    }
+
+
 @app.get("/api/health")
 def health():
-    return {"status": "healthy"}
+    return {"status": "healthy", "boundaries": boundaries.summary()}

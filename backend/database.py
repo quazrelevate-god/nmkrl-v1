@@ -73,6 +73,18 @@ CREATE TABLE IF NOT EXISTS verifications (
     timestamp  TEXT NOT NULL,
     FOREIGN KEY (issue_id) REFERENCES issues (id) ON DELETE CASCADE
 );
+
+-- Every /api/locate lookup is logged with the real GCC zone/ward the
+-- coordinate resolved to (via point-in-polygon over the KML boundaries).
+CREATE TABLE IF NOT EXISTS location_logs (
+    id                  TEXT PRIMARY KEY,
+    latitude            REAL NOT NULL,
+    longitude           REAL NOT NULL,
+    detected_zone       TEXT,
+    detected_zone_name  TEXT,
+    detected_ward       TEXT,
+    created_at          TEXT NOT NULL
+);
 """
 
 

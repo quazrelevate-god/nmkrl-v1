@@ -109,6 +109,19 @@ export async function fetchWardIssues(wardNo) {
   return handle(res);
 }
 
+/**
+ * Resolve a coordinate to its real GCC zone + ward via point-in-polygon over
+ * the KML boundaries. Returns { zone, zone_name, region, ward, inside }.
+ */
+export async function locateBoundary(lat, lng) {
+  const res = await fetch(`${API_BASE}/api/locate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ latitude: lat, longitude: lng }),
+  });
+  return handle(res);
+}
+
 /** Save phone number after OTP verification. */
 export async function confirmIssue(issueId, phone) {
   const fd = new FormData();

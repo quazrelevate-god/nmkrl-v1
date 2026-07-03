@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import MobileShell from "@/components/MobileShell";
 import UpvoteModal from "@/components/UpvoteModal";
+import LocationDetector from "@/components/LocationDetector";
 import {
   fetchNearby, fetchHistory, fetchWards, fetchWardIssues,
   upvoteIssue, verifyIssue, mediaUrl,
@@ -18,7 +19,6 @@ import { getUserId } from "@/lib/user";
 import { statusMeta, STATUS_META } from "@/lib/status";
 import { ticketNumber } from "@/lib/ticket";
 import { haversineKm } from "@/lib/geo";
-import { wardForCoords } from "@/lib/wards";
 
 const MapView = dynamic(() => import("@/components/MapView"), {
   ssr: false,
@@ -174,15 +174,18 @@ export default function MapHistoryScreen() {
   const [busyId, setBusyId]       = useState(null);
   const [error, setError]         = useState(null);
   const [expandedId, setExpandedId] = useState(null);
+  const [detected, setDetected]   = useState(null); // real GCC zone/ward from /api/locate
 
   useEffect(() => { setUserId(getUserId()); }, []);
   useEffect(() => { fetchWards().then(d => setWards(d.wards || [])).catch(() => {}); }, []);
   // Device location is captured once and stays fixed — the radius never drifts.
   useEffect(() => { if (coords && !center) setCenter(coords); }, [coords, center]);
 
+  // The ward now comes from the real GCC boundary lookup (via LocationDetector →
+  // /api/locate), not the deprecated client-side mock grid.
   const currentWard = useMemo(
-    () => (coords ? wardForCoords(wards, coords.lat, coords.lng) : null),
-    [coords, wards]
+    () => (detected?.inside && detected?.ward != null ? parseInt(detected.ward, 10) : null),
+    [detected]
   );
 
   const loadMap = useCallback(async (c) => {
@@ -327,12 +330,13 @@ export default function MapHistoryScreen() {
           )}
         </div>
 
-        {/* Ward chip (hidden while searching) */}
-        {!query && currentWard != null && (
-          <div className="absolute right-3 top-14 z-[400] rounded-xl bg-white/90 px-3 py-1.5 text-right shadow ring-1 ring-slate-200">
-            <p className="text-[10px] font-bold text-violet-700">Ward {currentWard}</p>
-            <p className="text-[9px] text-slate-500">{wardIssues.length} public issues</p>
-          </div>
+        {/* Real GCC zone/ward chip (hidden while searching) */}
+        {!query && (
+          <LocationDetector
+            coords={coords}
+            onResolved={setDetected}
+            className="absolute right-3 top-14 z-[400]"
+          />
         )}
 
         {/* Status legend */}
