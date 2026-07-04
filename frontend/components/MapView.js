@@ -18,7 +18,6 @@ import {
   MapContainer,
   TileLayer,
   Marker,
-  Circle,
   CircleMarker,
   useMap,
 } from "react-leaflet";
@@ -95,15 +94,10 @@ export default function MapView({
 
       <Recenter center={centerArr} />
 
-      {/* Real GCC zone + ward boundaries */}
+      {/* Real GCC zone + ward boundaries (the ward outline replaces the old
+          radius circle — only in-ward grievances are shown). */}
       <BoundaryLayer data={boundaries} highlightWard={currentWard} />
 
-      {/* Search radius — fixed to device location, immune to panning */}
-      <Circle
-        center={centerArr}
-        radius={radius}
-        pathOptions={{ color: "#7a1c1c", fillColor: "#a03c3c", fillOpacity: 0.08 }}
-      />
       {/* "You are here" dot */}
       <CircleMarker
         center={centerArr}

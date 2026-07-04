@@ -26,6 +26,7 @@ export default function MobileShell({ children, noPad = false, splitView = false
       <div className="flex min-h-screen w-full justify-center">
         <div className="app-bg relative flex h-screen w-full max-w-md flex-col overflow-hidden shadow-phone">
           {children}
+          <div className="bottom-blur" aria-hidden />
           <ReportModal open={open} onClose={closeReport} />
           <BottomNav />
         </div>
@@ -61,6 +62,7 @@ export default function MobileShell({ children, noPad = false, splitView = false
           {children}
         </main>
 
+        <div className="bottom-blur" aria-hidden />
         <ReportModal open={open} onClose={closeReport} />
         <BottomNav />
       </div>

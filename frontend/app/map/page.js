@@ -239,12 +239,13 @@ export default function MapHistoryScreen() {
   useEffect(() => { if (currentWard != null) loadWard(currentWard); }, [currentWard, loadWard]);
   useEffect(() => { loadHistory(userId); }, [userId, loadHistory]);
 
-  // Public pins on the map = nearby (radius) ∪ ward grievances, deduped.
+  // Map pins = grievances INSIDE the current ward only (the radius circle and
+  // its out-of-ward "nearby" pins were removed).
   const publicIssues = useMemo(() => {
     const map = new Map();
-    for (const i of [...mapIssues, ...wardIssues]) map.set(i.id, i);
+    for (const i of wardIssues) map.set(i.id, i);
     return [...map.values()];
-  }, [mapIssues, wardIssues]);
+  }, [wardIssues]);
 
   // Search public grievances by ticket number, title or area.
   const filteredMapIssues = useMemo(() => {
