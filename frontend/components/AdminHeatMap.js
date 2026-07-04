@@ -23,11 +23,11 @@ function Recenter({ center }) {
   return null;
 }
 
-// Warm gradient stops from low → high intensity.
+// Traffic-light density scale: low → green, medium → orange, high → red.
 function heatColor(t) {
-  if (t < 0.33) return "#f59e0b";
-  if (t < 0.66) return "#dc2626";
-  return "#7a1c1c";
+  if (t < 0.34) return "#16a34a"; // green — low density
+  if (t < 0.67) return "#f59e0b"; // orange — medium
+  return "#dc2626";               // red — high density
 }
 
 /**
@@ -41,17 +41,17 @@ function DensityDots({ points, mode }) {
   const [zoom, setZoom] = useState(map.getZoom());
   useMapEvents({ zoomend: () => setZoom(map.getZoom()) });
 
-  // zoom 11 → 0.45 (small dots, no overlap) … zoom 15+ → 1 (full size). Clamped.
-  const zScale = Math.max(0.45, Math.min(1, (zoom - 11) / 4));
+  // zoom 11 → 0.5 (small dots, no overlap) … zoom 15+ → 1 (full size). Clamped.
+  const zScale = Math.max(0.5, Math.min(1, (zoom - 11) / 4));
 
   return points.map((p) => {
-    const r = Math.max(3, Math.min(14, (4 + p.t * 9) * zScale));
+    const r = Math.max(4.5, Math.min(18, (7 + p.t * 11) * zScale));
     return (
       <CircleMarker
         key={p.key}
         center={[p.lat, p.lng]}
         radius={r}
-        pathOptions={{ color: "#ffffff", weight: 1.25, fillColor: heatColor(p.t), fillOpacity: 0.9 }}
+        pathOptions={{ color: "#ffffff", weight: 1.5, fillColor: heatColor(p.t), fillOpacity: 0.9 }}
       >
         <Tooltip direction="top" offset={[0, -4]}>
           <span className="text-xs font-semibold">

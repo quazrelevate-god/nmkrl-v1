@@ -113,19 +113,21 @@ body {
 /* Natural spring-ish easing used across transitions. */
 .ease-spring { transition-timing-function: cubic-bezier(0.34, 1.56, 0.64, 1); }
 
-/* Frosted fade at the bottom of the phone frame — content blurs as it scrolls
-   behind the nav pill. Masked so the blur only affects the lower strip. */
+/* Subtle frosted fade + vignette at the bottom of the phone frame — content
+   softly blurs and fades as it scrolls behind the nav pill, like most scroll
+   UIs. Kept gentle so it never overpowers the content. */
 .bottom-blur {
   position: absolute;
   inset-inline: 0;
   bottom: 0;
-  height: 8.5rem;
+  height: 7rem;
   z-index: 690;
   pointer-events: none;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  -webkit-mask-image: linear-gradient(to top, #000 34%, rgba(0, 0, 0, 0.6) 62%, transparent);
-  mask-image: linear-gradient(to top, #000 34%, rgba(0, 0, 0, 0.6) 62%, transparent);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  background: linear-gradient(to top, rgba(28, 18, 18, 0.06), transparent 74%);
+  -webkit-mask-image: linear-gradient(to top, #000 38%, rgba(0, 0, 0, 0.45) 68%, transparent);
+  mask-image: linear-gradient(to top, #000 38%, rgba(0, 0, 0, 0.45) 68%, transparent);
 }
 
 @keyframes sheet-up {

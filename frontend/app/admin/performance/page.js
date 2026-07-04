@@ -116,7 +116,7 @@ export default function PerformancePage() {
             <div className="absolute bottom-3 right-3 z-[500] flex items-center gap-2 rounded-lg bg-white/85 px-3 py-1.5 text-[10px] font-medium shadow ring-1 ring-white/60 backdrop-blur">
               <span className="text-slate-500">{mode === "upvotes" ? "Upvote intensity" : "Complaint density"}</span>
               <span className="flex items-center gap-0.5">
-                {["#f59e0b", "#dc2626", "#7a1c1c"].map((c) => <span key={c} className="inline-block h-2 w-2 rounded-full" style={{ background: c }} />)}
+                {["#16a34a", "#f59e0b", "#dc2626"].map((c) => <span key={c} className="inline-block h-2 w-2 rounded-full" style={{ background: c }} />)}
               </span>
               <span className="text-slate-400">low → high</span>
             </div>
