@@ -77,13 +77,14 @@ CREATE TABLE IF NOT EXISTS verifications (
 -- Every /api/locate lookup is logged with the real GCC zone/ward the
 -- coordinate resolved to (via point-in-polygon over the KML boundaries).
 CREATE TABLE IF NOT EXISTS location_logs (
-    id                  TEXT PRIMARY KEY,
-    latitude            REAL NOT NULL,
-    longitude           REAL NOT NULL,
-    detected_zone       TEXT,
-    detected_zone_name  TEXT,
-    detected_ward       TEXT,
-    created_at          TEXT NOT NULL
+    id                   TEXT PRIMARY KEY,
+    latitude             REAL NOT NULL,
+    longitude            REAL NOT NULL,
+    detected_zone        TEXT,
+    detected_zone_name   TEXT,
+    detected_ward        TEXT,
+    assembly_constituency TEXT,
+    created_at           TEXT NOT NULL
 );
 """
 
@@ -106,5 +107,10 @@ def init_db() -> None:
         # upvotes.name carries the verified upvoter name (OTP-gated public upvotes).
         try:
             conn.execute("ALTER TABLE upvotes ADD COLUMN name TEXT DEFAULT ''")
+        except Exception:
+            pass
+        # location_logs gains the primary Assembly Constituency for the lookup.
+        try:
+            conn.execute("ALTER TABLE location_logs ADD COLUMN assembly_constituency TEXT")
         except Exception:
             pass

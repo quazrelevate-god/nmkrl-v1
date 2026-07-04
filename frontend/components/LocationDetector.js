@@ -14,7 +14,7 @@
  */
 
 import { useEffect, useState } from "react";
-import { MapPin, Loader2, Building2 } from "lucide-react";
+import { MapPin, Loader2, Building2, Landmark } from "lucide-react";
 import { locateBoundary } from "@/lib/api";
 
 export default function LocationDetector({ coords, className = "", onResolved }) {
@@ -67,6 +67,7 @@ export default function LocationDetector({ coords, className = "", onResolved })
     );
   }
 
+  const primaryAC = loc.detected_constituencies?.[0];
   return (
     <div className={`rounded-xl bg-white/90 px-3 py-1.5 text-right shadow ring-1 ring-brand/20 ${className}`}>
       <p className="flex items-center justify-end gap-1 text-[10px] font-bold text-brand">
@@ -76,6 +77,11 @@ export default function LocationDetector({ coords, className = "", onResolved })
       <p className="flex items-center justify-end gap-1 text-[9px] font-medium text-slate-500">
         <MapPin size={9} /> Ward {loc.ward}
       </p>
+      {primaryAC && (
+        <p className="flex items-center justify-end gap-1 text-[9px] font-semibold text-violet-600">
+          <Landmark size={9} /> {shortAC(primaryAC)}
+        </p>
+      )}
     </div>
   );
 }
@@ -85,4 +91,9 @@ function titleCase(s) {
   return String(s)
     .toLowerCase()
     .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/** "20 - Anna Nagar" → "Anna Nagar" (drop the numeric AC code). */
+function shortAC(s) {
+  return String(s).replace(/^\d+\s*-\s*/, "");
 }

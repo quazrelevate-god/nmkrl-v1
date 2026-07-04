@@ -175,12 +175,34 @@ def _load_kml(path: str, extract) -> list[dict]:
     return out
 
 
+_ROMAN = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
+
+
+def _roman_to_int(s: str):
+    """Convert a roman numeral (e.g. "VIII") to an int (8), or None if invalid."""
+    s = (s or "").strip().upper()
+    if not s:
+        return None
+    total, prev = 0, 0
+    for ch in reversed(s):
+        val = _ROMAN.get(ch)
+        if val is None:
+            return None  # not a roman numeral — leave untouched
+        total = total - val if val < prev else total + val
+        prev = max(prev, val)
+    return total
+
+
 def _extract_zone(placemark: ET.Element) -> dict | None:
     zone = _simple_data(placemark, "ZONE")
     # Source data is inconsistent: one row stores "ZONE - IV" rather than "IV".
     # Keep only the roman-numeral part so the displayed zone is uniform.
     if zone.upper().startswith("ZONE"):
         zone = zone[4:].lstrip(" -").strip()
+    # GCC zones are roman (I–XV) in the KML; expose them as plain integers.
+    zone_int = _roman_to_int(zone)
+    if zone_int is not None:
+        zone = str(zone_int)
     zone_name = _simple_data(placemark, "ZONE_NAME") or _placemark_name(placemark)
     region = _simple_data(placemark, "Region")
     if not zone and not zone_name:

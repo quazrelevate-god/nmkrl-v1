@@ -53,7 +53,9 @@ export default function MobileShell({ children, noPad = false, splitView = false
           className={[
             "no-scrollbar relative min-h-0 flex-1",
             splitView ? "flex flex-col overflow-hidden" : "overflow-y-auto",
-            !noPad && !splitView ? "px-4 pt-1 pb-28" : "pb-28",
+            // splitView children own the full height and scroll edge-to-edge
+            // behind the floating glass nav; only the simple screens get pb.
+            !noPad && !splitView ? "px-4 pt-1 pb-28" : splitView ? "" : "pb-28",
           ].join(" ")}
         >
           {children}

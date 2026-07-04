@@ -26,7 +26,13 @@ import boundaries
 from database import get_connection, init_db
 from gemini_service import keyword_department
 from routers import admin, issues
-from utils import UPLOAD_DIR, ensure_upload_dirs, new_id, now_iso
+from utils import (
+    UPLOAD_DIR,
+    ensure_upload_dirs,
+    get_constituency_by_ward,
+    new_id,
+    now_iso,
+)
 
 load_dotenv()
 
@@ -45,7 +51,10 @@ def _backfill_zones_and_departments() -> None:
         ).fetchall()
         for r in rows:
             updates, params = [], []
-            if r["ward_no"] is None or not r["zone"]:
+            # Recompute when unset, or when zone is a legacy roman numeral
+            # (pre-integer-migration rows) rather than the new plain integer.
+            zone_val = r["zone"]
+            if r["ward_no"] is None or not zone_val or not str(zone_val).isdigit():
                 loc = boundaries.locate(r["latitude"], r["longitude"])
                 ward = int(loc["ward"]) if loc["ward"] is not None else None
                 updates += ["ward_no = ?", "zone = ?", "zone_name = ?"]
@@ -130,11 +139,16 @@ def locate_coordinates(body: LocateRequest):
     """
     result = boundaries.locate(body.latitude, body.longitude)
 
+    # Map the detected ward → its Assembly Constituency/-ies (may overlap).
+    constituencies = get_constituency_by_ward(result["ward"])
+    primary_ac = constituencies[0] if constituencies else None
+
     with get_connection() as conn:
         conn.execute(
             "INSERT INTO location_logs "
             "(id, latitude, longitude, detected_zone, detected_zone_name, "
-            " detected_ward, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            " detected_ward, assembly_constituency, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 new_id(),
                 body.latitude,
@@ -142,6 +156,7 @@ def locate_coordinates(body: LocateRequest):
                 result["zone"],
                 result["zone_name"],
                 result["ward"],
+                primary_ac,
                 now_iso(),
             ),
         )
@@ -153,6 +168,7 @@ def locate_coordinates(body: LocateRequest):
         "zone_name": result["zone_name"],
         "region": result["region"],
         "ward": result["ward"],
+        "detected_constituencies": constituencies,
         "inside": result["inside"],
     }
 

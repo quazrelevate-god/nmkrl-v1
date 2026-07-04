@@ -10,7 +10,7 @@
 import { useState } from "react";
 import {
   ThumbsUp, MessageCircle, Share2, Bookmark, MoreHorizontal,
-  MapPin, Hash, BadgeCheck, Play, BarChart3, Share,
+  MapPin, Hash, BadgeCheck, Play, BarChart3,
 } from "lucide-react";
 import { STATUS_STYLE } from "@/lib/communityData";
 import CommentThread from "./CommentThread";
@@ -125,29 +125,33 @@ export default function PostCard({ post, index = 0 }) {
       >
         {/* Author */}
         <div className="flex items-center gap-2.5">
-          {post.type === "poll" ? (
-            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-violet-100 text-violet-600"><Share size={16} /></span>
-          ) : (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={post.avatar} alt="" className="h-9 w-9 rounded-full object-cover" />
-          )}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={post.avatar} alt="" className="h-9 w-9 shrink-0 rounded-full object-cover" />
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1">
-              <span className="truncate text-sm font-bold text-slate-900">
-                {post.type === "poll" ? "Poll" : post.author}
-              </span>
-              {post.verified && post.type !== "poll" && <BadgeCheck size={14} className="shrink-0 text-brand" />}
+              <span className="truncate text-sm font-bold text-slate-900">{post.author}</span>
+              {post.verified && <BadgeCheck size={14} className="shrink-0 text-brand" />}
+              {post.type === "poll" && (
+                <span className="ml-1 flex items-center gap-0.5 rounded-full bg-violet-100 px-1.5 py-0.5 text-[9px] font-bold text-violet-600">
+                  <BarChart3 size={9} /> POLL
+                </span>
+              )}
             </div>
-            <p className="text-[11px] font-medium text-green-600">{post.ward} · {post.area}</p>
+            <p className="flex items-center gap-1 text-[11px] font-medium text-green-600">
+              <MapPin size={10} /> {[post.area, post.handle].filter(Boolean).join(" · ")}
+            </p>
           </div>
-          <span className="text-[11px] text-slate-400">{post.time}</span>
+          <span className="shrink-0 text-[11px] text-slate-400">{post.time}</span>
           <button className="text-slate-300"><MoreHorizontal size={18} /></button>
         </div>
 
         {/* Status + title */}
         <div className="mt-2.5">
           {post.type === "poll" ? (
-            <h3 className="text-[15px] font-bold leading-snug text-slate-900">{post.question}</h3>
+            <>
+              <h3 className="text-[15px] font-bold leading-snug text-slate-900">{post.question}</h3>
+              {post.body && <p className="mt-1 text-sm leading-snug text-slate-600">{post.body}</p>}
+            </>
           ) : (
             <>
               <div className="flex items-center gap-2">

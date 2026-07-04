@@ -104,6 +104,42 @@ def reverse_geocode(lat: float, lng: float) -> str:
         return ""
 
 
+# ── Assembly Constituency (MLA) mapping ──────────────────────────────────────
+# Maps each Chennai Assembly Constituency to the GCC ward numbers it covers.
+# Some wards clip/overlap across constituency boundaries, so a single ward can
+# belong to more than one AC — the lookup therefore returns a list.
+CHENNAI_AC_MAP = {
+    "11 - Dr. Radhakrishnan Nagar": ["38", "39", "40", "41", "42", "43", "47"],
+    "12 - Perambur": ["34", "35", "36", "37", "44", "45", "46", "64", "65", "66", "67", "68", "69", "70"],
+    "13 - Kolathur": ["64", "65", "66", "67", "68", "69", "70"],  # Shared/Overlapping clusters
+    "14 - Villivakkam": ["94", "95", "96", "97", "98", "102", "103", "104"],
+    "15 - Thiru-Vi-Ka-Nagar": ["71", "72", "73", "74", "75", "76"],
+    "16 - Egmore": ["58", "61", "77", "78", "104", "108"],
+    "17 - Harbour": ["54", "55", "56", "57", "59", "60"],
+    "18 - Chepauk-Thiruvallikeni": ["62", "63", "114", "115", "116", "119", "120"],
+    "19 - Thousand Lights": ["109", "110", "111", "112", "113", "117", "118"],
+    "20 - Anna Nagar": ["100", "101", "102", "103", "105", "106", "107"],
+    "21 - Virugambakkam": ["127", "128", "129", "136", "137", "138"],
+    "22 - Saidapet": ["126", "139", "140", "142", "168", "169", "170", "171", "172", "173", "174", "175", "176", "177", "178", "179", "180"],
+    "23 - Thiyagarayanagar": ["130", "131", "132", "133", "134", "135", "141"],
+    "24 - Mylapore": ["126", "170", "171", "172", "173", "174", "175", "176", "177", "178", "179", "180"],
+    "25 - Velachery": ["139", "140", "142", "168", "169", "181", "182", "183", "184", "192", "193", "194"],
+    "26 - Shozhinganallur": ["191", "195", "196", "197", "198", "199", "200"],
+}
+
+
+def get_constituency_by_ward(ward_no) -> list:
+    """Return the list of Assembly Constituencies a ward falls in.
+
+    Wards can clip/overlap across AC lines, so this returns every matching AC
+    name (empty list if the ward maps to none).
+    """
+    if ward_no is None:
+        return []
+    key = str(ward_no).strip()
+    return [ac for ac, wards in CHENNAI_AC_MAP.items() if key in wards]
+
+
 def serialize_issue(row) -> dict:
     """
     Convert a sqlite Row for the issues table into a JSON-friendly dict,

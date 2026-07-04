@@ -13,9 +13,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   ChevronDown, ChevronUp, ShieldCheck, Flame, ClipboardList, ThumbsUp,
-  CheckCircle2, Trophy, Star,
+  CheckCircle2, Trophy, Star, MapPin,
 } from "lucide-react";
-import { PROFILE, STORIES } from "@/lib/communityData";
+import { PROFILE, STORIES, CONSTITUENCIES } from "@/lib/communityData";
 
 function greetingFor(h) {
   if (h < 12) return "Good morning";
@@ -23,27 +23,45 @@ function greetingFor(h) {
   return "Good evening";
 }
 
-/* ── Compact: stories strip ── */
-function StoriesStrip({ onOpenStory, onExpand }) {
+/* ── Compact: constituency highlights (stories) strip ── */
+function StoriesStrip({ onOpenStory, onExpand, constituency, onConstituency }) {
   return (
     <div className="pb-3">
-      <div className="mb-2 flex items-center px-0.5">
-        <h2 className="text-sm font-extrabold tracking-tight text-slate-900">Today's highlights</h2>
-        <button onClick={onExpand} className="ml-auto flex items-center gap-1 rounded-full bg-white/70 px-2.5 py-1 text-[11px] font-semibold text-slate-500 ring-1 ring-white/60">
+      <div className="mb-2 flex items-center gap-2 px-0.5">
+        <div className="min-w-0">
+          <h2 className="text-sm font-extrabold tracking-tight text-slate-900">Constituency highlights</h2>
+          {/* Constituency selector */}
+          <div className="mt-1 inline-flex items-center gap-1 rounded-full bg-white/80 py-1 pl-2 pr-1 ring-1 ring-brand/20">
+            <MapPin size={11} className="shrink-0 text-brand" />
+            <div className="relative flex items-center">
+              <select
+                value={constituency}
+                onChange={(e) => onConstituency(e.target.value)}
+                className="max-w-[150px] cursor-pointer appearance-none truncate bg-transparent pr-4 text-[11px] font-bold text-brand outline-none"
+              >
+                {CONSTITUENCIES.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+              <ChevronDown size={12} className="pointer-events-none absolute right-0 text-brand" />
+            </div>
+          </div>
+        </div>
+        <button onClick={onExpand} className="ml-auto flex shrink-0 items-center gap-1 self-start rounded-full bg-white/70 px-2.5 py-1 text-[11px] font-semibold text-slate-500 ring-1 ring-white/60">
           Profile <ChevronDown size={14} />
         </button>
       </div>
       <div className="no-scrollbar -mx-1 flex gap-3.5 overflow-x-auto px-1">
         {STORIES.map(s => (
-          <button key={s.id} onClick={() => onOpenStory(s)} className="flex w-16 shrink-0 flex-col items-center gap-1">
-            <span className={`relative rounded-full bg-gradient-to-br ${s.ring} p-[2.5px]`}>
+          <button key={s.id} onClick={() => onOpenStory(s)} className="flex w-[72px] shrink-0 flex-col items-center gap-1.5">
+            <span className={`relative rounded-full bg-gradient-to-br ${s.ring} p-[3px]`}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={s.slides[0].image} alt="" className="h-[56px] w-[56px] rounded-full border-2 border-white object-cover" />
+              <img src={s.slides[0].image} alt="" className="h-[64px] w-[64px] rounded-full border-2 border-white object-cover" />
               {s.count > 0 && (
                 <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white ring-2 ring-white">{s.count}</span>
               )}
             </span>
-            <span className="line-clamp-2 text-center text-[10px] font-medium leading-tight text-slate-600">{s.label}</span>
+            <span className="line-clamp-2 text-center text-[10px] font-semibold leading-tight text-slate-600">{s.label}</span>
           </button>
         ))}
       </div>
@@ -146,6 +164,7 @@ export default function CommunityHeader({ progress, dragging, onOpenStory, onSet
   const profileRef = useRef(null);
   const rootRef = useRef(null);
   const [heights, setHeights] = useState({ stories: 140, profile: 440 });
+  const [constituency, setConstituency] = useState("Anna Nagar");
 
   useLayoutEffect(() => {
     const measure = () => {
@@ -182,7 +201,12 @@ export default function CommunityHeader({ progress, dragging, onOpenStory, onSet
       <div className="relative overflow-hidden rounded-b-[28px] px-4" style={{ height: bodyH, transition: trans }}>
         <div ref={storiesRef} className="absolute inset-x-4 top-0"
           style={{ opacity: 1 - Math.min(1, p * 1.4), transform: `translateY(${-p * 12}px)`, transition: trans, pointerEvents: p < 0.4 ? "auto" : "none" }}>
-          <StoriesStrip onOpenStory={onOpenStory} onExpand={() => onSetProgress(1)} />
+          <StoriesStrip
+            onOpenStory={onOpenStory}
+            onExpand={() => onSetProgress(1)}
+            constituency={constituency}
+            onConstituency={setConstituency}
+          />
         </div>
         <div ref={profileRef} className="absolute inset-x-4 top-0"
           style={{ opacity: Math.max(0, (p - 0.15) / 0.85), transform: `translateY(${(1 - p) * 14}px)`, transition: trans, pointerEvents: p > 0.6 ? "auto" : "none" }}>

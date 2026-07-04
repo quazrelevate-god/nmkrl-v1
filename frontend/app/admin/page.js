@@ -92,7 +92,7 @@ export default function AdminScreen() {
     return feats
       .map(f => ({ zone: f.properties.zone, name: f.properties.zone_name }))
       .filter(z => z.zone)
-      .sort((a, b) => a.name.localeCompare(b.name));
+      .sort((a, b) => Number(a.zone) - Number(b.zone));
   }, [boundaries]);
 
   // Ward options — constrained to the selected zone when one is active.
