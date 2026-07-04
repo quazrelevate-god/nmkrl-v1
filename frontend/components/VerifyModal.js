@@ -9,7 +9,7 @@
  */
 
 import { useState } from "react";
-import { X, Phone, Shield, Sparkles } from "lucide-react";
+import { X, Phone, Shield, Sparkles, User } from "lucide-react";
 import { confirmIssue } from "@/lib/api";
 
 const EXPECTED_OTP = "1234";
