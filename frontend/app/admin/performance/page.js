@@ -14,7 +14,7 @@ import dynamic from "next/dynamic";
 import {
   LayoutDashboard, Flame, ThumbsUp, Ticket, CheckCircle2, TimerOff, Clock, Gauge,
   MapPin, Megaphone, TrendingUp, TrendingDown, Radio, Users, MessageCircle,
-  Share2, BarChart3, Sparkles, ShieldAlert, ShieldCheck, Trash2, Heart,
+  Share2, BarChart3, Sparkles, ShieldAlert, ShieldCheck, Trash2, Heart, X,
 } from "lucide-react";
 import { useAdminData } from "@/components/admin/AdminDataProvider";
 import { departmentMeta } from "@/lib/departments";
@@ -37,6 +37,7 @@ export default function PerformancePage() {
   const [ac, setAc] = useState("");
   const [flagged, setFlagged] = useState(FLAGGED_CONTENT);
   const [resolvedMod, setResolvedMod] = useState({});
+  const [kpiFilter, setKpiFilter] = useState(null); // click a KPI card to plot it on the map
 
   const zoneOptions = useMemo(() => {
     const feats = boundaries?.zones?.features || [];
@@ -62,6 +63,27 @@ export default function PerformancePage() {
   const kpi = useMemo(() => computeKpis(scoped), [scoped]);
   const social = useMemo(() => socialMentions(ac || DEFAULT_AC), [ac]);
   const community = useMemo(() => communityKpis(), []);
+
+  // KPI cards double as map filters: clicking one plots its grievances at their
+  // real coordinates in the same colour as the card's number.
+  const kpiCards = useMemo(() => [
+    { key: "total", label: "Total", icon: Ticket, tone: "text-slate-800", color: "#475569", value: kpi.total, match: () => true },
+    { key: "pending", label: "Pending Review", icon: Clock, tone: "text-violet-600", color: "#7c3aed", value: kpi.pending, match: (i) => i.status === "SUBMITTED" },
+    { key: "open", label: "Open", icon: Ticket, tone: "text-brand", color: "#7a1c1c", value: kpi.open, match: (i) => ["ACTIVE", "FORWARDED"].includes(i.status) },
+    { key: "inProgress", label: "In Progress", icon: Gauge, tone: "text-amber-600", color: "#d97706", value: kpi.inProgress, match: (i) => i.status === "IN_PROGRESS" },
+    { key: "resolved", label: "Resolved", icon: CheckCircle2, tone: "text-emerald-600", color: "#059669", value: kpi.resolved, match: (i) => ["PENDING_VERIFICATION", "CLOSED"].includes(i.status) },
+    { key: "breached", label: "SLA Breached", icon: TimerOff, tone: "text-red-500", color: "#ef4444", value: kpi.breached, match: slaBreached },
+    { key: "rate", label: "Resolution Rate", icon: Gauge, tone: "text-brand", value: `${kpi.resolutionRate}%`, filterable: false },
+  ], [kpi]);
+
+  const activeKpi = kpiCards.find((c) => c.key === kpiFilter && c.match);
+  const overlay = activeKpi
+    ? {
+        issues: scoped.filter((i) => activeKpi.match(i) && i.latitude != null && i.longitude != null),
+        color: activeKpi.color,
+        label: activeKpi.label,
+      }
+    : null;
 
   function actMod(id, kind) {
     setResolvedMod((m) => ({ ...m, [id]: kind }));
@@ -107,18 +129,29 @@ export default function PerformancePage() {
           <div className="glass-panel relative h-[46vh] overflow-hidden rounded-2xl">
             {center ? (
               <AdminHeatMap issues={scoped} mode={mode} center={center} boundaries={boundaries}
-                highlightZone={zone || null} highlightWard={ward || null} />
+                highlightZone={zone || null} highlightWard={ward || null} overlay={overlay} />
             ) : (
               <div className="flex h-full items-center justify-center text-sm text-slate-400">
                 {loading ? "Loading map…" : "No geolocated grievances for this filter."}
               </div>
             )}
             <div className="absolute bottom-3 right-3 z-[500] flex items-center gap-2 rounded-lg bg-white/85 px-3 py-1.5 text-[10px] font-medium shadow ring-1 ring-white/60 backdrop-blur">
-              <span className="text-slate-500">{mode === "upvotes" ? "Upvote intensity" : "Complaint density"}</span>
-              <span className="flex items-center gap-0.5">
-                {["#16a34a", "#f59e0b", "#dc2626"].map((c) => <span key={c} className="inline-block h-2 w-2 rounded-full" style={{ background: c }} />)}
-              </span>
-              <span className="text-slate-400">low → high</span>
+              {overlay ? (
+                <>
+                  <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: overlay.color }} />
+                  <span className="font-bold" style={{ color: overlay.color }}>{overlay.label}</span>
+                  <span className="text-slate-400">· {overlay.issues.length} on map</span>
+                  <button onClick={() => setKpiFilter(null)} className="ml-1 text-slate-400 hover:text-slate-700"><X size={12} /></button>
+                </>
+              ) : (
+                <>
+                  <span className="text-slate-500">{mode === "upvotes" ? "Upvote intensity" : "Complaint density"}</span>
+                  <span className="flex items-center gap-0.5">
+                    {["#16a34a", "#f59e0b", "#dc2626"].map((c) => <span key={c} className="inline-block h-2 w-2 rounded-full" style={{ background: c }} />)}
+                  </span>
+                  <span className="text-slate-400">low → high</span>
+                </>
+              )}
             </div>
           </div>
 
@@ -126,15 +159,23 @@ export default function PerformancePage() {
         </div>
 
         {/* Grievance KPIs */}
-        <SectionTitle icon={Ticket}>Grievance overview{ac ? ` · ${shortAC(ac)}` : ""}</SectionTitle>
+        <SectionTitle icon={Ticket}>
+          Grievance overview{ac ? ` · ${shortAC(ac)}` : ""}
+          <span className="ml-1 text-[11px] font-medium normal-case text-slate-400">— click a card to plot it on the map</span>
+        </SectionTitle>
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 xl:grid-cols-7">
-          <Kpi label="Total" value={kpi.total} icon={Ticket} tone="text-slate-800" />
-          <Kpi label="Pending Review" value={kpi.pending} icon={Clock} tone="text-violet-600" />
-          <Kpi label="Open" value={kpi.open} icon={Ticket} tone="text-brand" />
-          <Kpi label="In Progress" value={kpi.inProgress} icon={Gauge} tone="text-amber-600" />
-          <Kpi label="Resolved" value={kpi.resolved} icon={CheckCircle2} tone="text-emerald-600" />
-          <Kpi label="SLA Breached" value={kpi.breached} icon={TimerOff} tone="text-red-500" />
-          <Kpi label="Resolution Rate" value={`${kpi.resolutionRate}%`} icon={Gauge} tone="text-brand" />
+          {kpiCards.map((c) => (
+            <Kpi
+              key={c.key}
+              label={c.label}
+              value={c.value}
+              icon={c.icon}
+              tone={c.tone}
+              color={c.color}
+              active={kpiFilter === c.key}
+              onClick={c.filterable === false ? undefined : () => setKpiFilter(kpiFilter === c.key ? null : c.key)}
+            />
+          ))}
         </div>
 
         {/* Charts */}
@@ -368,9 +409,15 @@ function ModeBtn({ active, onClick, icon: Icon, children }) {
     </button>
   );
 }
-function Kpi({ label, value, icon: Icon, tone }) {
+function Kpi({ label, value, icon: Icon, tone, color, active, onClick }) {
+  const clickable = !!onClick;
   return (
-    <div className="glass-panel glass-hover rounded-2xl p-4">
+    <div
+      onClick={onClick}
+      role={clickable ? "button" : undefined}
+      className={`glass-panel rounded-2xl p-4 ${clickable ? "glass-hover cursor-pointer" : ""}`}
+      style={active ? { outline: `2px solid ${color}`, outlineOffset: "-2px", background: "rgba(255,255,255,0.62)" } : undefined}
+    >
       <div className="mb-1 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-400"><Icon size={12} /> {label}</div>
       <p className={`text-2xl font-extrabold ${tone}`}>{value}</p>
     </div>

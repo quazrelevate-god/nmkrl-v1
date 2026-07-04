@@ -65,9 +65,37 @@ function DensityDots({ points, mode }) {
   });
 }
 
+/**
+ * StatusOverlay — when a KPI filter is active, plot each matching grievance at
+ * its own coordinate as a coloured dot (matching the KPI's font colour) instead
+ * of the aggregated density blobs.
+ */
+function StatusOverlay({ issues, color }) {
+  const map = useMap();
+  const [zoom, setZoom] = useState(map.getZoom());
+  useMapEvents({ zoomend: () => setZoom(map.getZoom()) });
+  const zScale = Math.max(0.5, Math.min(1, (zoom - 11) / 4));
+  const r = Math.max(3.5, Math.min(9, 6 * zScale));
+
+  return issues.map((i, idx) => (
+    <CircleMarker
+      key={i.id || idx}
+      center={[i.latitude, i.longitude]}
+      radius={r}
+      pathOptions={{ color: "#ffffff", weight: 1, fillColor: color, fillOpacity: 0.82 }}
+    >
+      <Tooltip direction="top" offset={[0, -4]}>
+        <span className="text-xs font-semibold">{i.title || "Grievance"}</span>
+        <br />
+        Ward {i.ward_no ?? "—"}{i.zone ? ` · Zone ${i.zone}` : ""}
+      </Tooltip>
+    </CircleMarker>
+  ));
+}
+
 export default function AdminHeatMap({
   issues, mode = "complaints", center, boundaries = null,
-  highlightZone = null, highlightWard = null,
+  highlightZone = null, highlightWard = null, overlay = null,
 }) {
   const centerArr = useMemo(
     () => (center ? [center.lat, center.lng] : [13.0827, 80.2081]),
@@ -109,7 +137,9 @@ export default function AdminHeatMap({
       />
       <Recenter center={centerArr} />
       <BoundaryLayer data={boundaries} highlightZone={highlightZone} highlightWard={highlightWard} />
-      <DensityDots points={points} mode={mode} />
+      {overlay
+        ? <StatusOverlay issues={overlay.issues} color={overlay.color} />
+        : <DensityDots points={points} mode={mode} />}
     </MapContainer>
   );
 }
