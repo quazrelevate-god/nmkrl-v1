@@ -66,15 +66,15 @@ export default function TicketDrawer({ issue, onClose, onChanged }) {
 
   return (
     <div className="fixed inset-0 z-[80] flex">
-      <div className="animate-scrim-in flex-1 bg-slate-900/40 backdrop-blur-[2px]" onClick={onClose} />
-      <div className="animate-drawer-in flex h-full w-[70%] min-w-0 flex-col bg-white shadow-2xl">
+      <div className="animate-scrim-in flex-1 bg-slate-900/40 backdrop-blur-[3px]" onClick={onClose} />
+      <div className="glass-panel-strong animate-drawer-in flex h-full w-[70%] min-w-0 flex-col">
         {/* Drawer header */}
-        <div className="flex items-center justify-between border-b border-slate-200 px-6 py-3.5">
+        <div className="flex items-center justify-between border-b border-white/50 px-6 py-3.5">
           <div className="flex items-center gap-3">
             <span className="w-1 self-stretch rounded-full" style={{ background: pm.dot }} />
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-lg font-extrabold text-blue-600">{ticketNo(issue)}</h2>
+                <h2 className="text-lg font-extrabold text-brand">{ticketNo(issue)}</h2>
                 <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold ${st.badge}`}>{st.label}</span>
                 <span className={`rounded-md px-2 py-0.5 text-[11px] font-bold ${pm.badge}`}>{priority}</span>
               </div>
@@ -85,9 +85,9 @@ export default function TicketDrawer({ issue, onClose, onChanged }) {
         </div>
 
         {/* Two panes */}
-        <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] divide-x divide-slate-200">
+        <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] divide-x divide-white/40">
           {/* ── LEFT: media ── */}
-          <div className="min-h-0 overflow-y-auto bg-slate-50 p-5 space-y-4">
+          <div className="min-h-0 overflow-y-auto bg-white/25 p-5 space-y-4">
             <Section icon={ImageIcon} title="Photo submission">
               {issue.image_url ? (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -147,13 +147,13 @@ export default function TicketDrawer({ issue, onClose, onChanged }) {
               <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-slate-400">Headline</p>
               <p className="font-bold text-slate-800">{issue.title || <span className="italic text-slate-400">No headline</span>}</p>
               {(issue.transcript || issue.summary_highlights?.length > 0) && (
-                <div className="mt-2 rounded-xl border border-blue-100 bg-blue-50/60 p-3">
-                  <p className="mb-1.5 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-blue-600"><Sparkles size={12} /> AI Summary</p>
+                <div className="mt-2 rounded-xl border border-brand/15 bg-brand-50/50 p-3">
+                  <p className="mb-1.5 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-brand"><Sparkles size={12} /> AI Summary</p>
                   {issue.transcript && <p className="text-sm italic leading-snug text-slate-700">“{issue.transcript}”</p>}
                   {issue.summary_highlights?.length > 0 && (
                     <div className="mt-2 flex flex-wrap gap-1.5">
                       {issue.summary_highlights.map((h, i) => (
-                        <span key={i} className="rounded-full bg-white px-2.5 py-0.5 text-[11px] font-medium text-blue-600 ring-1 ring-blue-200">{h}</span>
+                        <span key={i} className="rounded-full bg-white/80 px-2.5 py-0.5 text-[11px] font-medium text-brand ring-1 ring-brand-200">{h}</span>
                       ))}
                     </div>
                   )}
@@ -184,13 +184,13 @@ export default function TicketDrawer({ issue, onClose, onChanged }) {
                 {LIFECYCLE.map((s, i) => (
                   <div key={s.key} className="flex flex-1 flex-col items-center">
                     <div className="flex w-full items-center">
-                      {i > 0 && <div className={`h-0.5 flex-1 ${i <= stage ? "bg-blue-500" : "bg-slate-200"}`} />}
+                      {i > 0 && <div className={`h-0.5 flex-1 ${i <= stage ? "bg-brand" : "bg-slate-200"}`} />}
                       <div className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[9px] font-bold ${
-                        i < stage ? "bg-blue-500 text-white" : i === stage ? "bg-blue-600 text-white ring-4 ring-blue-100" : "bg-slate-200 text-slate-400"
+                        i < stage ? "bg-brand text-white" : i === stage ? "bg-brand text-amber-300 ring-4 ring-brand-100" : "bg-slate-200 text-slate-400"
                       }`}>{i < stage ? "✓" : ""}</div>
-                      {i < LIFECYCLE.length - 1 && <div className={`h-0.5 flex-1 ${i < stage ? "bg-blue-500" : "bg-slate-200"}`} />}
+                      {i < LIFECYCLE.length - 1 && <div className={`h-0.5 flex-1 ${i < stage ? "bg-brand" : "bg-slate-200"}`} />}
                     </div>
-                    <span className={`mt-1 text-center text-[9px] leading-tight ${i === stage ? "font-bold text-blue-600" : "text-slate-400"}`}>{s.label}</span>
+                    <span className={`mt-1 text-center text-[9px] leading-tight ${i === stage ? "font-bold text-brand" : "text-slate-400"}`}>{s.label}</span>
                   </div>
                 ))}
               </div>

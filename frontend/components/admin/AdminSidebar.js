@@ -25,11 +25,11 @@ export default function AdminSidebar() {
   const badges = { tickets: tickets.length, pending: pending.length };
 
   return (
-    <aside className="flex h-screen w-60 shrink-0 flex-col bg-[#0b1b3a] text-slate-300">
+    <aside className="glass-dark-panel flex h-screen w-60 shrink-0 flex-col text-slate-300">
       {/* Brand */}
       <div className="flex items-center gap-3 px-5 pb-5 pt-6">
-        <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-blue-700 shadow-lg shadow-blue-900/40">
-          <Landmark size={22} className="text-white" />
+        <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-brand to-brand-dark shadow-lg shadow-black/40 ring-1 ring-white/15">
+          <Landmark size={22} className="text-amber-300" />
         </div>
         <div>
           <p className="text-[15px] font-extrabold leading-tight text-white">Petition Management</p>
@@ -48,15 +48,18 @@ export default function AdminSidebar() {
             <Link
               key={href}
               href={href}
-              className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition ${
-                active ? "bg-blue-600 text-white shadow-lg shadow-blue-900/30" : "text-slate-300 hover:bg-white/5"
+              style={{ transition: "transform .3s cubic-bezier(.22,1,.36,1), background .3s ease" }}
+              className={`group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold hover:-translate-y-px ${
+                active
+                  ? "accent-ring bg-gradient-to-r from-brand to-brand-dark text-white"
+                  : "text-slate-300 hover:bg-white/5"
               }`}
             >
-              <Icon size={18} className={active ? "text-white" : "text-slate-400"} />
+              <Icon size={18} className={active ? "text-amber-300" : "text-slate-400 group-hover:text-slate-200"} />
               <span className="flex-1">{label}</span>
               {badge > 0 && (
                 <span className={`flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-bold ${
-                  active ? "bg-white/25 text-white" : "bg-red-500 text-white"
+                  active ? "bg-amber-400 text-brand-dark" : "bg-brand text-white"
                 }`}>
                   {badge}
                 </span>

@@ -1,29 +1,33 @@
 "use client";
 
 /**
- * Performance — analytics workspace.
- *   • TOP  : live density map (heatmap) with ward / zone / constituency filters
- *            and complaint-vs-upvote weighting.
- *   • BELOW: KPI cards + dependency-free charts computed from the real issue
- *            data (status funnel, department load, priority split, geo hotspots,
- *            resolution rate, SLA health).
+ * Performance — glassmorphism analytics workspace.
+ *   • Density map (heatmap) with ward / zone / constituency filters.
+ *   • MLA social-media trending mentions (mock) tied to the selected AC.
+ *   • Grievance KPIs + charts computed from real data.
+ *   • Community Pulse — engagement KPIs from the citizen app's feed.
+ *   • Content Moderation — community posts flagged as abusive / violating.
  */
 
 import { useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import {
-  LayoutDashboard, Flame, ThumbsUp, Ticket, CheckCircle2, TimerOff,
-  Clock, Gauge, MapPin,
+  LayoutDashboard, Flame, ThumbsUp, Ticket, CheckCircle2, TimerOff, Clock, Gauge,
+  MapPin, Megaphone, TrendingUp, TrendingDown, Radio, Users, MessageCircle,
+  Share2, BarChart3, Sparkles, ShieldAlert, ShieldCheck, Trash2, Heart,
 } from "lucide-react";
 import { useAdminData } from "@/components/admin/AdminDataProvider";
 import { departmentMeta } from "@/lib/departments";
 import { derivePriority, PRIORITY_META, slaBreached, daysOpen } from "@/lib/adminModel";
 import { CONSTITUENCIES, issueInConstituency, shortAC, constituenciesForWard } from "@/lib/constituencies";
+import { socialMentions, communityKpis, FLAGGED_CONTENT } from "@/lib/communityInsights";
 
 const AdminHeatMap = dynamic(() => import("@/components/AdminHeatMap"), {
   ssr: false,
   loading: () => <div className="flex h-full items-center justify-center text-sm text-slate-400">Loading map…</div>,
 });
+
+const DEFAULT_AC = "20 - Anna Nagar";
 
 export default function PerformancePage() {
   const { issues, boundaries, loading } = useAdminData();
@@ -31,6 +35,8 @@ export default function PerformancePage() {
   const [zone, setZone] = useState("");
   const [ward, setWard] = useState("");
   const [ac, setAc] = useState("");
+  const [flagged, setFlagged] = useState(FLAGGED_CONTENT);
+  const [resolvedMod, setResolvedMod] = useState({});
 
   const zoneOptions = useMemo(() => {
     const feats = boundaries?.zones?.features || [];
@@ -44,8 +50,7 @@ export default function PerformancePage() {
   }, [boundaries, zone]);
 
   const scoped = useMemo(() => issues.filter((i) =>
-    (!zone || String(i.zone) === zone) &&
-    (!ward || String(i.ward_no) === ward) &&
+    (!zone || String(i.zone) === zone) && (!ward || String(i.ward_no) === ward) &&
     issueInConstituency(i, ac)), [issues, zone, ward, ac]);
 
   const center = useMemo(() => {
@@ -55,12 +60,19 @@ export default function PerformancePage() {
   }, [scoped]);
 
   const kpi = useMemo(() => computeKpis(scoped), [scoped]);
+  const social = useMemo(() => socialMentions(ac || DEFAULT_AC), [ac]);
+  const community = useMemo(() => communityKpis(), []);
+
+  function actMod(id, kind) {
+    setResolvedMod((m) => ({ ...m, [id]: kind }));
+    setTimeout(() => setFlagged((f) => f.filter((x) => x.id !== id)), 260);
+  }
 
   return (
     <>
-      <header className="flex items-center justify-between border-b border-slate-200 bg-white px-7 py-4">
+      <header className="glass-panel z-10 flex items-center justify-between px-7 py-4">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-100 text-blue-600"><LayoutDashboard size={20} /></div>
+          <div className="glass-panel flex h-10 w-10 items-center justify-center rounded-xl text-brand"><LayoutDashboard size={20} /></div>
           <div>
             <h1 className="text-xl font-extrabold tracking-tight">Performance</h1>
             <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Density insights & grievance analytics</p>
@@ -70,8 +82,8 @@ export default function PerformancePage() {
 
       <div className="min-h-0 flex-1 overflow-y-auto px-7 py-5 space-y-5">
         {/* Filter bar */}
-        <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-          <span className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-slate-400"><MapPin size={13} className="text-blue-500" /> Density map</span>
+        <div className="glass-panel flex flex-wrap items-center gap-2 rounded-2xl px-4 py-3">
+          <span className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-slate-400"><MapPin size={13} className="text-brand" /> Density map</span>
           <select value={zone} onChange={(e) => { setZone(e.target.value); setWard(""); }} className={selectCls}>
             <option value="">All Zones</option>
             {zoneOptions.map((z) => <option key={z.zone} value={z.zone}>Zone {z.zone} · {z.name}</option>)}
@@ -84,47 +96,50 @@ export default function PerformancePage() {
             <option value="">All Constituencies</option>
             {CONSTITUENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
-          <div className="ml-auto flex items-center gap-1 rounded-lg bg-slate-100 p-1">
+          <div className="ml-auto flex items-center gap-1 rounded-lg bg-white/50 p-1 ring-1 ring-white/60">
             <ModeBtn active={mode === "complaints"} onClick={() => setMode("complaints")} icon={Flame}>Complaint density</ModeBtn>
             <ModeBtn active={mode === "upvotes"} onClick={() => setMode("upvotes")} icon={ThumbsUp}>Upvote hotspots</ModeBtn>
           </div>
         </div>
 
-        {/* Map (top half) */}
-        <div className="relative h-[46vh] overflow-hidden rounded-2xl border border-slate-200 shadow-sm">
-          {center ? (
-            <AdminHeatMap issues={scoped} mode={mode} center={center} boundaries={boundaries}
-              highlightZone={zone || null} highlightWard={ward || null} />
-          ) : (
-            <div className="flex h-full items-center justify-center text-sm text-slate-400">
-              {loading ? "Loading map…" : "No geolocated grievances for this filter."}
+        {/* Map + MLA social mentions */}
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1.6fr_1fr]">
+          <div className="glass-panel relative h-[46vh] overflow-hidden rounded-2xl">
+            {center ? (
+              <AdminHeatMap issues={scoped} mode={mode} center={center} boundaries={boundaries}
+                highlightZone={zone || null} highlightWard={ward || null} />
+            ) : (
+              <div className="flex h-full items-center justify-center text-sm text-slate-400">
+                {loading ? "Loading map…" : "No geolocated grievances for this filter."}
+              </div>
+            )}
+            <div className="absolute bottom-3 right-3 z-[500] flex items-center gap-2 rounded-lg bg-white/85 px-3 py-1.5 text-[10px] font-medium shadow ring-1 ring-white/60 backdrop-blur">
+              <span className="text-slate-500">{mode === "upvotes" ? "Upvote intensity" : "Complaint density"}</span>
+              <span className="flex items-center gap-0.5">
+                {["#f59e0b", "#dc2626", "#7a1c1c"].map((c) => <span key={c} className="inline-block h-2 w-2 rounded-full" style={{ background: c }} />)}
+              </span>
+              <span className="text-slate-400">low → high</span>
             </div>
-          )}
-          <div className="absolute bottom-3 right-3 z-[500] flex items-center gap-2 rounded-lg bg-white/90 px-3 py-1.5 text-[10px] font-medium shadow ring-1 ring-slate-200">
-            <span className="text-slate-500">{mode === "upvotes" ? "Upvote intensity" : "Complaint density"}</span>
-            <span className="flex items-center gap-0.5">
-              {["#f59e0b", "#dc2626", "#7a1c1c"].map((c) => <span key={c} className="inline-block h-2 w-2 rounded-full" style={{ background: c }} />)}
-            </span>
-            <span className="text-slate-400">low → high</span>
           </div>
+
+          <SocialMentionsCard social={social} ac={ac || DEFAULT_AC} isDefault={!ac} />
         </div>
 
-        {/* KPI cards */}
+        {/* Grievance KPIs */}
+        <SectionTitle icon={Ticket}>Grievance overview{ac ? ` · ${shortAC(ac)}` : ""}</SectionTitle>
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 xl:grid-cols-7">
           <Kpi label="Total" value={kpi.total} icon={Ticket} tone="text-slate-800" />
           <Kpi label="Pending Review" value={kpi.pending} icon={Clock} tone="text-violet-600" />
-          <Kpi label="Open" value={kpi.open} icon={Ticket} tone="text-blue-600" />
+          <Kpi label="Open" value={kpi.open} icon={Ticket} tone="text-brand" />
           <Kpi label="In Progress" value={kpi.inProgress} icon={Gauge} tone="text-amber-600" />
           <Kpi label="Resolved" value={kpi.resolved} icon={CheckCircle2} tone="text-emerald-600" />
           <Kpi label="SLA Breached" value={kpi.breached} icon={TimerOff} tone="text-red-500" />
-          <Kpi label="Resolution Rate" value={`${kpi.resolutionRate}%`} icon={Gauge} tone="text-blue-600" />
+          <Kpi label="Resolution Rate" value={`${kpi.resolutionRate}%`} icon={Gauge} tone="text-brand" />
         </div>
 
         {/* Charts */}
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <Card title="Status funnel">
-            <Bars data={kpi.statusBars} />
-          </Card>
+          <Card title="Status funnel"><Bars data={kpi.statusBars} /></Card>
           <Card title="Priority split">
             <div className="flex items-center gap-5">
               <Donut segments={kpi.priorityDonut} total={kpi.total} />
@@ -139,9 +154,7 @@ export default function PerformancePage() {
               </div>
             </div>
           </Card>
-          <Card title="Department load">
-            <Bars data={kpi.deptBars} empty="No routed grievances yet" />
-          </Card>
+          <Card title="Department load"><Bars data={kpi.deptBars} empty="No routed grievances yet" /></Card>
           <Card title="Average resolution & ageing">
             <div className="grid grid-cols-2 gap-3">
               <Stat label="Avg days open" value={kpi.avgOpen} suffix="d" />
@@ -150,19 +163,141 @@ export default function PerformancePage() {
               <Stat label="On-track SLA" value={`${kpi.onTrackRate}%`} />
             </div>
           </Card>
-          <Card title="Hotspot zones">
-            <Bars data={kpi.zoneBars} empty="No zoned grievances" />
-          </Card>
-          <Card title="Hotspot constituencies">
-            <Bars data={kpi.acBars} empty="No mapped constituencies" />
-          </Card>
+          <Card title="Hotspot zones"><Bars data={kpi.zoneBars} empty="No zoned grievances" /></Card>
+          <Card title="Hotspot constituencies"><Bars data={kpi.acBars} empty="No mapped constituencies" /></Card>
+        </div>
+
+        {/* Community Pulse */}
+        <SectionTitle icon={Sparkles}>Community pulse · citizen app engagement</SectionTitle>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+          <Kpi label="Posts" value={community.posts} icon={Megaphone} tone="text-slate-800" />
+          <Kpi label="Engaged Voices" value={community.voices} icon={Users} tone="text-brand" />
+          <Kpi label="Likes" value={fmt(community.likes)} icon={Heart} tone="text-rose-500" />
+          <Kpi label="Comments" value={fmt(community.comments)} icon={MessageCircle} tone="text-amber-600" />
+          <Kpi label="Shares" value={fmt(community.shares)} icon={Share2} tone="text-emerald-600" />
+          <Kpi label="Poll Votes" value={fmt(community.pollVotes)} icon={BarChart3} tone="text-violet-600" />
+        </div>
+        {community.top && (
+          <div className="glass-panel flex flex-wrap items-center gap-2 rounded-2xl px-4 py-3 text-sm">
+            <span className="rounded-md bg-gradient-to-r from-amber-400 to-amber-500 px-2 py-0.5 text-[11px] font-bold text-brand-dark">TOP POST</span>
+            <span className="font-semibold text-slate-800">{community.top.title}</span>
+            <span className="text-slate-400">by {community.top.author}</span>
+            <span className="ml-auto flex items-center gap-1 font-bold text-brand"><TrendingUp size={14} /> {fmt(community.top.eng)} engagements</span>
+          </div>
+        )}
+
+        {/* Content Moderation */}
+        <SectionTitle icon={ShieldAlert}>
+          Content moderation · flagged community content
+          {flagged.length > 0 && <span className="rounded-full bg-red-500 px-2 py-0.5 text-[11px] font-bold text-white">{flagged.length}</span>}
+        </SectionTitle>
+        <div className="glass-panel-strong overflow-hidden rounded-2xl">
+          {flagged.length === 0 ? (
+            <div className="flex flex-col items-center gap-2 py-12 text-center text-slate-400">
+              <ShieldCheck size={36} className="text-emerald-400" />
+              <p className="font-semibold">Queue clear — no flagged community content pending review.</p>
+            </div>
+          ) : flagged.map((f) => (
+            <ModerationRow key={f.id} item={f} resolved={resolvedMod[f.id]} onAct={actMod} />
+          ))}
         </div>
       </div>
     </>
   );
 }
 
-const selectCls = "rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 outline-none focus:border-blue-500";
+const selectCls = "rounded-lg border border-white/60 bg-white/60 px-2.5 py-1.5 text-xs font-semibold text-slate-700 outline-none backdrop-blur focus:border-brand";
+const fmt = (n) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`);
+
+/* ── MLA social mentions card ── */
+function SocialMentionsCard({ social, ac, isDefault }) {
+  const up = social.trend >= 0;
+  return (
+    <div className="glass-panel glass-hover flex flex-col rounded-2xl p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-brand"><Radio size={12} /> Social mentions · MLA</p>
+          <p className="mt-1 text-lg font-extrabold leading-tight text-slate-900">{social.mla}</p>
+          <p className="text-xs font-semibold text-slate-500">MLA · {shortAC(ac)} {isDefault && <span className="text-slate-400">(select a constituency to change)</span>}</p>
+        </div>
+        {/* KPI numbers at the corner of the summary */}
+        <div className="grid shrink-0 grid-cols-2 gap-1.5 text-right">
+          <Corner label="Mentions" value={fmt(social.mentions)} tone="text-brand" />
+          <Corner label="Reach" value={`${social.reach}k`} tone="text-slate-800" />
+          <Corner label="Positive" value={`${social.pos}%`} tone="text-emerald-600" />
+          <Corner label="Trend" value={`${up ? "+" : ""}${social.trend}%`} tone={up ? "text-emerald-600" : "text-red-500"} icon={up ? TrendingUp : TrendingDown} />
+        </div>
+      </div>
+
+      {/* Sentiment bar */}
+      <div className="mt-4 flex h-2 overflow-hidden rounded-full">
+        <span className="bg-emerald-500" style={{ width: `${social.pos}%` }} />
+        <span className="bg-slate-300" style={{ width: `${social.neu}%` }} />
+        <span className="bg-red-400" style={{ width: `${social.neg}%` }} />
+      </div>
+      <div className="mt-1 flex justify-between text-[10px] font-medium text-slate-400">
+        <span>Positive {social.pos}%</span><span>Neutral {social.neu}%</span><span>Negative {social.neg}%</span>
+      </div>
+
+      <p className="mt-3 flex-1 text-[13px] leading-relaxed text-slate-600">{social.summary}</p>
+
+      <div className="mt-3 flex flex-wrap gap-1.5">
+        {social.hashtags.map((h) => (
+          <span key={h} className="rounded-full bg-brand-50 px-2.5 py-0.5 text-[11px] font-semibold text-brand ring-1 ring-brand-100">{h}</span>
+        ))}
+      </div>
+      <p className="mt-3 text-[10px] italic text-slate-400">Illustrative social-listening data · updates hourly</p>
+    </div>
+  );
+}
+function Corner({ label, value, tone, icon: Icon }) {
+  return (
+    <div className="rounded-lg bg-white/50 px-2 py-1 ring-1 ring-white/60">
+      <p className="text-[9px] font-bold uppercase tracking-wide text-slate-400">{label}</p>
+      <p className={`flex items-center justify-end gap-0.5 text-sm font-extrabold ${tone}`}>{Icon && <Icon size={12} />}{value}</p>
+    </div>
+  );
+}
+
+/* ── Moderation row ── */
+function ModerationRow({ item, resolved, onAct }) {
+  const high = item.severity === "High";
+  return (
+    <div className={`flex flex-wrap items-start gap-3 border-t border-white/40 px-5 py-4 first:border-t-0 ${resolved ? "opacity-40" : ""}`}
+      style={{ transition: "opacity .25s ease" }}>
+      <span className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${high ? "bg-red-100 text-red-600" : "bg-amber-100 text-amber-700"}`}>
+        <ShieldAlert size={16} />
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className={`rounded-md px-2 py-0.5 text-[10px] font-bold ${high ? "bg-red-500 text-white" : "bg-amber-400 text-amber-950"}`}>{item.severity}</span>
+          <span className="text-sm font-bold text-slate-800">{item.reason}</span>
+          <span className="text-[11px] text-slate-400">· model score {item.score}</span>
+        </div>
+        <p className="mt-1 rounded-lg bg-red-50/60 px-3 py-2 text-sm italic text-slate-700 ring-1 ring-red-100">“{item.text}”</p>
+        <p className="mt-1 text-[11px] text-slate-400">@{item.author} · {item.area} · {item.context}</p>
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        {resolved ? (
+          <span className="text-xs font-bold text-slate-500">{resolved === "remove" ? "Removed" : "Kept"}</span>
+        ) : (
+          <>
+            <button onClick={() => onAct(item.id, "keep")} title="Verify as safe / keep"
+              style={{ transition: "all .25s ease" }}
+              className="flex items-center gap-1 rounded-lg border border-slate-300 bg-white/70 px-3 py-1.5 text-xs font-bold text-slate-600 hover:-translate-y-px hover:bg-white">
+              <ShieldCheck size={13} /> Keep
+            </button>
+            <button onClick={() => onAct(item.id, "remove")} title="Remove violating content"
+              style={{ transition: "all .25s ease" }}
+              className="flex items-center gap-1 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-bold text-white hover:-translate-y-px hover:bg-red-700">
+              <Trash2 size={13} /> Remove
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
 
 /* ── analytics ── */
 function computeKpis(issues) {
@@ -185,11 +320,10 @@ function computeKpis(issues) {
 
   const statusBars = [
     { label: "Pending", value: pending, color: "#7c3aed" },
-    { label: "Open", value: open, color: "#2563eb" },
+    { label: "Open", value: open, color: "#7a1c1c" },
     { label: "In Progress", value: inProgress, color: "#f59e0b" },
     { label: "Resolved", value: resolved, color: "#059669" },
   ];
-
   const prio = { High: 0, Medium: 0, Low: 0 };
   for (const i of issues) prio[derivePriority(i)]++;
   const priorityDonut = [
@@ -197,15 +331,12 @@ function computeKpis(issues) {
     { label: "Medium", value: prio.Medium, color: PRIORITY_META.Medium.dot },
     { label: "Low", value: prio.Low, color: PRIORITY_META.Low.dot },
   ];
-
   const deptCount = {};
-  for (const i of issues) if (i.department) deptCount[departmentMeta(i.department).short] = (deptCount[departmentMeta(i.department).short] || 0) + 1;
-  const deptBars = topBars(deptCount, "#0ea5e9");
-
+  for (const i of issues) if (i.department) { const k = departmentMeta(i.department).short; deptCount[k] = (deptCount[k] || 0) + 1; }
+  const deptBars = topBars(deptCount, "#c99a2e");
   const zoneCount = {};
   for (const i of issues) if (i.zone) { const k = `Zone ${i.zone}`; zoneCount[k] = (zoneCount[k] || 0) + 1; }
   const zoneBars = topBars(zoneCount, "#7a1c1c");
-
   const acCount = {};
   for (const i of issues) for (const a of constituenciesForWard(i.ward_no)) { const k = shortAC(a); acCount[k] = (acCount[k] || 0) + 1; }
   const acBars = topBars(acCount, "#6366f1");
@@ -213,23 +344,26 @@ function computeKpis(issues) {
   return { total, pending, open, inProgress, resolved, breached, resolutionRate,
     avgOpen, oldest, avgUpvotes, onTrackRate, statusBars, priorityDonut, deptBars, zoneBars, acBars };
 }
-
 function topBars(countMap, color, n = 5) {
   return Object.entries(countMap).map(([label, value]) => ({ label, value, color }))
     .sort((a, b) => b.value - a.value).slice(0, n);
 }
 
 /* ── UI atoms ── */
+function SectionTitle({ icon: Icon, children }) {
+  return <p className="flex items-center gap-2 pt-1 text-sm font-extrabold text-slate-700"><Icon size={16} className="text-brand" /> {children}</p>;
+}
 function ModeBtn({ active, onClick, icon: Icon, children }) {
   return (
-    <button onClick={onClick} className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-bold transition ${active ? "bg-white text-slate-800 shadow-sm" : "text-slate-500"}`}>
+    <button onClick={onClick} style={{ transition: "all .3s cubic-bezier(.22,1,.36,1)" }}
+      className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-bold ${active ? "bg-gradient-to-r from-brand to-brand-dark text-white" : "text-slate-500"}`}>
       <Icon size={13} /> {children}
     </button>
   );
 }
 function Kpi({ label, value, icon: Icon, tone }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+    <div className="glass-panel glass-hover rounded-2xl p-4">
       <div className="mb-1 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-400"><Icon size={12} /> {label}</div>
       <p className={`text-2xl font-extrabold ${tone}`}>{value}</p>
     </div>
@@ -237,7 +371,7 @@ function Kpi({ label, value, icon: Icon, tone }) {
 }
 function Card({ title, children }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+    <div className="glass-panel rounded-2xl p-5">
       <p className="mb-3 text-sm font-bold text-slate-700">{title}</p>
       {children}
     </div>
@@ -254,8 +388,8 @@ function Bars({ data, empty = "No data" }) {
             <span className="font-semibold text-slate-600">{d.label}</span>
             <span className="text-slate-400">{d.value}</span>
           </div>
-          <div className="h-2.5 overflow-hidden rounded-full bg-slate-100">
-            <div className="h-full rounded-full" style={{ width: `${(d.value / max) * 100}%`, background: d.color }} />
+          <div className="h-2.5 overflow-hidden rounded-full bg-slate-200/70">
+            <div className="h-full rounded-full" style={{ width: `${(d.value / max) * 100}%`, background: d.color, transition: "width .5s cubic-bezier(.22,1,.36,1)" }} />
           </div>
         </div>
       ))}
@@ -268,22 +402,20 @@ function Donut({ segments, total }) {
   const sum = segments.reduce((s, x) => s + x.value, 0) || 1;
   return (
     <svg width={size} height={size} className="shrink-0 -rotate-90">
-      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#f1f5f9" strokeWidth={stroke} />
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#e2e8f0" strokeWidth={stroke} />
       {segments.map((s) => {
         const len = (s.value / sum) * circ;
         const el = <circle key={s.label} cx={size / 2} cy={size / 2} r={r} fill="none" stroke={s.color}
           strokeWidth={stroke} strokeDasharray={`${len} ${circ - len}`} strokeDashoffset={-offset} />;
-        offset += len;
-        return el;
+        offset += len; return el;
       })}
-      <text x="50%" y="50%" className="rotate-90" transform={`rotate(90 ${size / 2} ${size / 2})`}
-        textAnchor="middle" dominantBaseline="central" fontSize="20" fontWeight="800" fill="#0f172a">{total}</text>
+      <text x="50%" y="50%" transform={`rotate(90 ${size / 2} ${size / 2})`} textAnchor="middle" dominantBaseline="central" fontSize="20" fontWeight="800" fill="#0f172a">{total}</text>
     </svg>
   );
 }
 function Stat({ label, value, suffix = "" }) {
   return (
-    <div className="rounded-xl bg-slate-50 p-3">
+    <div className="rounded-xl bg-white/50 p-3 ring-1 ring-white/50">
       <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{label}</p>
       <p className="text-xl font-extrabold text-slate-800">{value}{suffix}</p>
     </div>

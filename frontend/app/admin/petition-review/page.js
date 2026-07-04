@@ -48,9 +48,9 @@ export default function PetitionReviewPage() {
 
   return (
     <>
-      <header className="flex items-center justify-between border-b border-slate-200 bg-white px-7 py-4">
+      <header className="glass-panel z-10 flex items-center justify-between px-7 py-4">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-100 text-violet-600"><ClipboardCheck size={20} /></div>
+          <div className="glass-panel flex h-10 w-10 items-center justify-center rounded-xl text-violet-600"><ClipboardCheck size={20} /></div>
           <div>
             <h1 className="text-xl font-extrabold tracking-tight">Petition Review</h1>
             <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Verify citizen grievances before they go live</p>
@@ -60,7 +60,7 @@ export default function PetitionReviewPage() {
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden px-7 py-5">
-        <div className="flex items-center gap-2.5 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+        <div className="glass-panel flex items-center gap-2.5 rounded-2xl px-4 py-3">
           <Search size={18} className="text-slate-400" />
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search pending petitions…"
             className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-slate-400" />
@@ -82,8 +82,8 @@ export default function PetitionReviewPage() {
                 const acs = constituenciesForWard(issue.ward_no);
                 return (
                   <article key={issue.id} onClick={() => setSelected(issue)}
-                    className="group cursor-pointer overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:shadow-md hover:ring-1 hover:ring-violet-200">
-                    <div className="flex items-center gap-1.5 border-b border-violet-100 bg-violet-50 px-4 py-2">
+                    className="glass-panel glass-hover group cursor-pointer overflow-hidden rounded-2xl">
+                    <div className="flex items-center gap-1.5 border-b border-violet-200/50 bg-violet-50/60 px-4 py-2">
                       <span className="h-1.5 w-1.5 rounded-full bg-violet-500 glow-pending" />
                       <span className="text-[11px] font-bold uppercase tracking-wide text-violet-700">Pending Verification</span>
                       <span className="ml-auto text-[11px] text-violet-400">{daysOpen(issue)}d ago</span>

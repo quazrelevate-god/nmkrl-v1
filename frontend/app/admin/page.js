@@ -87,9 +87,9 @@ export default function TicketsPage() {
   return (
     <>
       {/* Header */}
-      <header className="flex items-center justify-between border-b border-slate-200 bg-white px-7 py-4">
+      <header className="glass-panel z-10 flex items-center justify-between px-7 py-4">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-500">
+          <div className="glass-panel flex h-10 w-10 items-center justify-center rounded-xl text-brand">
             <TicketIcon size={20} />
           </div>
           <div>
@@ -97,12 +97,12 @@ export default function TicketsPage() {
             <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Manage and track citizen grievances</p>
           </div>
         </div>
-        <span className="rounded-full bg-blue-600 px-3 py-1 text-xs font-bold text-white">EN</span>
+        <span className="rounded-full bg-gradient-to-r from-brand to-brand-dark px-3 py-1 text-xs font-bold text-white">EN</span>
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden px-7 py-5">
         {/* Search */}
-        <div className="flex items-center gap-2.5 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+        <div className="glass-panel flex items-center gap-2.5 rounded-2xl px-4 py-3">
           <Search size={18} className="text-slate-400" />
           <input
             value={query}
@@ -114,18 +114,19 @@ export default function TicketsPage() {
         </div>
 
         {/* Tabs + quick filters */}
-        <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2.5 shadow-sm">
+        <div className="glass-panel flex flex-wrap items-center gap-2 rounded-2xl px-3 py-2.5">
           <div className="flex flex-wrap items-center gap-1">
             {TICKET_TABS.map((t) => (
               <button
                 key={t.key || "all"}
                 onClick={() => setTab(t.key)}
-                className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold transition ${
-                  tab === t.key ? "bg-blue-600 text-white" : "text-slate-500 hover:bg-slate-100"
+                style={{ transition: "all .3s cubic-bezier(.22,1,.36,1)" }}
+                className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold ${
+                  tab === t.key ? "accent-ring bg-gradient-to-r from-brand to-brand-dark text-white" : "text-slate-500 hover:bg-white/50"
                 }`}
               >
                 {t.label}
-                <span className={`rounded-md px-1.5 text-[11px] font-bold ${tab === t.key ? "bg-white/25 text-white" : "bg-slate-100 text-slate-500"}`}>
+                <span className={`rounded-md px-1.5 text-[11px] font-bold ${tab === t.key ? "bg-amber-400 text-brand-dark" : "bg-slate-100 text-slate-500"}`}>
                   {counts[t.key] ?? 0}
                 </span>
               </button>
@@ -166,9 +167,9 @@ export default function TicketsPage() {
         </div>
 
         {/* Table */}
-        <div className="min-h-0 flex-1 overflow-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="glass-panel-strong min-h-0 flex-1 overflow-auto rounded-2xl">
           <table className="w-full border-collapse text-sm">
-            <thead className="sticky top-0 z-10 bg-slate-50/95 text-left text-[11px] font-bold uppercase tracking-wider text-slate-400 backdrop-blur">
+            <thead className="sticky top-0 z-10 bg-white/70 text-left text-[11px] font-bold uppercase tracking-wider text-slate-400 backdrop-blur">
               <tr>
                 <th className="px-5 py-3">Ticket</th>
                 <th className="px-3 py-3">Citizen</th>
@@ -186,11 +187,16 @@ export default function TicketsPage() {
                 <tr><td colSpan={9} className="px-5 py-16 text-center text-slate-400">Loading tickets…</td></tr>
               ) : rows.length === 0 ? (
                 <tr><td colSpan={9} className="px-5 py-16 text-center text-slate-400">No tickets match this view.</td></tr>
-              ) : rows.map((issue) => (
+              ) : rows.slice(0, VISIBLE).map((issue) => (
                 <TicketRow key={issue.id} issue={issue} onOpen={() => setSelected(issue)} />
               ))}
             </tbody>
           </table>
+          {rows.length > VISIBLE && (
+            <p className="border-t border-slate-200/50 bg-white/40 px-5 py-3 text-center text-xs text-slate-500">
+              Showing {VISIBLE} of {rows.length} tickets · refine with search or filters to see more
+            </p>
+          )}
         </div>
       </div>
 
@@ -205,14 +211,16 @@ export default function TicketsPage() {
   );
 }
 
-const selectCls = "rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 outline-none focus:border-blue-500";
+const VISIBLE = 150; // cap rendered rows for smooth scrolling; filters reveal the rest
+const selectCls = "rounded-lg border border-white/60 bg-white/60 px-2.5 py-1.5 text-xs font-semibold text-slate-700 outline-none backdrop-blur focus:border-brand";
 
 function QuickChip({ active, onClick, icon: Icon, children }) {
   return (
     <button
       onClick={onClick}
-      className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
-        active ? "border-blue-500 bg-blue-50 text-blue-600" : "border-slate-200 text-slate-500 hover:bg-slate-50"
+      style={{ transition: "all .3s cubic-bezier(.22,1,.36,1)" }}
+      className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold ${
+        active ? "border-brand/40 bg-brand-50 text-brand" : "border-white/60 bg-white/40 text-slate-500 hover:bg-white/70"
       }`}
     >
       <Icon size={13} /> {children}
@@ -230,11 +238,11 @@ function TicketRow({ issue, onOpen }) {
   const breached = slaBreached(issue);
 
   return (
-    <tr onClick={onOpen} className="group cursor-pointer border-t border-slate-100 hover:bg-slate-50/70">
+    <tr onClick={onOpen} style={{ transition: "background .25s ease" }} className="group cursor-pointer border-t border-slate-200/50 hover:bg-white/60">
       {/* Ticket + priority accent */}
       <td className="relative px-5 py-3.5">
         <span className="absolute inset-y-2 left-0 w-1 rounded-full" style={{ background: pm.dot }} />
-        <p className="font-bold text-blue-600">{ticketNo(issue)}</p>
+        <p className="font-bold text-brand">{ticketNo(issue)}</p>
         <p className="text-[11px] text-slate-400">{tokenNo(issue)}</p>
       </td>
       {/* Citizen */}
@@ -272,7 +280,7 @@ function TicketRow({ issue, onOpen }) {
         <p className={`text-[13px] font-bold ${breached ? "text-red-500" : "text-emerald-600"}`}>{d}d</p>
         <p className="text-[10px] text-slate-400">{slaWeeksLabel(issue)}</p>
       </td>
-      <td className="pr-4 text-slate-300 group-hover:text-blue-500"><ChevronRight size={18} /></td>
+      <td className="pr-4 text-slate-300 group-hover:text-brand"><ChevronRight size={18} /></td>
     </tr>
   );
 }
