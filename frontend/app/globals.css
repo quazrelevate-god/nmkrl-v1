@@ -100,13 +100,14 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.12);
 }
 
-/* Soft app background gradient the glass floats over (maroon-tinted). */
+/* Soft app background gradient the glass floats over — near-white with just a
+   whisper of warm maroon/gold so the brand reads subtly, never dominating. */
 .app-bg {
   background:
-    radial-gradient(1200px 600px at 15% -10%, rgba(122,28,28,0.20), transparent 60%),
-    radial-gradient(1000px 500px at 110% 10%, rgba(160,60,60,0.16), transparent 55%),
-    radial-gradient(900px 700px at 50% 120%, rgba(217,180,120,0.16), transparent 55%),
-    #f3eeee;
+    radial-gradient(1200px 600px at 15% -10%, rgba(122,28,28,0.06), transparent 60%),
+    radial-gradient(1000px 500px at 110% 10%, rgba(160,60,60,0.045), transparent 55%),
+    radial-gradient(900px 700px at 50% 120%, rgba(217,180,120,0.06), transparent 55%),
+    #fbfafb;
 }
 
 /* Natural spring-ish easing used across transitions. */

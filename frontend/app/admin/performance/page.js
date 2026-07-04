@@ -217,7 +217,14 @@ function SocialMentionsCard({ social, ac, isDefault }) {
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-brand"><Radio size={12} /> Social mentions · MLA</p>
-          <p className="mt-1 text-lg font-extrabold leading-tight text-slate-900">{social.mla}</p>
+          <div className="mt-1 flex items-center gap-2">
+            <p className={`text-lg font-extrabold leading-tight ${social.pending ? "italic text-slate-400" : "text-slate-900"}`}>{social.mla}</p>
+            {social.party && (
+              <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold ${
+                social.party === "DMK" ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-800"
+              }`}>{social.party}</span>
+            )}
+          </div>
           <p className="text-xs font-semibold text-slate-500">MLA · {shortAC(ac)} {isDefault && <span className="text-slate-400">(select a constituency to change)</span>}</p>
         </div>
         {/* KPI numbers at the corner of the summary */}

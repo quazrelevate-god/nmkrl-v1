@@ -13,24 +13,24 @@
 import { FEED, STORIES } from "@/lib/communityData";
 import { shortAC } from "@/lib/constituencies";
 
-/* Fictional MLA per constituency (mock — showcase only). */
+/* Elected MLA per constituency (matched by constituency name). */
 export const MLA_BY_AC = {
-  "11 - Dr. Radhakrishnan Nagar": "R. Senthil Vel",
-  "12 - Perambur": "K. Arumugam",
-  "13 - Kolathur": "M. Devanathan",
-  "14 - Villivakkam": "S. Prabhu Rajan",
-  "15 - Thiru-Vi-Ka-Nagar": "A. Jothi Murugan",
-  "16 - Egmore": "V. Kalaiselvi",
-  "17 - Harbour": "P. Dhanasekaran",
-  "18 - Chepauk-Thiruvallikeni": "N. Karim Basha",
-  "19 - Thousand Lights": "R. Ezhil Arasan",
-  "20 - Anna Nagar": "S. Meenakshi Sundaram",
-  "21 - Virugambakkam": "T. Bhuvaneswari",
-  "22 - Saidapet": "G. Ramkumar",
-  "23 - Thiyagarayanagar": "L. Chandrasekhar",
-  "24 - Mylapore": "K. Vaidyanathan",
-  "25 - Velachery": "D. Anitha Radhakrishnan",
-  "26 - Shozhinganallur": "M. Suresh Babu",
+  "11 - Dr. Radhakrishnan Nagar": { mla: "N. Marie Wilson", party: "TVK" },
+  "12 - Perambur": { mla: "C. Joseph Vijay", party: "TVK" },
+  "13 - Kolathur": { mla: "V.S. Babu", party: "TVK" },
+  "14 - Villivakkam": { mla: "Aadhav Arjuna", party: "TVK" },
+  "15 - Thiru-Vi-Ka-Nagar": { mla: "M.R. Pallavi", party: "TVK" },
+  "16 - Egmore": { mla: "Rajmohan", party: "TVK" },
+  "17 - Harbour": { mla: "P.K. Sekarbabu", party: "DMK" },
+  "18 - Chepauk-Thiruvallikeni": { mla: "Udhayanidhi Stalin", party: "DMK" },
+  "19 - Thousand Lights": { mla: "J.C.D. Prabhakar", party: "TVK" },
+  "20 - Anna Nagar": { mla: "V.K. Ramkumar", party: "TVK" },
+  "21 - Virugambakkam": { mla: "R. Sabarinathan", party: "TVK" },
+  "22 - Saidapet": { mla: "M. Arul Prakasam", party: "TVK" },
+  "23 - Thiyagarayanagar": { mla: "Data Pending", party: "TVK" },
+  "24 - Mylapore": { mla: "Data Pending", party: "TVK" },
+  "25 - Velachery": { mla: "Data Pending", party: "TVK" },
+  "26 - Shozhinganallur": { mla: "Data Pending", party: "TVK" },
 };
 
 const PLATFORMS = ["X (Twitter)", "Instagram", "Facebook", "YouTube"];
@@ -43,7 +43,8 @@ function hash(str) {
 
 /** Deterministic mock social buzz for a constituency's MLA. */
 export function socialMentions(ac) {
-  const mla = MLA_BY_AC[ac] || "the Ward Councillor";
+  const info = MLA_BY_AC[ac] || { mla: "the Ward Councillor", party: "" };
+  const pending = info.mla === "Data Pending";
   const name = shortAC(ac);
   const h = hash(ac || "chennai");
   const mentions = 800 + (h % 3600);            // 0.8k – 4.4k
@@ -62,10 +63,12 @@ export function socialMentions(ac) {
   const t1 = topics[h % topics.length];
   const t2 = topics[(h + 3) % topics.length];
 
-  const summary =
-    `${mla}${ac ? ` (MLA, ${name})` : ""} is trending around the ${t1} and ${t2}. ` +
-    `Citizens are largely ${pos >= 55 ? "appreciative" : pos >= 45 ? "mixed but hopeful" : "critical"}, ` +
-    `with the ${platform} conversation driving most of the buzz this week.`;
+  const summary = pending
+    ? `The ${name} seat result is still being finalised. Meanwhile, civic chatter is ` +
+      `trending around the ${t1} and ${t2}, with ${platform} driving most of the conversation this week.`
+    : `${info.mla} (MLA, ${name}, ${info.party}) is trending around the ${t1} and ${t2}. ` +
+      `Citizens are largely ${pos >= 55 ? "appreciative" : pos >= 45 ? "mixed but hopeful" : "critical"}, ` +
+      `with the ${platform} conversation driving most of the buzz this week.`;
 
   const hashtags = [
     `#${name.replace(/[^A-Za-z]/g, "")}`,
@@ -74,7 +77,7 @@ export function socialMentions(ac) {
     trend >= 0 ? "#GoodGovernance" : "#WeWantAction",
   ];
 
-  return { mla, name, mentions, pos, neu, neg, reach, trend, platform, summary, hashtags };
+  return { mla: info.mla, party: info.party, pending, name, mentions, pos, neu, neg, reach, trend, platform, summary, hashtags };
 }
 
 function countComments(nodes = []) {

@@ -12,8 +12,8 @@
  *   mode="complaints"→ weight each ward by its complaint count (raw density)
  */
 
-import { Fragment, useEffect, useMemo } from "react";
-import { MapContainer, TileLayer, CircleMarker, Tooltip, useMap } from "react-leaflet";
+import { useEffect, useMemo, useState } from "react";
+import { MapContainer, TileLayer, CircleMarker, Tooltip, useMap, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import BoundaryLayer from "@/components/BoundaryLayer";
 
@@ -28,6 +28,41 @@ function heatColor(t) {
   if (t < 0.33) return "#f59e0b";
   if (t < 0.66) return "#dc2626";
   return "#7a1c1c";
+}
+
+/**
+ * Crisp per-ward density dots. Instead of soft stacked blobs (which bloom into
+ * a cloudy cluster when zoomed out), each ward is one clean dot whose size is
+ * clamped: it shrinks as you zoom out and stops shrinking at a floor, so the
+ * dots stay distinct and never overlap into a smear.
+ */
+function DensityDots({ points, mode }) {
+  const map = useMap();
+  const [zoom, setZoom] = useState(map.getZoom());
+  useMapEvents({ zoomend: () => setZoom(map.getZoom()) });
+
+  // zoom 11 → 0.45 (small dots, no overlap) … zoom 15+ → 1 (full size). Clamped.
+  const zScale = Math.max(0.45, Math.min(1, (zoom - 11) / 4));
+
+  return points.map((p) => {
+    const r = Math.max(3, Math.min(14, (4 + p.t * 9) * zScale));
+    return (
+      <CircleMarker
+        key={p.key}
+        center={[p.lat, p.lng]}
+        radius={r}
+        pathOptions={{ color: "#ffffff", weight: 1.25, fillColor: heatColor(p.t), fillOpacity: 0.9 }}
+      >
+        <Tooltip direction="top" offset={[0, -4]}>
+          <span className="text-xs font-semibold">
+            Ward {p.ward ?? "—"}{p.zone ? ` · Zone ${p.zone}` : ""}
+          </span>
+          <br />
+          {mode === "upvotes" ? `${p.upvotes} total upvotes` : `${p.count} complaints`}
+        </Tooltip>
+      </CircleMarker>
+    );
+  });
 }
 
 export default function AdminHeatMap({
@@ -74,37 +109,7 @@ export default function AdminHeatMap({
       />
       <Recenter center={centerArr} />
       <BoundaryLayer data={boundaries} highlightZone={highlightZone} highlightWard={highlightWard} />
-
-      {points.map((p) => {
-        const color = heatColor(p.t);
-        return (
-          <Fragment key={p.key}>
-            <CircleMarker
-              center={[p.lat, p.lng]}
-              radius={30 + p.t * 28}
-              pathOptions={{ stroke: false, fillColor: color, fillOpacity: 0.14 }}
-            />
-            <CircleMarker
-              center={[p.lat, p.lng]}
-              radius={18 + p.t * 16}
-              pathOptions={{ stroke: false, fillColor: color, fillOpacity: 0.24 }}
-            />
-            <CircleMarker
-              center={[p.lat, p.lng]}
-              radius={8 + p.t * 8}
-              pathOptions={{ stroke: false, fillColor: color, fillOpacity: 0.6 }}
-            >
-              <Tooltip direction="top" offset={[0, -4]}>
-                <span className="text-xs font-semibold">
-                  Ward {p.ward ?? "—"}{p.zone ? ` · Zone ${p.zone}` : ""}
-                </span>
-                <br />
-                {mode === "upvotes" ? `${p.upvotes} total upvotes` : `${p.count} complaints`}
-              </Tooltip>
-            </CircleMarker>
-          </Fragment>
-        );
-      })}
+      <DensityDots points={points} mode={mode} />
     </MapContainer>
   );
 }

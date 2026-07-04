@@ -5,7 +5,7 @@ import dynamic from "next/dynamic";
 import {
   ThumbsUp, CheckCircle2, XCircle, MapPin, RotateCcw,
   SlidersHorizontal, Ticket, ChevronDown, ChevronUp, Sparkles, Navigation,
-  Search, X, Users, FileText,
+  Search, X, Users, FileText, Landmark,
 } from "lucide-react";
 import MobileShell from "@/components/MobileShell";
 import UpvoteModal from "@/components/UpvoteModal";
@@ -158,7 +158,9 @@ function IssueCard({ issue, expanded, onToggle, dist, onUpvote }) {
 }
 
 export default function MapHistoryScreen() {
-  const { coords } = useGeolocation();
+  const { coords: geoCoords } = useGeolocation();
+  const [override, setOverride]   = useState(null); // demo: jump to an Egmore ward
+  const coords = override || geoCoords;             // effective location
   const [center, setCenter]       = useState(null); // fixed device location
   const [mapIssues, setMapIssues] = useState([]);
   const [wardIssues, setWardIssues] = useState([]);
@@ -180,6 +182,23 @@ export default function MapHistoryScreen() {
   useEffect(() => { fetchBoundaries().then(setBoundaries).catch(() => {}); }, []);
   // Device location is captured once and stays fixed — the radius never drifts.
   useEffect(() => { if (coords && !center) setCenter(coords); }, [coords, center]);
+  // Demo jump recenters the map on the chosen Egmore ward.
+  useEffect(() => { if (override) setCenter(override); }, [override]);
+
+  // Sneaky demo: our real GPS is outside GCC, so jump the detected location to
+  // an Egmore ward so the ward-level grievance data can be visualised.
+  function jumpToEgmore() {
+    const EGMORE_WARDS = ["58", "61", "77", "78", "104", "108"];
+    const feats = boundaries?.wards?.features || [];
+    const f = feats.find((ft) => EGMORE_WARDS.includes(String(ft.properties.ward)));
+    if (!f) return;
+    const pts = [];
+    const walk = (a) => { if (typeof a[0] === "number") pts.push(a); else a.forEach(walk); };
+    walk(f.geometry.coordinates);
+    const lng = pts.reduce((s, c) => s + c[0], 0) / pts.length;
+    const lat = pts.reduce((s, c) => s + c[1], 0) / pts.length;
+    setOverride({ lat, lng });
+  }
 
   // The ward now comes from the real GCC boundary lookup (via LocationDetector →
   // /api/locate), not the deprecated client-side mock grid.
@@ -338,6 +357,17 @@ export default function MapHistoryScreen() {
             className="absolute right-3 top-14 z-[400]"
           />
         )}
+
+        {/* Sneaky demo button: jump to an Egmore ward (our GPS is outside GCC). */}
+        <button
+          onClick={jumpToEgmore}
+          title="Preview grievances in Egmore constituency"
+          className={`absolute bottom-2 right-2 z-[500] flex h-7 w-7 items-center justify-center rounded-full border border-white/60 shadow-sm backdrop-blur transition-all duration-300 ${
+            override ? "bg-brand text-white opacity-100" : "bg-white/50 text-slate-400 opacity-60 hover:bg-white hover:text-brand hover:opacity-100"
+          }`}
+        >
+          <Landmark size={12} />
+        </button>
 
         {/* Status legend */}
         <div className="absolute bottom-2 left-2 z-[400] flex flex-col gap-0.5 rounded-xl bg-white/90 p-1.5 text-[9px] shadow ring-1 ring-slate-200">

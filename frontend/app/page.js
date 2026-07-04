@@ -110,6 +110,17 @@ export default function CommunityScreen() {
         </div>
       </div>
 
+      {/* Dim scrim: separates the feed from the expanded profile (tap to collapse). */}
+      <div
+        className="absolute inset-0 z-20 bg-slate-900"
+        style={{
+          opacity: progress * 0.5,
+          pointerEvents: progress > 0.05 ? "auto" : "none",
+          transition: dragging ? "none" : "opacity .45s cubic-bezier(.22,1,.36,1)",
+        }}
+        onClick={() => { setDragging(false); setP(0); }}
+      />
+
       {activeStory && <StoryViewer story={activeStory} onClose={() => setActiveStory(null)} />}
     </MobileShell>
   );
