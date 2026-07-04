@@ -15,7 +15,10 @@ from utils import serialize_issue
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
-VALID_STATUSES = {"SUBMITTED", "ACTIVE", "IN_PROGRESS", "PENDING_VERIFICATION", "CLOSED"}
+VALID_STATUSES = {
+    "SUBMITTED", "ACTIVE", "FORWARDED", "IN_PROGRESS",
+    "PENDING_VERIFICATION", "CLOSED",
+}
 
 
 @router.get("/issues")
@@ -80,12 +83,32 @@ def verify_grievance(issue_id: str, conn=Depends(get_db)):
     return serialize_issue(row)
 
 
+@router.post("/issues/{issue_id}/forward")
+def forward_issue(issue_id: str, conn=Depends(get_db)):
+    """Forward a verified grievance to its routed department: ACTIVE -> FORWARDED.
+
+    This is the hand-off step (the WhatsApp/department dispatch) — it marks the
+    ticket as forwarded so it shows under the 'Forwarded' queue.
+    """
+    issue = conn.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
+    if issue is None:
+        raise HTTPException(status_code=404, detail="Issue not found")
+    if issue["status"] not in ("ACTIVE", "IN_PROGRESS"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Only open tickets can be forwarded (status={issue['status']})",
+        )
+    conn.execute("UPDATE issues SET status = 'FORWARDED' WHERE id = ?", (issue_id,))
+    row = conn.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
+    return serialize_issue(row)
+
+
 @router.post("/issues/{issue_id}/close")
 def close_issue(issue_id: str, conn=Depends(get_db)):
     issue = conn.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
     if issue is None:
         raise HTTPException(status_code=404, detail="Issue not found")
-    if issue["status"] not in ("ACTIVE", "IN_PROGRESS"):
+    if issue["status"] not in ("ACTIVE", "FORWARDED", "IN_PROGRESS"):
         raise HTTPException(
             status_code=409,
             detail=f"Only open issues can be resolved (status={issue['status']})",
@@ -105,10 +128,10 @@ def mark_in_progress(issue_id: str, conn=Depends(get_db)):
     issue = conn.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
     if issue is None:
         raise HTTPException(status_code=404, detail="Issue not found")
-    if issue["status"] != "ACTIVE":
+    if issue["status"] not in ("ACTIVE", "FORWARDED"):
         raise HTTPException(
             status_code=409,
-            detail=f"Only ACTIVE issues can move to IN_PROGRESS (status={issue['status']})",
+            detail=f"Only ACTIVE/FORWARDED issues can move to IN_PROGRESS (status={issue['status']})",
         )
     conn.execute("UPDATE issues SET status = 'IN_PROGRESS' WHERE id = ?", (issue_id,))
     row = conn.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()

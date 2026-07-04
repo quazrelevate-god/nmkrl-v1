@@ -225,13 +225,20 @@ def user_history(user_id: str, conn=Depends(get_db)):
 def confirm_issue(
     issue_id: str,
     phone: str = Form(...),
+    name: str = Form(""),
     conn=Depends(get_db),
 ):
-    """Save the citizen's phone number after OTP verification."""
+    """Save the citizen's phone number (and optional name) after OTP verification."""
     issue = conn.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
     if issue is None:
         raise HTTPException(status_code=404, detail="Issue not found")
-    conn.execute("UPDATE issues SET phone = ? WHERE id = ?", (phone, issue_id))
+    if name.strip():
+        conn.execute(
+            "UPDATE issues SET phone = ?, name = ? WHERE id = ?",
+            (phone, name.strip(), issue_id),
+        )
+    else:
+        conn.execute("UPDATE issues SET phone = ? WHERE id = ?", (phone, issue_id))
     row = conn.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
     return serialize_issue(row)
 

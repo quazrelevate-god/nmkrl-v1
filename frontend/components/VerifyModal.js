@@ -15,6 +15,7 @@ import { confirmIssue } from "@/lib/api";
 const EXPECTED_OTP = "1234";
 
 export default function VerifyModal({ issue, onVerified, onClose }) {
+  const [name, setName]     = useState("");
   const [mobile, setMobile] = useState("");
   const [otp, setOtp]       = useState("");
   const [otpSent, setOtpSent] = useState(false);
@@ -39,7 +40,7 @@ export default function VerifyModal({ issue, onVerified, onClose }) {
     if (otp !== EXPECTED_OTP)      { setError("Invalid OTP. (Hint: use 1234)");        return; }
     setBusy(true);
     try {
-      await confirmIssue(issue.id, mobile);
+      await confirmIssue(issue.id, mobile, name.trim());
     } catch {}
     setBusy(false);
     onVerified(mobile);
@@ -104,6 +105,19 @@ export default function VerifyModal({ issue, onVerified, onClose }) {
             {!transcript && highlights.length === 0 && (
               <p className="text-xs text-slate-400">No audio transcription available.</p>
             )}
+          </div>
+
+          {/* Name */}
+          <div>
+            <label className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-slate-600">
+              <User size={13} /> Your Name
+            </label>
+            <input
+              value={name}
+              onChange={e => setName(e.target.value)}
+              placeholder="e.g. Priya Raman"
+              className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-brand"
+            />
           </div>
 
           {/* Mobile number */}

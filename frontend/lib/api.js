@@ -122,10 +122,11 @@ export async function locateBoundary(lat, lng) {
   return handle(res);
 }
 
-/** Save phone number after OTP verification. */
-export async function confirmIssue(issueId, phone) {
+/** Save phone number (and optional name) after OTP verification. */
+export async function confirmIssue(issueId, phone, name = "") {
   const fd = new FormData();
   fd.append("phone", phone);
+  if (name) fd.append("name", name);
   const res = await fetch(`${API_BASE}/api/issues/${issueId}/confirm`, {
     method: "POST",
     body: fd,
@@ -160,6 +161,14 @@ export async function fetchAdminIssues({ status, sort, zone, ward } = {}) {
 /** Admin: approve a submitted grievance -> ACTIVE (makes it public). */
 export async function adminVerifyGrievance(issueId) {
   const res = await fetch(`${API_BASE}/api/admin/issues/${issueId}/verify`, {
+    method: "POST",
+  });
+  return handle(res);
+}
+
+/** Admin: forward a verified ticket to its department -> FORWARDED. */
+export async function adminForwardIssue(issueId) {
+  const res = await fetch(`${API_BASE}/api/admin/issues/${issueId}/forward`, {
     method: "POST",
   });
   return handle(res);
