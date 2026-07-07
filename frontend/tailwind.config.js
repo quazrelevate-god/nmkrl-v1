@@ -8,15 +8,15 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        // Maroon primary palette (replaces the previous blue brand).
+        // Calm, trustworthy slate-teal primary (cool, low-fatigue, WCAG-AA).
         brand: {
-          50:  "#f8ecec",
-          100: "#eecfcf",
-          200: "#ddaaaa",
-          DEFAULT: "#7a1c1c",
-          600: "#7a1c1c",
-          700: "#5f1414",
-          dark: "#4c0f0f",
+          50:  "#eef3f5",
+          100: "#d9e4e8",
+          200: "#b4c9d1",
+          DEFAULT: "#3f6a7d",
+          600: "#3f6a7d",
+          700: "#345766",
+          dark: "#26414d",
         },
       },
       boxShadow: {

@@ -28,8 +28,8 @@ function Comment({ node, depth, liked, onLike, onReply }) {
           </div>
           <div className="mt-1 flex items-center gap-4 pl-1 text-[11px] font-medium text-slate-400">
             <span>{node.time}</span>
-            <button onClick={() => onLike(node.id)} className={`flex items-center gap-1 ${isLiked ? "text-red-500" : ""}`}>
-              <Heart size={12} className={isLiked ? "fill-red-500" : ""} /> {node.likes + (isLiked ? 1 : 0)}
+            <button onClick={() => onLike(node.id)} className={`flex items-center gap-1 ${isLiked ? "text-rose-500" : ""}`}>
+              <Heart size={12} className={isLiked ? "fill-rose-500" : ""} /> {node.likes + (isLiked ? 1 : 0)}
             </button>
             <button onClick={() => setShowReply(s => !s)} className="flex items-center gap-1 hover:text-slate-600">
               <CornerDownRight size={12} /> Reply

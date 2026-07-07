@@ -12,8 +12,8 @@ export default function DuplicateModal({ issue, onUpvote, onSubmitAnyway, onClos
     <div className="absolute inset-0 z-[600] flex items-end justify-center bg-black/50 p-3">
       <div className="w-full rounded-2xl bg-white p-5 shadow-2xl">
         <div className="mb-3 flex items-start gap-3">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-red-100">
-            <AlertTriangle size={22} className="text-red-600" />
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-50">
+            <AlertTriangle size={22} className="text-amber-600" />
           </div>
           <div className="flex-1">
             <h3 className="text-base font-bold text-slate-900">Duplicate Issue Found</h3>

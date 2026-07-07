@@ -82,7 +82,7 @@ export const NEWS = {
 
 /* ── Constituency highlights (city-wide stories) ── */
 export const STORIES = [
-  { id: "s1", label: "Metro Phase-2", count: 4, ring: "from-violet-500 to-fuchsia-600",
+  { id: "s1", label: "Metro Phase-2", count: 4, ring: "from-indigo-400 to-violet-500",
     slides: [
       { image: img("metro-phase2"), caption: "Metro Phase-2 tunnelling crosses the halfway mark across the city" },
       { image: img("metro-station"), caption: "9 new underground stations to open along the Poonamallee corridor" },
@@ -92,7 +92,7 @@ export const STORIES = [
       { image: img("marina-clean"), caption: "3 tonnes of plastic cleared from Marina in a mega weekend drive" },
       { image: img("beach-volunteers"), caption: "1,200+ volunteers join the Greater Chennai Corporation cleanup" },
     ] },
-  { id: "s3", label: "CM Breakfast Scheme", count: 0, ring: "from-amber-400 to-orange-600",
+  { id: "s3", label: "CM Breakfast Scheme", count: 0, ring: "from-teal-400 to-cyan-600",
     slides: [
       { image: img("breakfast-scheme"), caption: "Free breakfast now reaches 1.5 lakh corporation-school children" },
     ] },
@@ -105,7 +105,7 @@ export const STORIES = [
     slides: [
       { image: img("desilting"), caption: "Desilting of 240 km of macro-drains completed before the monsoon" },
     ] },
-  { id: "s6", label: "New E-Buses", count: 0, ring: "from-lime-400 to-green-600",
+  { id: "s6", label: "New E-Buses", count: 0, ring: "from-teal-400 to-emerald-600",
     slides: [
       { image: img("electric-bus"), caption: "50 new low-floor electric MTC buses roll out on South Chennai routes" },
     ] },
@@ -274,12 +274,12 @@ export const FEED = [
 ];
 
 export const STATUS_STYLE = {
-  "Resolved":              "bg-green-100 text-green-700",
-  "In Progress":           "bg-orange-100 text-orange-700",
+  "Resolved":              "bg-emerald-50 text-emerald-700",
+  "In Progress":           "bg-sky-50 text-sky-700",
   "Assigned":              "bg-brand-100 text-brand-700",
-  "Reported":              "bg-sky-100 text-sky-700",
-  "Escalated":             "bg-red-100 text-red-700",
+  "Reported":              "bg-slate-100 text-slate-600",
+  "Escalated":             "bg-rose-50 text-rose-600",
   "Official Update":       "bg-brand-100 text-brand-700",
-  "LIVE":                  "bg-red-600 text-white",
-  "Pending Verification":  "bg-amber-100 text-amber-700",
+  "LIVE":                  "bg-rose-500 text-white",
+  "Pending Verification":  "bg-amber-50 text-amber-700",
 };

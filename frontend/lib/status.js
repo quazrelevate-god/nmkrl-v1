@@ -8,32 +8,32 @@
 export const STATUS_META = {
   SUBMITTED: {
     label: "Pending Verification",
-    badge: "bg-violet-100 text-violet-700 border border-violet-200",
-    pin: "#7c3aed", // violet
+    badge: "bg-slate-100 text-slate-600 border border-slate-200",
+    pin: "#64748b", // slate
     open: true,
   },
   ACTIVE: {
     label: "Assigned",
     badge: "bg-brand-100 text-brand-700 border border-brand-200",
-    pin: "#7a1c1c", // maroon
+    pin: "#3f6a7d", // slate-teal (brand)
     open: true,
   },
   IN_PROGRESS: {
     label: "In Progress",
-    badge: "bg-orange-100 text-orange-700 border border-orange-200",
-    pin: "#f97316", // orange
+    badge: "bg-sky-50 text-sky-700 border border-sky-100",
+    pin: "#0284c7", // calm sky
     open: true,
   },
   PENDING_VERIFICATION: {
     label: "Verification Pending",
-    badge: "bg-amber-100 text-amber-800 border border-amber-200",
-    pin: "#d97706", // amber
+    badge: "bg-amber-50 text-amber-700 border border-amber-100",
+    pin: "#c99a3a", // muted amber
     open: true,
   },
   CLOSED: {
     label: "Resolved",
-    badge: "bg-green-100 text-green-700 border border-green-200",
-    pin: "#16a34a", // green
+    badge: "bg-emerald-50 text-emerald-700 border border-emerald-100",
+    pin: "#0d9488", // muted teal-green
     open: false,
   },
 };

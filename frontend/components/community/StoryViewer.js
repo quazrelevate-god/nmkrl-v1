@@ -106,7 +106,7 @@ export default function StoryViewer({ story, onClose }) {
           onClick={() => setLiked(l => ({ ...l, [idx]: !l[idx] }))}
           className="flex h-11 w-11 items-center justify-center rounded-full bg-white/10"
         >
-          <Heart size={22} className={liked[idx] ? "fill-red-500 text-red-500" : "text-white"} />
+          <Heart size={22} className={liked[idx] ? "fill-rose-500 text-rose-500" : "text-white"} />
         </button>
       </div>
     </div>

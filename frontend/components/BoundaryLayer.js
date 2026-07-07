@@ -45,7 +45,7 @@ export default function BoundaryLayer({
       const inZone = highlightZone && p.zone === highlightZone;
       const base = zoneColor(p.zone);
       if (isHi) {
-        return { color: "#7a1c1c", weight: 2.5, fillColor: "#7a1c1c", fillOpacity: 0.25, opacity: 1 };
+        return { color: "#3f6a7d", weight: 2.5, fillColor: "#3f6a7d", fillOpacity: 0.22, opacity: 1 };
       }
       return {
         color: base,

@@ -181,7 +181,7 @@ export default function PostCard({ post, index = 0 }) {
               </span>
             )}
             {post.tag && (
-              <span className="rounded-full bg-rose-50 px-2.5 py-1 text-[11px] font-medium text-rose-600">{post.tag}</span>
+              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-600">{post.tag}</span>
             )}
             <span className="flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-500">
               <Hash size={10} /> {post.id}

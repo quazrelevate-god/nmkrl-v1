@@ -63,7 +63,7 @@ export default function UpvoteModal({ issue, onConfirm, onClose }) {
           <div className="rounded-xl bg-slate-50 p-3">
             <p className="text-sm font-semibold leading-tight text-slate-800">{issue.title}</p>
             {issue.area_name && <p className="mt-0.5 text-xs text-slate-500">{issue.area_name}</p>}
-            <span className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-orange-600">
+            <span className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-brand">
               <ThumbsUp size={12} /> {issue.upvotes} current upvotes
             </span>
           </div>

@@ -158,7 +158,7 @@ export default function ReportModal({ open, onClose }) {
                 </div>
               </div>
               <span className={`rounded-full px-2 py-1 text-[10px] font-semibold ${
-                geoStatus === "ready" ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"
+                geoStatus === "ready" ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"
               }`}>
                 {geoStatus === "ready" ? `±${Math.round(coords?.accuracy || 0)} m`
                   : geoStatus === "fallback" ? "Default location" : "Locating…"}

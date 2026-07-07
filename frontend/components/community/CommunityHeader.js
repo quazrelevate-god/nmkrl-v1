@@ -58,7 +58,7 @@ function StoriesStrip({ onOpenStory, onExpand, constituency, onConstituency }) {
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={s.slides[0].image} alt="" className="h-[64px] w-[64px] rounded-full border-2 border-white object-cover" />
               {s.count > 0 && (
-                <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white ring-2 ring-white">{s.count}</span>
+                <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-brand px-1 text-[10px] font-bold text-white ring-2 ring-white">{s.count}</span>
               )}
             </span>
             <span className="line-clamp-2 text-center text-[10px] font-semibold leading-tight text-slate-600">{s.label}</span>
@@ -76,9 +76,9 @@ function ProfilePanel({ onCollapse }) {
 
   const stats = [
     { icon: ClipboardList, value: PROFILE.reports,  label: "Reports",  tint: "text-brand bg-brand-50" },
-    { icon: ThumbsUp,      value: PROFILE.upvotes,  label: "Upvotes",  tint: "text-emerald-600 bg-emerald-50" },
-    { icon: CheckCircle2,  value: PROFILE.resolved, label: "Resolved", tint: "text-violet-600 bg-violet-50" },
-    { icon: Trophy,        value: PROFILE.rank,     label: "Rank",     tint: "text-amber-600 bg-amber-50" },
+    { icon: ThumbsUp,      value: PROFILE.upvotes,  label: "Upvotes",  tint: "text-teal-700 bg-teal-50" },
+    { icon: CheckCircle2,  value: PROFILE.resolved, label: "Resolved", tint: "text-emerald-700 bg-emerald-50" },
+    { icon: Trophy,        value: PROFILE.rank,     label: "Rank",     tint: "text-slate-600 bg-slate-100" },
   ];
 
   return (
@@ -86,18 +86,18 @@ function ProfilePanel({ onCollapse }) {
       {/* Hero */}
       <div className="flex items-center gap-3">
         <div className="relative shrink-0">
-          <div className="rounded-full bg-gradient-to-br from-amber-400 via-orange-500 to-rose-500 p-[3px]">
+          <div className="rounded-full bg-gradient-to-br from-teal-400 via-cyan-500 to-brand p-[3px]">
             <div className="flex h-14 w-14 items-center justify-center rounded-full border-2 border-white bg-slate-100 text-xl font-black text-slate-500">
               {PROFILE.name.split(" ").map(w => w[0]).join("")}
             </div>
           </div>
-          <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 rounded-full bg-amber-500 px-1.5 py-0.5 text-[8px] font-bold text-white shadow">{PROFILE.level}</span>
+          <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 rounded-full bg-brand px-1.5 py-0.5 text-[8px] font-bold text-white shadow">{PROFILE.level}</span>
         </div>
         <div className="min-w-0 flex-1">
           <p className="text-[11px] font-medium text-slate-400">{greeting},</p>
           <h2 className="truncate text-lg font-extrabold leading-tight text-slate-900">{PROFILE.name} 👋</h2>
-          <span className="mt-0.5 inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700">
-            <Flame size={10} className="fill-amber-500 text-amber-500" /> {PROFILE.streak}-day streak
+          <span className="mt-0.5 inline-flex items-center gap-1 rounded-full bg-teal-50 px-2 py-0.5 text-[10px] font-bold text-teal-700">
+            <Flame size={10} className="fill-teal-500 text-teal-500" /> {PROFILE.streak}-day streak
           </span>
         </div>
         <button onClick={onCollapse} className="self-start rounded-full p-1 text-slate-400 hover:bg-slate-200/60">
@@ -109,25 +109,25 @@ function ProfilePanel({ onCollapse }) {
       <div className="mt-3 overflow-hidden rounded-2xl bg-gradient-to-br from-brand to-brand-dark p-3.5 text-white shadow-lg shadow-brand/25">
         <div className="flex items-end justify-between">
           <div>
-            <p className="flex items-center gap-1 text-[11px] font-semibold text-rose-100"><ShieldCheck size={13} /> Civic Score</p>
+            <p className="flex items-center gap-1 text-[11px] font-semibold text-slate-200"><ShieldCheck size={13} /> Civic Score</p>
             <p className="text-3xl font-black leading-none">{PROFILE.civicScore}</p>
           </div>
           <div className="text-right">
             <div className="flex justify-end gap-0.5">
               {Array.from({ length: 5 }).map((_, i) => (
-                <Star key={i} size={12} className={i < Math.round(PROFILE.rating) ? "fill-amber-300 text-amber-300" : "fill-white/30 text-white/30"} />
+                <Star key={i} size={12} className={i < Math.round(PROFILE.rating) ? "fill-white text-white" : "fill-white/25 text-white/25"} />
               ))}
             </div>
-            <p className="mt-0.5 text-[10px] text-rose-100">{PROFILE.rating}/5 rating</p>
+            <p className="mt-0.5 text-[10px] text-slate-200">{PROFILE.rating}/5 rating</p>
           </div>
         </div>
         <div className="mt-2.5">
-          <div className="mb-1 flex items-center justify-between text-[10px] font-medium text-rose-100">
+          <div className="mb-1 flex items-center justify-between text-[10px] font-medium text-slate-200">
             <span>{PROFILE.level}</span>
             <span>{PROFILE.toNext} pts to {PROFILE.nextLevel}</span>
           </div>
           <div className="h-2 overflow-hidden rounded-full bg-white/20">
-            <div className="h-full rounded-full bg-gradient-to-r from-amber-300 to-yellow-200" style={{ width: `${pctInTier}%` }} />
+            <div className="h-full rounded-full bg-gradient-to-r from-teal-200 to-cyan-100" style={{ width: `${pctInTier}%` }} />
           </div>
         </div>
       </div>

@@ -41,7 +41,7 @@ export default function LocationDetector({ coords, className = "", onResolved })
   if (error) {
     return (
       <div className={`rounded-xl bg-white/90 px-3 py-1.5 shadow ring-1 ring-slate-200 ${className}`}>
-        <span className="text-[10px] font-semibold text-red-500">Zone lookup failed</span>
+        <span className="text-[10px] font-semibold text-rose-500">Zone lookup failed</span>
       </div>
     );
   }
@@ -78,7 +78,7 @@ export default function LocationDetector({ coords, className = "", onResolved })
         <MapPin size={9} /> Ward {loc.ward}
       </p>
       {primaryAC && (
-        <p className="flex items-center justify-end gap-1 text-[9px] font-semibold text-violet-600">
+        <p className="flex items-center justify-end gap-1 text-[9px] font-semibold text-slate-500">
           <Landmark size={9} /> {shortAC(primaryAC)}
         </p>
       )}
