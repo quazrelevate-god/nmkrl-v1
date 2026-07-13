@@ -13,25 +13,75 @@
 import { FEED, STORIES } from "@/lib/communityData";
 import { shortAC } from "@/lib/constituencies";
 
-/* Elected MLA per constituency (matched by constituency name). */
+/**
+ * Elected MLA per constituency (matched by constituency name).
+ * image URLs are illustrative placeholders — swap for real MLA portraits.
+ */
+const mlaImg = (seed) => `https://picsum.photos/seed/mla-${seed}/240/240`;
+
 export const MLA_BY_AC = {
-  "11 - Dr. Radhakrishnan Nagar": { mla: "N. Marie Wilson", party: "TVK" },
-  "12 - Perambur": { mla: "C. Joseph Vijay", party: "TVK" },
-  "13 - Kolathur": { mla: "V.S. Babu", party: "TVK" },
-  "14 - Villivakkam": { mla: "Aadhav Arjuna", party: "TVK" },
-  "15 - Thiru-Vi-Ka-Nagar": { mla: "M.R. Pallavi", party: "TVK" },
-  "16 - Egmore": { mla: "Rajmohan", party: "TVK" },
-  "17 - Harbour": { mla: "P.K. Sekarbabu", party: "DMK" },
-  "18 - Chepauk-Thiruvallikeni": { mla: "Udhayanidhi Stalin", party: "DMK" },
-  "19 - Thousand Lights": { mla: "J.C.D. Prabhakar", party: "TVK" },
-  "20 - Anna Nagar": { mla: "V.K. Ramkumar", party: "TVK" },
-  "21 - Virugambakkam": { mla: "R. Sabarinathan", party: "TVK" },
-  "22 - Saidapet": { mla: "M. Arul Prakasam", party: "TVK" },
-  "23 - Thiyagarayanagar": { mla: "Data Pending", party: "TVK" },
-  "24 - Mylapore": { mla: "Data Pending", party: "TVK" },
-  "25 - Velachery": { mla: "Data Pending", party: "TVK" },
-  "26 - Shozhinganallur": { mla: "Data Pending", party: "TVK" },
+  "11 - Dr. Radhakrishnan Nagar": { mla: "N. Marie Wilson", party: "TVK", image: mlaImg("marie") },
+  "12 - Perambur": { mla: "C. Joseph Vijay", party: "TVK", image: mlaImg("vijay") },
+  "13 - Kolathur": { mla: "V.S. Babu", party: "TVK", image: mlaImg("vsbabu") },
+  "14 - Villivakkam": { mla: "Aadhav Arjuna", party: "TVK", image: mlaImg("aadhav") },
+  "15 - Thiru-Vi-Ka-Nagar": { mla: "M.R. Pallavi", party: "TVK", image: mlaImg("pallavi") },
+  "16 - Egmore": { mla: "Rajmohan", party: "TVK", image: mlaImg("rajmohan") },
+  "17 - Harbour": { mla: "P.K. Sekarbabu", party: "DMK", image: mlaImg("sekarbabu") },
+  "18 - Chepauk-Thiruvallikeni": { mla: "Udhayanidhi Stalin", party: "DMK", image: mlaImg("udhay") },
+  "19 - Thousand Lights": { mla: "J.C.D. Prabhakar", party: "TVK", image: mlaImg("prabhakar") },
+  "20 - Anna Nagar": { mla: "V.K. Ramkumar", party: "TVK", image: mlaImg("ramkumar") },
+  "21 - Virugambakkam": { mla: "R. Sabarinathan", party: "TVK", image: mlaImg("sabari") },
+  "22 - Saidapet": { mla: "M. Arul Prakasam", party: "TVK", image: mlaImg("arul") },
+  "23 - Thiyagarayanagar": { mla: "Data Pending", party: "TVK", image: mlaImg("tnagar") },
+  "24 - Mylapore": { mla: "Data Pending", party: "TVK", image: mlaImg("mylapore") },
+  "25 - Velachery": { mla: "Data Pending", party: "TVK", image: mlaImg("velachery") },
+  "26 - Shozhinganallur": { mla: "Data Pending", party: "TVK", image: mlaImg("shozhi") },
 };
+
+/**
+ * Tamil news carousel embedded in the Today's Pulse section. Illustrative
+ * mocks pointing at real Tamil news portals; thumbnails via picsum. Same set
+ * is used across constituencies (real system would filter by constituency).
+ */
+const newsImg = (seed) => `https://picsum.photos/seed/news-${seed}/640/380`;
+
+export const TAMIL_NEWS = [
+  {
+    id: "n1",
+    title: "சென்னையில் புதிய மெட்ரோ கட்டமைப்பு துவக்கம் — வேலைவாய்ப்பு உருவாகும்",
+    source: "Thanthi TV",
+    url: "https://www.thanthitv.com/",
+    image: newsImg("metro"),
+  },
+  {
+    id: "n2",
+    title: "மைலாப்பூரில் காவிரி நீர் திட்டம் மேம்பாட்டு பணிகள் தொடங்கின",
+    source: "Puthiya Thalaimurai",
+    url: "https://www.puthiyathalaimurai.com/",
+    image: newsImg("water"),
+  },
+  {
+    id: "n3",
+    title: "திமுக அரசு புதிய வேலைவாய்ப்பு அறிவிப்பு: 50,000 பணியிடங்கள்",
+    source: "Sun News",
+    url: "https://www.sunnews.co.in/",
+    image: newsImg("jobs"),
+  },
+  {
+    id: "n4",
+    title: "மழை பாதிப்பு களப்பணி: நகராட்சி அதிரடி நடவடிக்கை",
+    source: "Dinakaran",
+    url: "https://www.dinakaran.com/",
+    image: newsImg("rain"),
+  },
+  {
+    id: "n5",
+    title: "அண்ணா நகர் பூங்கா புத்துயிர் திட்டம் — மக்கள் வரவேற்பு",
+    source: "Polimer News",
+    url: "https://www.polimernews.com/",
+    image: newsImg("park"),
+  },
+];
 
 const PLATFORMS = ["X (Twitter)", "Instagram", "Facebook", "YouTube"];
 
@@ -43,7 +93,7 @@ function hash(str) {
 
 /** Deterministic mock social buzz for a constituency's MLA. */
 export function socialMentions(ac) {
-  const info = MLA_BY_AC[ac] || { mla: "the Ward Councillor", party: "" };
+  const info = MLA_BY_AC[ac] || { mla: "the Ward Councillor", party: "", image: null };
   const pending = info.mla === "Data Pending";
   const name = shortAC(ac);
   const h = hash(ac || "chennai");
@@ -77,7 +127,7 @@ export function socialMentions(ac) {
     trend >= 0 ? "#GoodGovernance" : "#WeWantAction",
   ];
 
-  return { mla: info.mla, party: info.party, pending, name, mentions, pos, neu, neg, reach, trend, platform, summary, hashtags };
+  return { mla: info.mla, party: info.party, image: info.image, pending, name, mentions, pos, neu, neg, reach, trend, platform, summary, hashtags };
 }
 
 function countComments(nodes = []) {

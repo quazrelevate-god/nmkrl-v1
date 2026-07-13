@@ -19,7 +19,7 @@ import dynamic from "next/dynamic";
 import {
   ThumbsUp, MapPin, RotateCcw, Ticket, Sparkles, Navigation,
   Search, X, Users, FileText, Landmark, ChevronDown, ChevronUp,
-  ShieldCheck, Send, ArrowRightLeft, CheckCircle2, Ban, Building2, Check,
+  ShieldCheck, Send, ArrowRightLeft, CheckCircle2, Ban, Check,
 } from "lucide-react";
 import CoordinatorShell from "@/components/coordinator/CoordinatorShell";
 import { useCoordinator } from "@/components/coordinator/CoordinatorProvider";
@@ -28,8 +28,10 @@ import { statusMeta, STATUS_META } from "@/lib/status";
 import { ticketNumber } from "@/lib/ticket";
 import { haversineKm } from "@/lib/geo";
 import { CHENNAI_AC_MAP, CONSTITUENCIES, shortAC } from "@/lib/constituencies";
-import { departmentMeta, DEPARTMENTS } from "@/lib/departments";
-import WhatsAppModal from "@/components/WhatsAppModal";
+import { departmentMeta } from "@/lib/departments";
+import {
+  RedirectModal, CloseModal, TransferModal, FalsePetitionModal,
+} from "@/components/coordinator/ActionModals";
 
 const MapView = dynamic(() => import("@/components/MapView"), {
   ssr: false,
@@ -160,26 +162,8 @@ function ConstituencyDropdown({ value, onChange, options }) {
   );
 }
 
-/* ── "Redirect" mini dropdown for the action buttons ── */
-function RedirectMenu({ onChoose, onCancel }) {
-  return (
-    <div className="rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
-      <p className="mb-1.5 px-1 text-[10px] font-bold uppercase tracking-wide text-slate-400">Redirect to</p>
-      {Object.keys(DEPARTMENTS).map((d) => (
-        <button key={d} onClick={() => onChoose(d)}
-          className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50">
-          <Building2 size={12} className="text-brand" /> {departmentMeta(d).short}
-        </button>
-      ))}
-      <button onClick={onCancel} className="mt-1 w-full rounded-md px-2 py-1 text-[11px] font-semibold text-slate-400 hover:bg-slate-50">
-        Cancel
-      </button>
-    </div>
-  );
-}
-
 export default function CoordinatorGrievancePage() {
-  const { me, state, verify, flagFalse } = useCoordinator();
+  const { me, state, actions, verify, flagFalse, addAction, hasActioned } = useCoordinator();
 
   const [center, setCenter] = useState(null);
   const [wardIssues, setWardIssues] = useState([]);
@@ -191,8 +175,12 @@ export default function CoordinatorGrievancePage() {
   const [busyId, setBusyId] = useState(null);
   const [error, setError] = useState(null);
   const [toast, setToast] = useState(null);
-  const [waTarget, setWaTarget] = useState(null);
-  const [redirectFor, setRedirectFor] = useState(null);
+
+  // Modal targets (one at a time).
+  const [redirectTarget, setRedirectTarget] = useState(null);
+  const [closeTarget, setCloseTarget] = useState(null);
+  const [transferTarget, setTransferTarget] = useState(null);
+  const [falseTarget, setFalseTarget] = useState(null);
 
   // Constituency + ward selection (initialised from the signed-in coordinator).
   const [constituency, setConstituency] = useState(me?.constituency || "20 - Anna Nagar");
@@ -246,9 +234,13 @@ export default function CoordinatorGrievancePage() {
     return wardIssues.filter((i) => !verifiedIds.includes(i.id) && !falseIds.includes(i.id));
   }, [wardIssues, verifiedIds, falseIds]);
 
+  // Actioned grievances (redirected/closed/transferred/false) are excluded
+  // from My Reports — they now live in the admin petition-list sections.
+  const actionedIds = useMemo(() => new Set(actions.map((a) => a.issueId)), [actions]);
+
   const myReports = useMemo(() => {
-    return wardIssues.filter((i) => verifiedIds.includes(i.id));
-  }, [wardIssues, verifiedIds]);
+    return wardIssues.filter((i) => verifiedIds.includes(i.id) && !actionedIds.has(i.id));
+  }, [wardIssues, verifiedIds, actionedIds]);
 
   const publicIssues = useMemo(() => {
     // Map pins depend on the active tab.
@@ -282,26 +274,64 @@ export default function CoordinatorGrievancePage() {
     setExpandedId(null);
   }
 
-  function handleFalse(issue) {
-    flagFalse(issue.id);
-    showToast(`Marked as false petition`);
+  /* ── Redirect ── */
+  function submitRedirect(data) {
+    const issue = redirectTarget;
+    if (!issue) return;
+    addAction({
+      issueId: issue.id, kind: "redirect", issueTitle: issue.title,
+      wardNo: issue.ward_no, department: issue.department, data,
+    });
+    setRedirectTarget(null);
     setExpandedId(null);
+    showToast("Redirected to admin");
   }
 
-  function handleRedirect(issue, dept) {
-    setRedirectFor(null);
-    showToast(`Redirected to ${departmentMeta(dept).short}`);
+  /* ── Transfer ── */
+  function submitTransfer(data) {
+    const issue = transferTarget;
+    if (!issue) return;
+    addAction({
+      issueId: issue.id, kind: "transfer", issueTitle: issue.title,
+      wardNo: issue.ward_no, department: data.department, data,
+    });
+    setTransferTarget(null);
+    setExpandedId(null);
+    showToast(`Transferred to ${departmentMeta(data.department).short}`);
   }
 
-  async function handleClose(issue) {
+  /* ── Close (photo + voice mandatory) ── */
+  async function submitClose(data) {
+    const issue = closeTarget;
+    if (!issue) return;
     setBusyId(issue.id);
     try {
       await adminCloseIssue(issue.id);
-      showToast(`Closed · awaiting citizen verification`);
+      addAction({
+        issueId: issue.id, kind: "close", issueTitle: issue.title,
+        wardNo: issue.ward_no, department: issue.department, data,
+      });
+      showToast("Closed · awaiting citizen verification");
+      setCloseTarget(null);
+      setExpandedId(null);
       await loadWard(ward);
     } catch (err) {
       setError(err.message);
     } finally { setBusyId(null); }
+  }
+
+  /* ── False Petition ── */
+  function submitFalse(data) {
+    const issue = falseTarget;
+    if (!issue) return;
+    flagFalse(issue.id);
+    addAction({
+      issueId: issue.id, kind: "false", issueTitle: issue.title,
+      wardNo: issue.ward_no, department: issue.department, data,
+    });
+    setFalseTarget(null);
+    setExpandedId(null);
+    showToast("Flagged as false petition");
   }
 
   return (
@@ -460,31 +490,23 @@ export default function CoordinatorGrievancePage() {
                     onToggle={() => toggleExpand(issue.id)}
                     dist={distanceKm(issue)}
                     actions={
-                      <div className="space-y-2">
-                        <div className="grid grid-cols-2 gap-2">
-                          <button onClick={() => setWaTarget(issue)}
-                            className="flex items-center justify-center gap-1.5 rounded-lg bg-brand py-2 text-[11px] font-bold text-white">
-                            <Send size={12} /> Dept. Transfer
-                          </button>
-                          <button onClick={() => setRedirectFor(issue.id)}
-                            className="flex items-center justify-center gap-1.5 rounded-lg bg-slate-800 py-2 text-[11px] font-bold text-white">
-                            <ArrowRightLeft size={12} /> Redirect
-                          </button>
-                          <button onClick={() => handleClose(issue)} disabled={busyId === issue.id}
-                            className="flex items-center justify-center gap-1.5 rounded-lg bg-emerald-600 py-2 text-[11px] font-bold text-white disabled:opacity-50">
-                            <CheckCircle2 size={12} /> {busyId === issue.id ? "Closing…" : "Close"}
-                          </button>
-                          <button onClick={() => handleFalse(issue)}
-                            className="flex items-center justify-center gap-1.5 rounded-lg border border-rose-200 bg-white py-2 text-[11px] font-bold text-rose-600">
-                            <Ban size={12} /> False Petition
-                          </button>
-                        </div>
-                        {redirectFor === issue.id && (
-                          <RedirectMenu
-                            onChoose={(d) => handleRedirect(issue, d)}
-                            onCancel={() => setRedirectFor(null)}
-                          />
-                        )}
+                      <div className="grid grid-cols-2 gap-2">
+                        <button onClick={() => setTransferTarget(issue)}
+                          className="flex items-center justify-center gap-1.5 rounded-lg bg-brand py-2 text-[11px] font-bold text-white">
+                          <Send size={12} /> Dept. Transfer
+                        </button>
+                        <button onClick={() => setRedirectTarget(issue)}
+                          className="flex items-center justify-center gap-1.5 rounded-lg bg-slate-800 py-2 text-[11px] font-bold text-white">
+                          <ArrowRightLeft size={12} /> Redirect
+                        </button>
+                        <button onClick={() => setCloseTarget(issue)}
+                          className="flex items-center justify-center gap-1.5 rounded-lg bg-emerald-600 py-2 text-[11px] font-bold text-white">
+                          <CheckCircle2 size={12} /> Close
+                        </button>
+                        <button onClick={() => setFalseTarget(issue)}
+                          className="flex items-center justify-center gap-1.5 rounded-lg border border-rose-200 bg-white py-2 text-[11px] font-bold text-rose-600">
+                          <Ban size={12} /> False Petition
+                        </button>
                       </div>
                     }
                   />
@@ -503,7 +525,14 @@ export default function CoordinatorGrievancePage() {
         </div>
       )}
 
-      {waTarget && <WhatsAppModal issue={waTarget} onClose={() => setWaTarget(null)} />}
+      <RedirectModal open={!!redirectTarget} issue={redirectTarget}
+        onClose={() => setRedirectTarget(null)} onSubmit={submitRedirect} />
+      <TransferModal open={!!transferTarget} issue={transferTarget}
+        onClose={() => setTransferTarget(null)} onSubmit={submitTransfer} />
+      <CloseModal open={!!closeTarget} issue={closeTarget}
+        onClose={() => setCloseTarget(null)} onSubmit={submitClose} />
+      <FalsePetitionModal open={!!falseTarget} issue={falseTarget}
+        onClose={() => setFalseTarget(null)} onSubmit={submitFalse} />
     </CoordinatorShell>
   );
 }

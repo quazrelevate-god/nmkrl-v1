@@ -16,9 +16,9 @@ import {
   ChevronDown, ChevronUp, ShieldCheck, Flame, ClipboardList, ThumbsUp,
   CheckCircle2, Trophy, Star, MapPin, Plus, LogOut,
 } from "lucide-react";
-import { STORIES, CONSTITUENCIES } from "@/lib/communityData";
+import { STORIES } from "@/lib/communityData";
 import { useCoordinator } from "./CoordinatorProvider";
-import { shortAC } from "@/lib/constituencies";
+import { CONSTITUENCIES, shortAC } from "@/lib/constituencies";
 
 function greetingFor(h) {
   if (h < 12) return "Good morning";
@@ -38,7 +38,7 @@ function StoriesStrip({ onOpenStory, onExpand, onAddStory, canUpload, coordinato
             <div className="relative flex items-center">
               <select value={constituency} onChange={(e) => onConstituency(e.target.value)}
                 className="max-w-[150px] cursor-pointer appearance-none truncate bg-transparent pr-4 text-[11px] font-bold text-brand outline-none">
-                {CONSTITUENCIES.map((c) => (<option key={c} value={c}>{c}</option>))}
+                {CONSTITUENCIES.map((c) => (<option key={c} value={c}>{shortAC(c)}</option>))}
               </select>
               <ChevronDown size={12} className="pointer-events-none absolute right-0 text-brand" />
             </div>
@@ -50,39 +50,39 @@ function StoriesStrip({ onOpenStory, onExpand, onAddStory, canUpload, coordinato
       </div>
 
       <div className="no-scrollbar -mx-1 flex gap-3.5 overflow-x-auto px-1">
-        {/* + tile — upload a story (1/day limit) */}
+        {/* + tile — upload a story (1/day limit) — squircle + gold border */}
         <button
           onClick={onAddStory}
           disabled={!canUpload}
           title={canUpload ? "Upload a highlight" : "Daily limit reached — try again tomorrow"}
           className="flex w-[72px] shrink-0 flex-col items-center gap-1.5"
         >
-          <span className={`relative flex h-[70px] w-[70px] items-center justify-center rounded-full border-2 border-dashed ${canUpload ? "border-brand/60 bg-brand-50/60 text-brand" : "border-slate-300 bg-slate-100 text-slate-400"}`}>
+          <span className={`relative flex h-[70px] w-[70px] items-center justify-center rounded-[22px] border-2 border-dashed ${canUpload ? "border-amber-300 bg-amber-50/50 text-amber-600" : "border-slate-300 bg-slate-100 text-slate-400"}`}>
             <Plus size={26} />
           </span>
-          <span className={`line-clamp-2 text-center text-[10px] font-semibold leading-tight ${canUpload ? "text-brand" : "text-slate-400"}`}>
+          <span className={`line-clamp-2 text-center text-[10px] font-semibold leading-tight ${canUpload ? "text-amber-700" : "text-slate-400"}`}>
             {canUpload ? "Add highlight" : "1/day used"}
           </span>
         </button>
 
-        {/* Coordinator's own recent uploads first */}
+        {/* Coordinator's own recent uploads first — squircle + gold ring */}
         {coordinatorStories.slice(0, 3).map((s) => (
           <button key={s.id} onClick={() => onOpenStory({ id: s.id, label: "Yours", slides: [{ image: s.image, caption: s.caption || "" }] })}
             className="flex w-[72px] shrink-0 flex-col items-center gap-1.5">
-            <span className="rounded-full bg-gradient-to-br from-teal-400 to-cyan-500 p-[3px]">
+            <span className="rounded-[24px] bg-gradient-to-br from-amber-200 via-yellow-100 to-amber-300 p-[2px]">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={s.image} alt="" className="h-[64px] w-[64px] rounded-full border-2 border-white object-cover" />
+              <img src={s.image} alt="" className="h-[66px] w-[66px] rounded-[22px] border-2 border-white object-cover" />
             </span>
             <span className="line-clamp-2 text-center text-[10px] font-semibold leading-tight text-slate-600">Yours</span>
           </button>
         ))}
 
-        {/* Curated highlights */}
+        {/* Curated highlights — squircle + thin gold gradient border (uniform) */}
         {STORIES.map((s) => (
           <button key={s.id} onClick={() => onOpenStory(s)} className="flex w-[72px] shrink-0 flex-col items-center gap-1.5">
-            <span className={`relative rounded-full bg-gradient-to-br ${s.ring} p-[3px]`}>
+            <span className="relative rounded-[24px] bg-gradient-to-br from-amber-200 via-yellow-100 to-amber-300 p-[2px]">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={s.slides[0].image} alt="" className="h-[64px] w-[64px] rounded-full border-2 border-white object-cover" />
+              <img src={s.slides[0].image} alt="" className="h-[66px] w-[66px] rounded-[22px] border-2 border-white object-cover" />
               {s.count > 0 && (
                 <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-brand px-1 text-[10px] font-bold text-white ring-2 ring-white">{s.count}</span>
               )}
@@ -159,13 +159,15 @@ function ProfilePanel({ onCollapse, onLogout, me, publishedCount, verifiedCount 
   );
 }
 
-export default function CoordinatorHeader({ progress, dragging, onOpenStory, onSetProgress, onCompact, onAddStory }) {
-  const { me, state, canUploadStory, logout } = useCoordinator();
+export default function CoordinatorHeader({
+  progress, dragging, onOpenStory, onSetProgress, onCompact, onAddStory,
+  constituency, onConstituency,
+}) {
+  const { me, state, feed, canUploadStory, logout } = useCoordinator();
   const storiesRef = useRef(null);
   const profileRef = useRef(null);
   const rootRef = useRef(null);
   const [heights, setHeights] = useState({ stories: 140, profile: 440 });
-  const [constituency, setConstituency] = useState(me?.constituency ? me.constituency.replace(/^\d+\s*-\s*/, "") : "Anna Nagar");
 
   useLayoutEffect(() => {
     const measure = () => {
@@ -204,9 +206,9 @@ export default function CoordinatorHeader({ progress, dragging, onOpenStory, onS
             onExpand={() => onSetProgress(1)}
             onAddStory={onAddStory}
             canUpload={canUploadStory}
-            coordinatorStories={state?.stories || []}
+            coordinatorStories={(feed?.stories || []).filter((s) => s.author === me?.username)}
             constituency={constituency}
-            onConstituency={setConstituency}
+            onConstituency={onConstituency}
           />
         </div>
         <div ref={profileRef} className="absolute inset-x-4 top-0"
@@ -215,7 +217,10 @@ export default function CoordinatorHeader({ progress, dragging, onOpenStory, onS
             onCollapse={() => onSetProgress(0)}
             onLogout={logout}
             me={me}
-            publishedCount={(state?.posts?.length || 0) + (state?.polls?.length || 0)}
+            publishedCount={
+              (feed?.posts || []).filter((p) => p.author === me?.username).length +
+              (feed?.polls || []).filter((p) => p.author === me?.username).length
+            }
             verifiedCount={state?.verifiedIds?.length || 0}
           />
         </div>

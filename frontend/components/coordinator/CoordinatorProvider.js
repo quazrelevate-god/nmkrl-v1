@@ -3,25 +3,24 @@
 /**
  * CoordinatorProvider
  * -------------------
- * Session + per-user state for the /coordinator app. Wraps the coordinator
- * routes (via app/coordinator/layout.js) and exposes:
- *   • me                   — the signed-in coordinator (or null when logged out)
- *   • state                — verifiedIds, falsePetitionIds, stories, posts, polls
- *   • verify(id)           — mark a grievance verified (moves to My Reports)
- *   • unverify(id)         — reverse
- *   • flagFalse(id)        — mark false petition
- *   • addStory(story)      — append a story (respecting the daily limit)
- *   • addPost(post)        — append a post (daily-limit gated)
- *   • addPoll(poll)        — append a poll (daily-limit gated)
- *   • canUpload{Story,Post,Poll} — booleans from daily-limit check
- *   • login / logout
- *   • composerOpen, openComposer, closeComposer — for the "+" nav button
+ * Session + shared-feed + petition-actions store for the /coordinator app.
+ *
+ * • me / state           per-user (session, verifiedIds, falsePetitionIds)
+ * • feed                 SHARED across coordinators (posts, polls, stories,
+ *                        each tagged with the author's username)
+ * • actions              SHARED petition actions (redirect / close / transfer
+ *                        / false) — surfaced by admin panel
+ * • daily limits         derived from the shared feed matching this user
+ * • addPost/Poll/Story   append to the shared feed
+ * • addAction            append a petition action
+ * • hasActioned / actionFor  quick lookups from the actions store
  */
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import {
   authenticate, saveSession, loadSession, clearSession,
   loadState, saveState, todayKey,
+  loadFeed, saveFeed, loadActions, saveActions,
 } from "@/lib/coordinators";
 
 const Ctx = createContext(null);
@@ -29,21 +28,35 @@ const Ctx = createContext(null);
 export function CoordinatorProvider({ children }) {
   const [me, setMe] = useState(null);
   const [state, setState] = useState(null);
+  const [feed, setFeed] = useState({ posts: [], polls: [], stories: [] });
+  const [actions, setActions] = useState([]);
   const [ready, setReady] = useState(false);
   const [composerOpen, setComposerOpen] = useState(false);
 
-  // Hydrate from localStorage on mount.
+  // Hydrate.
   useEffect(() => {
     const c = loadSession();
     setMe(c);
     setState(c ? loadState(c.username) : null);
+    setFeed(loadFeed());
+    setActions(loadActions());
     setReady(true);
   }, []);
 
-  const persist = useCallback((next) => {
+  const persistState = useCallback((next) => {
     setState(next);
     if (me) saveState(me.username, next);
   }, [me]);
+
+  const persistFeed = useCallback((next) => {
+    setFeed(next);
+    saveFeed(next);
+  }, []);
+
+  const persistActions = useCallback((next) => {
+    setActions(next);
+    saveActions(next);
+  }, []);
 
   const login = useCallback((username, password) => {
     const c = authenticate(username, password);
@@ -51,6 +64,8 @@ export function CoordinatorProvider({ children }) {
     saveSession(c);
     setMe(c);
     setState(loadState(c.username));
+    setFeed(loadFeed());
+    setActions(loadActions());
     return c;
   }, []);
 
@@ -62,61 +77,95 @@ export function CoordinatorProvider({ children }) {
 
   const verify = useCallback((id) => {
     if (!state || state.verifiedIds.includes(id)) return;
-    persist({ ...state, verifiedIds: [...state.verifiedIds, id] });
-  }, [state, persist]);
+    persistState({ ...state, verifiedIds: [...state.verifiedIds, id] });
+  }, [state, persistState]);
 
   const unverify = useCallback((id) => {
     if (!state) return;
-    persist({ ...state, verifiedIds: state.verifiedIds.filter((v) => v !== id) });
-  }, [state, persist]);
+    persistState({ ...state, verifiedIds: state.verifiedIds.filter((v) => v !== id) });
+  }, [state, persistState]);
 
   const flagFalse = useCallback((id) => {
     if (!state) return;
-    persist({
+    persistState({
       ...state,
       verifiedIds: state.verifiedIds.filter((v) => v !== id),
       falsePetitionIds: state.falsePetitionIds.includes(id)
         ? state.falsePetitionIds
         : [...state.falsePetitionIds, id],
     });
-  }, [state, persist]);
+  }, [state, persistState]);
 
-  // Daily-limit checks: at most 1 story, 1 post, 1 poll per calendar day per user.
+  // Daily-limit checks: shared feed filtered to THIS coordinator + today.
   const t = todayKey();
   const canUploadStory = useMemo(
-    () => !state?.stories?.some((s) => s.date === t), [state, t]);
+    () => !me || !feed.stories.some((s) => s.author === me.username && s.date === t),
+    [feed, me, t]);
   const canUploadPost = useMemo(
-    () => !state?.posts?.some((p) => p.date === t), [state, t]);
+    () => !me || !feed.posts.some((p) => p.author === me.username && p.date === t),
+    [feed, me, t]);
   const canUploadPoll = useMemo(
-    () => !state?.polls?.some((p) => p.date === t), [state, t]);
+    () => !me || !feed.polls.some((p) => p.author === me.username && p.date === t),
+    [feed, me, t]);
 
   const addStory = useCallback((story) => {
-    if (!state || !canUploadStory) return false;
-    persist({ ...state, stories: [{ id: `sty-${Date.now()}`, date: t, ...story }, ...state.stories] });
+    if (!me || !canUploadStory) return false;
+    persistFeed({
+      ...feed,
+      stories: [{ id: `sty-${Date.now()}`, author: me.username, date: t, ...story }, ...feed.stories],
+    });
     return true;
-  }, [state, persist, canUploadStory, t]);
+  }, [me, canUploadStory, feed, persistFeed, t]);
 
   const addPost = useCallback((post) => {
-    if (!state || !canUploadPost) return false;
-    persist({ ...state, posts: [{ id: `p-${Date.now()}`, date: t, ...post }, ...state.posts] });
+    if (!me || !canUploadPost) return false;
+    persistFeed({
+      ...feed,
+      posts: [{ id: `p-${Date.now()}`, author: me.username, date: t, ...post }, ...feed.posts],
+    });
     return true;
-  }, [state, persist, canUploadPost, t]);
+  }, [me, canUploadPost, feed, persistFeed, t]);
 
   const addPoll = useCallback((poll) => {
-    if (!state || !canUploadPoll) return false;
-    persist({ ...state, polls: [{ id: `poll-${Date.now()}`, date: t, ...poll }, ...state.polls] });
+    if (!me || !canUploadPoll) return false;
+    persistFeed({
+      ...feed,
+      polls: [{ id: `poll-${Date.now()}`, author: me.username, date: t, ...poll }, ...feed.polls],
+    });
     return true;
-  }, [state, persist, canUploadPoll, t]);
+  }, [me, canUploadPoll, feed, persistFeed, t]);
+
+  // Petition actions.
+  const addAction = useCallback((action) => {
+    if (!me) return false;
+    const entry = {
+      id: `act-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      coordinator: me.username,
+      coordinatorName: me.name,
+      constituency: me.constituency,
+      timestamp: new Date().toISOString(),
+      ...action,
+    };
+    persistActions([entry, ...actions]);
+    return entry;
+  }, [me, actions, persistActions]);
+
+  const hasActioned = useCallback((issueId) => actions.some((a) => a.issueId === issueId), [actions]);
+  const actionFor = useCallback((issueId) => actions.find((a) => a.issueId === issueId) || null, [actions]);
 
   const value = useMemo(() => ({
-    me, state, ready, login, logout,
+    me, state, ready, feed, actions,
+    login, logout,
     verify, unverify, flagFalse,
-    addStory, addPost, addPoll,
+    addStory, addPost, addPoll, addAction,
+    hasActioned, actionFor,
     canUploadStory, canUploadPost, canUploadPoll,
     composerOpen, openComposer: () => setComposerOpen(true), closeComposer: () => setComposerOpen(false),
   }), [
-    me, state, ready, login, logout, verify, unverify, flagFalse,
-    addStory, addPost, addPoll, canUploadStory, canUploadPost, canUploadPoll, composerOpen,
+    me, state, ready, feed, actions,
+    login, logout, verify, unverify, flagFalse,
+    addStory, addPost, addPoll, addAction, hasActioned, actionFor,
+    canUploadStory, canUploadPost, canUploadPoll, composerOpen,
   ]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

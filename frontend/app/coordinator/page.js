@@ -11,20 +11,23 @@ import CoordinatorShell from "@/components/coordinator/CoordinatorShell";
 import CoordinatorHeader from "@/components/coordinator/CoordinatorHeader";
 import StoryViewer from "@/components/community/StoryViewer";
 import PostCard from "@/components/community/PostCard";
+import TodaysPulse from "@/components/community/TodaysPulse";
 import StoryUploadModal from "@/components/coordinator/StoryUploadModal";
 import { useCoordinator } from "@/components/coordinator/CoordinatorProvider";
+import { COORDINATORS } from "@/lib/coordinators";
 import { FEED } from "@/lib/communityData";
 
 const TRAVEL = 130;
 const SNAP_DELAY = 160;
 
 export default function CoordinatorHomePage() {
-  const { me, state, addStory, canUploadStory } = useCoordinator();
+  const { me, feed, addStory, canUploadStory } = useCoordinator();
   const [progress, setProgress] = useState(0);
   const [dragging, setDragging] = useState(false);
   const [activeStory, setActiveStory] = useState(null);
   const [padTop, setPadTop] = useState(170);
   const [storyOpen, setStoryOpen] = useState(false);
+  const [constituency, setConstituency] = useState(me?.constituency || "20 - Anna Nagar");
 
   const scrollRef = useRef(null);
   const pRef = useRef(0);
@@ -83,23 +86,27 @@ export default function CoordinatorHomePage() {
     };
   }, [setP, snap]);
 
-  // Merge coordinator's own published posts/polls into the top of the feed.
-  const myFeedItems = useMemo(() => {
-    if (!state || !me) return [];
-    const mine = [
-      ...(state.posts || []).map((p) => ({
+  // Every coordinator's published posts/polls from the shared feed, mapped
+  // into PostCard-shaped items and prepended to the curated FEED.
+  const coordFeedItems = useMemo(() => {
+    if (!feed) return [];
+    const authorMap = Object.fromEntries(COORDINATORS.map((c) => [c.username, c]));
+
+    const posts = (feed.posts || []).map((p) => {
+      const a = authorMap[p.author] || { name: p.author, username: p.author, avatar: "" };
+      return {
         id: p.id,
         type: p.mediaKind === "video" ? "video" : p.media ? "image" : "text",
-        author: me.name,
-        handle: `@${me.username}`,
+        author: a.name,
+        handle: `@${a.username}`,
         verified: true,
-        avatar: me.avatar,
-        area: p.location || me.constituency.replace(/^\d+\s*-\s*/, ""),
-        time: "Just now",
+        avatar: a.avatar,
+        area: p.location || a.constituency?.replace(/^\d+\s*-\s*/, "") || "Chennai",
+        time: "Recently",
         status: "Official Update",
         title: p.title || "Coordinator update",
         body: p.body || "",
-        media: p.media ? [p.media] : undefined,
+        media: p.media && p.mediaKind !== "video" ? [p.media] : undefined,
         poster: p.mediaKind === "video" ? p.media : undefined,
         video: p.mediaKind === "video" ? p.media : undefined,
         tag: "Coordinator",
@@ -108,28 +115,33 @@ export default function CoordinatorHomePage() {
         mentions: p.mentions,
         hashtags: p.hashtags,
         audience: p.audience,
-      })),
-      ...(state.polls || []).map((p) => ({
+      };
+    });
+
+    const polls = (feed.polls || []).map((p) => {
+      const a = authorMap[p.author] || { name: p.author, username: p.author, avatar: "" };
+      return {
         id: p.id,
         type: "poll",
-        author: me.name,
-        handle: `@${me.username}`,
+        author: a.name,
+        handle: `@${a.username}`,
         verified: true,
-        avatar: me.avatar,
-        area: me.constituency.replace(/^\d+\s*-\s*/, ""),
-        time: "Just now",
+        avatar: a.avatar,
+        area: p.location || a.constituency?.replace(/^\d+\s*-\s*/, "") || "Chennai",
+        time: "Recently",
         question: p.question,
         body: p.body || "",
         options: p.options.map((o) => ({ label: o, votes: 0 })),
         totalVotes: 0,
         daysLeft: 7, likes: 0, shares: 0, comments: [],
         audience: p.audience,
-      })),
-    ];
-    return mine;
-  }, [state, me]);
+      };
+    });
 
-  const feed = useMemo(() => [...myFeedItems, ...FEED], [myFeedItems]);
+    return [...posts, ...polls];
+  }, [feed]);
+
+  const combinedFeed = useMemo(() => [...coordFeedItems, ...FEED], [coordFeedItems]);
 
   function handleAddStory() {
     if (canUploadStory) setStoryOpen(true);
@@ -148,16 +160,21 @@ export default function CoordinatorHomePage() {
         onSetProgress={(v) => { setDragging(false); setP(v); }}
         onCompact={setPadTop}
         onAddStory={handleAddStory}
+        constituency={constituency}
+        onConstituency={setConstituency}
       />
 
       <div ref={scrollRef}
         className="no-scrollbar absolute inset-0 overflow-y-auto overscroll-contain"
         style={{ paddingTop: padTop + 8, paddingBottom: 116 }}>
-        <div className="space-y-3 px-4">
-          {feed.map((post, i) => (
+        {/* Today's Pulse — MLA social panel + Tamil news carousel */}
+        <TodaysPulse constituency={constituency} />
+
+        <div className="mt-3 space-y-3 px-4">
+          {combinedFeed.map((post, i) => (
             <PostCard key={post.id} post={post} index={i} />
           ))}
-          <p className="py-4 text-center text-xs text-slate-400">You're all caught up · {feed.length} posts</p>
+          <p className="py-4 text-center text-xs text-slate-400">You're all caught up · {combinedFeed.length} posts</p>
         </div>
       </div>
 

@@ -15,7 +15,8 @@ import {
   ChevronDown, ChevronUp, ShieldCheck, Flame, ClipboardList, ThumbsUp,
   CheckCircle2, Trophy, Star, MapPin,
 } from "lucide-react";
-import { PROFILE, STORIES, CONSTITUENCIES } from "@/lib/communityData";
+import { PROFILE, STORIES } from "@/lib/communityData";
+import { CONSTITUENCIES, shortAC } from "@/lib/constituencies";
 
 function greetingFor(h) {
   if (h < 12) return "Good morning";
@@ -40,7 +41,7 @@ function StoriesStrip({ onOpenStory, onExpand, constituency, onConstituency }) {
                 className="max-w-[150px] cursor-pointer appearance-none truncate bg-transparent pr-4 text-[11px] font-bold text-brand outline-none"
               >
                 {CONSTITUENCIES.map((c) => (
-                  <option key={c} value={c}>{c}</option>
+                  <option key={c} value={c}>{shortAC(c)}</option>
                 ))}
               </select>
               <ChevronDown size={12} className="pointer-events-none absolute right-0 text-brand" />
@@ -159,12 +160,17 @@ function ProfilePanel({ onCollapse }) {
   );
 }
 
-export default function CommunityHeader({ progress, dragging, onOpenStory, onSetProgress, onCompact }) {
+export default function CommunityHeader({
+  progress, dragging, onOpenStory, onSetProgress, onCompact,
+  constituency: constituencyProp, onConstituencyChange,
+}) {
   const storiesRef = useRef(null);
   const profileRef = useRef(null);
   const rootRef = useRef(null);
   const [heights, setHeights] = useState({ stories: 140, profile: 440 });
-  const [constituency, setConstituency] = useState("Anna Nagar");
+  const [internalConstituency, setInternalConstituency] = useState("20 - Anna Nagar");
+  const constituency = constituencyProp ?? internalConstituency;
+  const setConstituency = onConstituencyChange ?? setInternalConstituency;
 
   useLayoutEffect(() => {
     const measure = () => {

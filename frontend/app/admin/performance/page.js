@@ -256,17 +256,28 @@ function SocialMentionsCard({ social, ac, isDefault }) {
   return (
     <div className="glass-panel glass-hover flex flex-col rounded-2xl p-5">
       <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-brand"><Radio size={12} /> Social mentions · MLA</p>
-          <div className="mt-1 flex items-center gap-2">
-            <p className={`text-lg font-extrabold leading-tight ${social.pending ? "italic text-slate-400" : "text-slate-900"}`}>{social.mla}</p>
-            {social.party && (
-              <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold ${
-                social.party === "DMK" ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-800"
-              }`}>{social.party}</span>
+        <div className="flex items-start gap-3">
+          {/* MLA image ABOVE the name — a portrait tile alongside the label */}
+          <div className="shrink-0">
+            {social.image ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={social.image} alt="MLA portrait" className="h-16 w-16 rounded-2xl object-cover ring-2 ring-white shadow-sm" />
+            ) : (
+              <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-100 text-xs text-slate-400">—</div>
             )}
           </div>
-          <p className="text-xs font-semibold text-slate-500">MLA · {shortAC(ac)} {isDefault && <span className="text-slate-400">(select a constituency to change)</span>}</p>
+          <div>
+            <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-brand"><Radio size={12} /> Social mentions · MLA</p>
+            <div className="mt-1 flex items-center gap-2">
+              <p className={`text-lg font-extrabold leading-tight ${social.pending ? "italic text-slate-400" : "text-slate-900"}`}>{social.mla}</p>
+              {social.party && (
+                <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold ${
+                  social.party === "DMK" ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-800"
+                }`}>{social.party}</span>
+              )}
+            </div>
+            <p className="text-xs font-semibold text-slate-500">MLA · {shortAC(ac)} {isDefault && <span className="text-slate-400">(select a constituency to change)</span>}</p>
+          </div>
         </div>
         {/* KPI numbers at the corner of the summary */}
         <div className="grid shrink-0 grid-cols-2 gap-1.5 text-right">

@@ -23,7 +23,7 @@ import {
   MessageSquare, BarChart3, AtSign, Hash, Loader2,
 } from "lucide-react";
 import { useCoordinator } from "./CoordinatorProvider";
-import { shortAC } from "@/lib/constituencies";
+import { CHENNAI_AC_MAP, CONSTITUENCIES, shortAC } from "@/lib/constituencies";
 
 const AUDIENCES = [
   "Ward Residents", "Constituency Residents", "All Chennai",
@@ -49,7 +49,8 @@ export default function PostComposer({ open, onClose }) {
 
   // Location controls
   const [useGps, setUseGps] = useState(true);
-  const [manualLoc, setManualLoc] = useState("");
+  const [manualConstituency, setManualConstituency] = useState(me?.constituency || "20 - Anna Nagar");
+  const [manualWard, setManualWard] = useState(me?.homeWard || "");
   const [gpsLoc, setGpsLoc] = useState(null);
   const [locating, setLocating] = useState(false);
 
@@ -64,10 +65,25 @@ export default function PostComposer({ open, onClose }) {
     if (!open) {
       setKind("post"); setBody(""); setTitle(""); setMedia(null);
       setQuestion(""); setOptions(["", ""]);
-      setUseGps(true); setManualLoc(""); setGpsLoc(null);
+      setUseGps(true);
+      setManualConstituency(me?.constituency || "20 - Anna Nagar");
+      setManualWard(me?.homeWard || "");
+      setGpsLoc(null);
       setAudience(["Ward Residents"]);
     }
-  }, [open]);
+  }, [open, me]);
+
+  // Wards for the chosen manual constituency.
+  const wardsInAc = useMemo(() => {
+    const list = CHENNAI_AC_MAP[manualConstituency] || [];
+    return [...list].sort((a, b) => Number(a) - Number(b));
+  }, [manualConstituency]);
+
+  useEffect(() => {
+    if (!useGps && wardsInAc.length && !wardsInAc.includes(manualWard)) {
+      setManualWard(wardsInAc[0]);
+    }
+  }, [useGps, wardsInAc, manualWard]);
 
   // GPS on demand.
   useEffect(() => {
@@ -87,12 +103,16 @@ export default function PostComposer({ open, onClose }) {
   const { mentions, hashtags } = useMemo(() => extractMentionsAndTags(kind === "post" ? body : question), [kind, body, question]);
   const validOptions = options.map((o) => o.trim()).filter(Boolean);
   const canSubmit = kind === "post"
-    ? (canUploadPost && (media || body.trim().length > 4))
-    : (canUploadPoll && question.trim().length > 4 && validOptions.length >= 2);
+    ? (canUploadPost && (media || body.trim().length >= 4))
+    : (canUploadPoll && question.trim().length >= 4 && validOptions.length >= 2);
+
+  const manualLocationLabel = manualWard
+    ? `Ward ${manualWard}, ${shortAC(manualConstituency)}`
+    : shortAC(manualConstituency);
 
   const locationLabel = useGps
     ? (locating ? "Detecting…" : gpsLoc ? `GPS · ${gpsLoc.lat.toFixed(3)}, ${gpsLoc.lng.toFixed(3)}` : "GPS unavailable")
-    : manualLoc.trim() || "Add a location";
+    : manualLocationLabel;
 
   function onPickPhoto(e) {
     const f = e.target.files?.[0]; if (!f) return;
@@ -115,7 +135,7 @@ export default function PostComposer({ open, onClose }) {
     if (!canSubmit) return;
     const location = useGps
       ? (gpsLoc ? `Near ${gpsLoc.lat.toFixed(3)}, ${gpsLoc.lng.toFixed(3)}` : shortAC(me?.constituency || ""))
-      : manualLoc.trim();
+      : manualLocationLabel;
 
     if (kind === "post") {
       addPost({
@@ -288,9 +308,18 @@ export default function PostComposer({ open, onClose }) {
               </button>
             </div>
             {!useGps ? (
-              <input value={manualLoc} onChange={(e) => setManualLoc(e.target.value)}
-                placeholder="e.g. Anna Nagar Tower Park"
-                className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-brand" />
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <select value={manualConstituency} onChange={(e) => setManualConstituency(e.target.value)}
+                  className="w-full appearance-none rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-xs font-semibold text-slate-800 outline-none focus:border-brand">
+                  {CONSTITUENCIES.map((c) => (
+                    <option key={c} value={c}>{shortAC(c)}</option>
+                  ))}
+                </select>
+                <select value={manualWard} onChange={(e) => setManualWard(e.target.value)}
+                  className="w-full appearance-none rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-xs font-semibold text-slate-800 outline-none focus:border-brand">
+                  {wardsInAc.map((w) => (<option key={w} value={w}>Ward {w}</option>))}
+                </select>
+              </div>
             ) : (
               <p className="mt-2 text-[11px] text-slate-500">{locationLabel}</p>
             )}

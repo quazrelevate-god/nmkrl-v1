@@ -102,16 +102,13 @@ export function clearSession() {
   localStorage.removeItem(SESSION_KEY);
 }
 
-/* ── Per-coordinator local state (verified issues + daily limits + stories) ── */
+/* ── Per-coordinator local state (verifiedIds, falsePetitionIds only) ── */
 
 const stateKey = (username) => `fms_coord_state_${username}`;
 
 const EMPTY_STATE = {
   verifiedIds: [],        // grievance IDs the coordinator has verified
   falsePetitionIds: [],   // grievances marked as false
-  stories: [],            // uploaded stories (each: {id, image, caption, date})
-  posts: [],              // published posts (each: {id, kind, ...})
-  polls: [],              // published polls
 };
 
 export function loadState(username) {
@@ -126,6 +123,41 @@ export function loadState(username) {
 export function saveState(username, state) {
   if (typeof window === "undefined" || !username) return;
   localStorage.setItem(stateKey(username), JSON.stringify(state));
+}
+
+/* ── Shared feed (posts / polls / stories) — cross-coordinator visibility ── */
+
+const FEED_KEY = "fms_coord_shared_feed";
+const EMPTY_FEED = { posts: [], polls: [], stories: [] };
+
+export function loadFeed() {
+  if (typeof window === "undefined") return { ...EMPTY_FEED };
+  try {
+    const raw = localStorage.getItem(FEED_KEY);
+    if (!raw) return { ...EMPTY_FEED };
+    const parsed = JSON.parse(raw);
+    return { ...EMPTY_FEED, ...parsed };
+  } catch { return { ...EMPTY_FEED }; }
+}
+
+export function saveFeed(feed) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(FEED_KEY, JSON.stringify(feed));
+}
+
+/* ── Shared petition actions (redirect / close / transfer / false) ── */
+
+const ACTIONS_KEY = "fms_coord_petition_actions";
+
+export function loadActions() {
+  if (typeof window === "undefined") return [];
+  try { return JSON.parse(localStorage.getItem(ACTIONS_KEY) || "[]"); }
+  catch { return []; }
+}
+
+export function saveActions(actions) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(ACTIONS_KEY, JSON.stringify(actions));
 }
 
 /** YYYY-MM-DD in local timezone for daily-limit checks. */
