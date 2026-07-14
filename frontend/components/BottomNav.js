@@ -3,9 +3,11 @@
 /**
  * BottomNav
  * ---------
- * iOS-style glass pill navigation with three sections:
+ * iOS-style glass pill navigation with three symmetric sections:
  *   Community  ·  [ + ]  ·  Map & History
  * The centre button opens the Report pop-up (turns into an ✕ while open).
+ * Services is intentionally NOT in the pill — it lives as a right-edge
+ * pull-tab (see ServiceHubPullTab) so the pill stays symmetric.
  *
  * The pill MINIMISES (labels collapse, buttons shrink) as the user scrolls
  * down, and springs back to full size when they scroll up — detected via a
@@ -16,7 +18,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, MapPin, Plus, X, Sparkles } from "lucide-react";
+import { Home, MapPin, Plus, X } from "lucide-react";
 import { useReport } from "@/components/ReportProvider";
 
 export default function BottomNav() {
@@ -54,11 +56,10 @@ export default function BottomNav() {
 
   const isCommunity = pathname === "/";
   const isMap = pathname.startsWith("/map");
-  const isServices = pathname.startsWith("/service-hub");
   const ease = "transition-all duration-[420ms] ease-[cubic-bezier(.22,1,.36,1)]";
 
   const sideCls = `flex flex-col items-center justify-center rounded-full ${ease} ${
-    min ? "w-11 gap-0" : "w-[68px] gap-0.5"
+    min ? "w-11 gap-0" : "w-[76px] gap-0.5"
   }`;
   const labelCls = `overflow-hidden text-[10px] font-semibold leading-none ${ease} ${
     min ? "h-0 opacity-0" : "h-3 opacity-100"
@@ -91,13 +92,7 @@ export default function BottomNav() {
         {/* Map & History */}
         <Link href="/map" className={`${sideCls} py-1.5 ${isMap && !open ? "text-brand" : "text-slate-500"}`}>
           <MapPin size={min ? 19 : 20} strokeWidth={isMap && !open ? 2.4 : 1.8} />
-          <span className={labelCls}>Map</span>
-        </Link>
-
-        {/* Service Hub — Tamil Nadu government portals + AI assistant */}
-        <Link href="/service-hub" className={`${sideCls} py-1.5 ${isServices && !open ? "text-brand" : "text-slate-500"}`}>
-          <Sparkles size={min ? 19 : 20} strokeWidth={isServices && !open ? 2.4 : 1.8} />
-          <span className={labelCls}>Services</span>
+          <span className={labelCls}>Map &amp; History</span>
         </Link>
       </div>
     </nav>

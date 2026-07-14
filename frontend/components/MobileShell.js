@@ -2,6 +2,7 @@
 
 import BottomNav from "./BottomNav";
 import ReportModal from "./ReportModal";
+import ServiceHubPullTab from "./ServiceHubPullTab";
 import { useReport } from "./ReportProvider";
 
 /**
@@ -29,6 +30,7 @@ export default function MobileShell({ children, noPad = false, splitView = false
           <div className="bottom-blur" aria-hidden />
           <ReportModal open={open} onClose={closeReport} />
           <BottomNav />
+          <ServiceHubPullTab />
         </div>
       </div>
     );
@@ -65,6 +67,7 @@ export default function MobileShell({ children, noPad = false, splitView = false
         <div className="bottom-blur" aria-hidden />
         <ReportModal open={open} onClose={closeReport} />
         <BottomNav />
+        <ServiceHubPullTab />
       </div>
     </div>
   );
