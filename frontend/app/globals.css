@@ -104,10 +104,10 @@ body {
    whisper of warm maroon/gold so the brand reads subtly, never dominating. */
 .app-bg {
   background:
-    radial-gradient(1200px 600px at 15% -10%, rgba(63,106,125,0.06), transparent 60%),
-    radial-gradient(1000px 500px at 110% 10%, rgba(100,116,139,0.05), transparent 55%),
-    radial-gradient(900px 700px at 50% 120%, rgba(45,120,132,0.05), transparent 55%),
-    #f6f8fa;
+    radial-gradient(1200px 600px at 15% -10%, rgba(15,86,65,0.07), transparent 60%),
+    radial-gradient(1000px 500px at 110% 10%, rgba(148,192,163,0.09), transparent 55%),
+    radial-gradient(900px 700px at 50% 120%, rgba(11,68,50,0.06), transparent 55%),
+    #f4f8f5;
 }
 
 /* Natural spring-ish easing used across transitions. */
@@ -175,8 +175,8 @@ body {
 .glow-pending { animation: pulse-glow 2s ease-in-out infinite; }
 
 @keyframes dot-glow {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(63,106,125,0.5); }
-  50%      { box-shadow: 0 0 0 6px rgba(63,106,125,0); }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(15,86,65,0.5); }
+  50%      { box-shadow: 0 0 0 6px rgba(15,86,65,0); }
 }
 .glow-dot { animation: dot-glow 1.6s ease-in-out infinite; }
 
@@ -198,9 +198,9 @@ body {
   filter: blur(78px); opacity: 0.68; will-change: transform;
   transition: transform 0.6s cubic-bezier(0.22, 1, 0.36, 1);
 }
-.blob-a { background: radial-gradient(circle, rgba(63,106,125,0.40), transparent 70%); top: -10%; left: -6%; animation: drift-a 24s ease-in-out infinite; }
-.blob-b { background: radial-gradient(circle, rgba(100,116,139,0.34), transparent 70%); top: 30%; right: -10%; animation: drift-b 30s ease-in-out infinite; }
-.blob-c { background: radial-gradient(circle, rgba(45,120,132,0.26), transparent 70%); bottom: -14%; left: 28%; animation: drift-c 27s ease-in-out infinite; }
+.blob-a { background: radial-gradient(circle, rgba(15,86,65,0.40), transparent 70%); top: -10%; left: -6%; animation: drift-a 24s ease-in-out infinite; }
+.blob-b { background: radial-gradient(circle, rgba(148,192,163,0.36), transparent 70%); top: 30%; right: -10%; animation: drift-b 30s ease-in-out infinite; }
+.blob-c { background: radial-gradient(circle, rgba(11,68,50,0.24), transparent 70%); bottom: -14%; left: 28%; animation: drift-c 27s ease-in-out infinite; }
 .blob-d { background: radial-gradient(circle, rgba(99,102,241,0.18), transparent 70%); top: 8%; left: 40%; animation: drift-a 33s ease-in-out infinite reverse; }
 
 @keyframes drift-a { 0%,100% { transform: translate(0,0) scale(1); } 33% { transform: translate(8vw,6vh) scale(1.12); } 66% { transform: translate(-5vw,10vh) scale(0.94); } }
@@ -252,8 +252,8 @@ body {
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.9),
     0 2px 4px rgba(15, 23, 42, 0.06),
-    0 22px 48px -18px rgba(63, 106, 125, 0.26);
+    0 22px 48px -18px rgba(15, 86, 65, 0.26);
 }
 
 /* Maroon accent chip glow for active states. */
-.accent-ring { box-shadow: inset 0 1px 0 rgba(255,255,255,0.4), 0 6px 18px -6px rgba(63,106,125,0.5); }
+.accent-ring { box-shadow: inset 0 1px 0 rgba(255,255,255,0.4), 0 6px 18px -6px rgba(15,86,65,0.5); }

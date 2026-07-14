@@ -19,11 +19,15 @@ import dynamic from "next/dynamic";
 import {
   ThumbsUp, MapPin, RotateCcw, Ticket, Sparkles, Navigation,
   Search, X, Users, FileText, Landmark, ChevronDown, ChevronUp,
-  ShieldCheck, Send, ArrowRightLeft, CheckCircle2, Ban, Check,
+  ShieldCheck, Send, ArrowRightLeft, CheckCircle2, Ban, Check, ClipboardList,
 } from "lucide-react";
 import CoordinatorShell from "@/components/coordinator/CoordinatorShell";
 import { useCoordinator } from "@/components/coordinator/CoordinatorProvider";
-import { fetchBoundaries, fetchWardIssues, adminCloseIssue, mediaUrl } from "@/lib/api";
+import {
+  fetchBoundaries, fetchCoordinatorWardIssues, mediaUrl,
+  coordinatorVerify, coordinatorTransfer, coordinatorRedirect,
+  coordinatorClose, coordinatorMarkFalse,
+} from "@/lib/api";
 import { statusMeta, STATUS_META } from "@/lib/status";
 import { ticketNumber } from "@/lib/ticket";
 import { haversineKm } from "@/lib/geo";
@@ -41,7 +45,23 @@ const MapView = dynamic(() => import("@/components/MapView"), {
 const RADIUS = 1500;
 
 /* ── Grievance card used in BOTH tabs (with a slot for actions) ── */
-function GrievanceCard({ issue, expanded, onToggle, dist, actions }) {
+/** Small badge chip shown on My Reports / Previous Reports cards, capturing
+ *  the latest coordinator action or terminal status. */
+function ActionStatusBadge({ action, status }) {
+  if (status === "CLOSED")   return <span className="rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700 ring-1 ring-emerald-200">Citizen approved · Closed</span>;
+  if (status === "FALSE")    return <span className="rounded-full bg-rose-50 px-1.5 py-0.5 text-[9px] font-bold text-rose-700 ring-1 ring-rose-200">False Petition</span>;
+  if (!action) return null;
+  const map = {
+    redirect: { label: "Redirected", cls: "bg-slate-100 text-slate-700 ring-slate-200" },
+    transfer: { label: "Transferred · Inspection", cls: "bg-sky-50 text-sky-700 ring-sky-200" },
+    close:    { label: "Awaiting citizen verify", cls: "bg-amber-50 text-amber-700 ring-amber-200" },
+    false:    { label: "False Petition", cls: "bg-rose-50 text-rose-700 ring-rose-200" },
+  };
+  const m = map[action.kind];
+  return m ? <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-bold ring-1 ${m.cls}`}>{m.label}</span> : null;
+}
+
+function GrievanceCard({ issue, expanded, onToggle, dist, actions, actionBadge }) {
   const m = statusMeta(issue.status);
   return (
     <article className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
@@ -51,7 +71,7 @@ function GrievanceCard({ issue, expanded, onToggle, dist, actions }) {
           : <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-lg">🛣️</div>}
         <div className="min-w-0 flex-1">
           <h3 className="text-sm font-bold leading-tight text-slate-900 truncate">{issue.title}</h3>
-          <div className="mt-0.5 flex items-center gap-3 text-[11px] text-slate-400">
+          <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-slate-400">
             <span className="flex items-center gap-1"><ThumbsUp size={10} /> {issue.upvotes}</span>
             {dist != null && (
               <span className="flex items-center gap-1"><Navigation size={10} />
@@ -59,6 +79,7 @@ function GrievanceCard({ issue, expanded, onToggle, dist, actions }) {
               </span>
             )}
             <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${m.badge}`}>{m.label}</span>
+            {actionBadge}
           </div>
         </div>
         {expanded ? <ChevronUp size={16} className="shrink-0 text-slate-400" />
@@ -215,37 +236,60 @@ export default function CoordinatorGrievancePage() {
     setCenter({ lat, lng });
   }, [ward, boundaries]);
 
-  // Load grievances for the selected ward.
+  // Load grievances for the selected ward — coordinator sees EVERY status,
+  // including SUBMITTED (which is intentionally hidden from citizens).
   const loadWard = useCallback(async (w) => {
     if (!w) return;
     try {
-      const data = await fetchWardIssues(w);
+      const data = await fetchCoordinatorWardIssues(w);
       setWardIssues(data.issues || []);
     } catch { /* leave as-is */ }
   }, []);
 
   useEffect(() => { loadWard(ward); }, [ward, loadWard]);
 
-  // Split ward issues into "In this ward" (not-yet verified) vs "My Reports" (this coordinator has verified).
+  // Local ownership tracking. The backend status is the source of truth for
+  // what the citizen sees; verifiedIds simply records which grievances this
+  // coordinator has taken ownership of.
   const verifiedIds = state?.verifiedIds || [];
-  const falseIds = state?.falsePetitionIds || [];
 
+  // Latest action per issue (keyed by issueId), computed from the shared actions store.
+  const latestActionByIssue = useMemo(() => {
+    const map = {};
+    // actions are prepended, so index 0 is newest.
+    for (const a of actions) {
+      if (!map[a.issueId]) map[a.issueId] = a;
+    }
+    return map;
+  }, [actions]);
+
+  // "In This Ward" = grievances I haven't verified yet.
   const wardIssuesFiltered = useMemo(() => {
-    return wardIssues.filter((i) => !verifiedIds.includes(i.id) && !falseIds.includes(i.id));
-  }, [wardIssues, verifiedIds, falseIds]);
+    return wardIssues.filter((i) => !verifiedIds.includes(i.id));
+  }, [wardIssues, verifiedIds]);
 
-  // Actioned grievances (redirected/closed/transferred/false) are excluded
-  // from My Reports — they now live in the admin petition-list sections.
-  const actionedIds = useMemo(() => new Set(actions.map((a) => a.issueId)), [actions]);
-
+  // "My Reports" = verified BY ME and still active (not fully closed by citizen,
+  //  not marked false). Grievances with a coordinator action (redirect / transfer)
+  //  STAY here with a status badge until the citizen closes the loop.
+  // "Previous Reports" = terminal state: CLOSED by citizen approval OR FALSE.
   const myReports = useMemo(() => {
-    return wardIssues.filter((i) => verifiedIds.includes(i.id) && !actionedIds.has(i.id));
-  }, [wardIssues, verifiedIds, actionedIds]);
+    return wardIssues.filter((i) =>
+      verifiedIds.includes(i.id) &&
+      i.status !== "CLOSED" &&
+      i.status !== "FALSE");
+  }, [wardIssues, verifiedIds]);
+
+  const previousReports = useMemo(() => {
+    return wardIssues.filter((i) =>
+      verifiedIds.includes(i.id) &&
+      (i.status === "CLOSED" || i.status === "FALSE"));
+  }, [wardIssues, verifiedIds]);
 
   const publicIssues = useMemo(() => {
-    // Map pins depend on the active tab.
-    return tab === "mine" ? myReports : wardIssuesFiltered;
-  }, [tab, wardIssuesFiltered, myReports]);
+    if (tab === "mine") return myReports;
+    if (tab === "previous") return previousReports;
+    return wardIssuesFiltered;
+  }, [tab, wardIssuesFiltered, myReports, previousReports]);
 
   const filteredMapIssues = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -268,70 +312,94 @@ export default function CoordinatorGrievancePage() {
 
   function showToast(t) { setToast(t); setTimeout(() => setToast(null), 2400); }
 
-  function handleVerify(issue) {
-    verify(issue.id);
-    showToast(`Verified · ${issue.title.slice(0, 30)} moved to My Reports`);
-    setExpandedId(null);
+  /* ── Take ownership (Verify Grievance) ── */
+  async function handleVerify(issue) {
+    setBusyId(issue.id);
+    try {
+      await coordinatorVerify(issue.id);        // backend → ACTIVE ("Assigned" to citizen)
+      verify(issue.id);                          // local: add to my verifiedIds
+      showToast(`Verified · ${issue.title.slice(0, 30)} moved to My Reports`);
+      setExpandedId(null);
+      await loadWard(ward);
+    } catch (err) { setError(err.message); }
+    finally { setBusyId(null); }
   }
 
-  /* ── Redirect ── */
-  function submitRedirect(data) {
+  /* ── Redirect: → SUBMITTED with a delay-apology message ── */
+  async function submitRedirect(data) {
     const issue = redirectTarget;
     if (!issue) return;
-    addAction({
-      issueId: issue.id, kind: "redirect", issueTitle: issue.title,
-      wardNo: issue.ward_no, department: issue.department, data,
-    });
-    setRedirectTarget(null);
-    setExpandedId(null);
-    showToast("Redirected to admin");
+    setBusyId(issue.id);
+    try {
+      await coordinatorRedirect(issue.id, data.description);
+      addAction({
+        issueId: issue.id, kind: "redirect", issueTitle: issue.title,
+        wardNo: issue.ward_no, department: issue.department, data,
+      });
+      setRedirectTarget(null);
+      setExpandedId(null);
+      showToast("Redirected · citizen will see apology");
+      await loadWard(ward);
+    } catch (err) { setError(err.message); }
+    finally { setBusyId(null); }
   }
 
-  /* ── Transfer ── */
-  function submitTransfer(data) {
+  /* ── Dept Transfer: → FORWARDED (labelled 'Inspection' for citizen) ── */
+  async function submitTransfer(data) {
     const issue = transferTarget;
     if (!issue) return;
-    addAction({
-      issueId: issue.id, kind: "transfer", issueTitle: issue.title,
-      wardNo: issue.ward_no, department: data.department, data,
-    });
-    setTransferTarget(null);
-    setExpandedId(null);
-    showToast(`Transferred to ${departmentMeta(data.department).short}`);
+    setBusyId(issue.id);
+    try {
+      await coordinatorTransfer(issue.id, data.department, data.notes);
+      addAction({
+        issueId: issue.id, kind: "transfer", issueTitle: issue.title,
+        wardNo: issue.ward_no, department: data.department, data,
+      });
+      // Note: modal now shows the WhatsApp dispatch template; keep it open
+      // (TransferModal itself will call onClose after send).
+      showToast(`Transferred to ${departmentMeta(data.department).short}`);
+      await loadWard(ward);
+    } catch (err) { setError(err.message); }
+    finally { setBusyId(null); }
   }
 
-  /* ── Close (photo + voice mandatory) ── */
+  /* ── Close: photo + voice mandatory → PENDING_VERIFICATION ── */
   async function submitClose(data) {
     const issue = closeTarget;
     if (!issue) return;
     setBusyId(issue.id);
     try {
-      await adminCloseIssue(issue.id);
+      await coordinatorClose(issue.id, data.notes || "");
       addAction({
         issueId: issue.id, kind: "close", issueTitle: issue.title,
         wardNo: issue.ward_no, department: issue.department, data,
       });
-      showToast("Closed · awaiting citizen verification");
+      showToast("Closed · citizen must verify to move to Previous Reports");
       setCloseTarget(null);
       setExpandedId(null);
       await loadWard(ward);
-    } catch (err) {
-      setError(err.message);
-    } finally { setBusyId(null); }
+    } catch (err) { setError(err.message); }
+    finally { setBusyId(null); }
   }
 
-  /* ── False Petition ── */
-  function submitFalse(data) {
+  /* ── False Petition: → FALSE (immediately terminal → Previous Reports) ── */
+  async function submitFalse(data) {
     const issue = falseTarget;
     if (!issue) return;
-    flagFalse(issue.id);
-    addAction({
-      issueId: issue.id, kind: "false", issueTitle: issue.title,
-      wardNo: issue.ward_no, department: issue.department, data,
-    });
-    setFalseTarget(null);
-    setExpandedId(null);
-    showToast("Flagged as false petition");
+    setBusyId(issue.id);
+    try {
+      await coordinatorMarkFalse(issue.id, data.reason, data.details || "");
+      flagFalse(issue.id);
+      addAction({
+        issueId: issue.id, kind: "false", issueTitle: issue.title,
+        wardNo: issue.ward_no, department: issue.department, data,
+      });
+      setFalseTarget(null);
+      setExpandedId(null);
+      showToast("Flagged as false · moved to Previous Reports");
+      await loadWard(ward);
+    } catch (err) { setError(err.message); }
+    finally { setBusyId(null); }
   }
 
   return (
@@ -411,16 +479,22 @@ export default function CoordinatorGrievancePage() {
         {/* Tabs */}
         <div className="mb-3 flex gap-1 rounded-xl bg-slate-200/70 p-1">
           <button onClick={() => setTab("ward")}
-            className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-bold transition ${
+            className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg py-2 text-[11px] font-bold transition ${
               tab === "ward" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"
             }`}>
-            <Users size={13} /> In This Ward ({wardIssuesFiltered.length})
+            <Users size={13} /> Ward ({wardIssuesFiltered.length})
           </button>
           <button onClick={() => setTab("mine")}
-            className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-bold transition ${
+            className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg py-2 text-[11px] font-bold transition ${
               tab === "mine" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"
             }`}>
             <FileText size={13} /> My Reports ({myReports.length})
+          </button>
+          <button onClick={() => setTab("previous")}
+            className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg py-2 text-[11px] font-bold transition ${
+              tab === "previous" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"
+            }`}>
+            <ClipboardList size={13} /> Previous ({previousReports.length})
           </button>
         </div>
 
@@ -482,33 +556,69 @@ export default function CoordinatorGrievancePage() {
               </div>
             ) : (
               <div className="space-y-2">
-                {myReports.map((issue) => (
+                {myReports.map((issue) => {
+                  const latestAction = latestActionByIssue[issue.id];
+                  return (
+                    <GrievanceCard
+                      key={issue.id}
+                      issue={issue}
+                      expanded={expandedId === issue.id}
+                      onToggle={() => toggleExpand(issue.id)}
+                      dist={distanceKm(issue)}
+                      actionBadge={<ActionStatusBadge action={latestAction} status={issue.status} />}
+                      actions={
+                        <div className="grid grid-cols-2 gap-2">
+                          <button onClick={() => setTransferTarget(issue)}
+                            className="flex items-center justify-center gap-1.5 rounded-lg bg-brand py-2 text-[11px] font-bold text-white">
+                            <Send size={12} /> Dept. Transfer
+                          </button>
+                          <button onClick={() => setRedirectTarget(issue)}
+                            className="flex items-center justify-center gap-1.5 rounded-lg bg-slate-800 py-2 text-[11px] font-bold text-white">
+                            <ArrowRightLeft size={12} /> Redirect
+                          </button>
+                          <button onClick={() => setCloseTarget(issue)}
+                            className="flex items-center justify-center gap-1.5 rounded-lg bg-emerald-600 py-2 text-[11px] font-bold text-white">
+                            <CheckCircle2 size={12} /> Close
+                          </button>
+                          <button onClick={() => setFalseTarget(issue)}
+                            className="flex items-center justify-center gap-1.5 rounded-lg border border-rose-200 bg-white py-2 text-[11px] font-bold text-rose-600">
+                            <Ban size={12} /> False Petition
+                          </button>
+                        </div>
+                      }
+                    />
+                  );
+                })}
+              </div>
+            )}
+          </>
+        )}
+
+        {/* ── PREVIOUS REPORTS (closed by citizen or false petitions) ── */}
+        {tab === "previous" && (
+          <>
+            <div className="mb-2 flex items-center justify-between">
+              <h2 className="text-sm font-extrabold text-slate-900">Previous reports</h2>
+              <button onClick={() => loadWard(ward)} className="flex items-center gap-1 text-xs font-medium text-brand">
+                <RotateCcw size={12} /> Refresh
+              </button>
+            </div>
+            {previousReports.length === 0 ? (
+              <div className="py-10 text-center text-sm text-slate-400">
+                <ClipboardList size={32} className="mx-auto mb-2 text-slate-300" />
+                Closed grievances and false petitions land here.
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {previousReports.map((issue) => (
                   <GrievanceCard
                     key={issue.id}
                     issue={issue}
                     expanded={expandedId === issue.id}
                     onToggle={() => toggleExpand(issue.id)}
                     dist={distanceKm(issue)}
-                    actions={
-                      <div className="grid grid-cols-2 gap-2">
-                        <button onClick={() => setTransferTarget(issue)}
-                          className="flex items-center justify-center gap-1.5 rounded-lg bg-brand py-2 text-[11px] font-bold text-white">
-                          <Send size={12} /> Dept. Transfer
-                        </button>
-                        <button onClick={() => setRedirectTarget(issue)}
-                          className="flex items-center justify-center gap-1.5 rounded-lg bg-slate-800 py-2 text-[11px] font-bold text-white">
-                          <ArrowRightLeft size={12} /> Redirect
-                        </button>
-                        <button onClick={() => setCloseTarget(issue)}
-                          className="flex items-center justify-center gap-1.5 rounded-lg bg-emerald-600 py-2 text-[11px] font-bold text-white">
-                          <CheckCircle2 size={12} /> Close
-                        </button>
-                        <button onClick={() => setFalseTarget(issue)}
-                          className="flex items-center justify-center gap-1.5 rounded-lg border border-rose-200 bg-white py-2 text-[11px] font-bold text-rose-600">
-                          <Ban size={12} /> False Petition
-                        </button>
-                      </div>
-                    }
+                    actionBadge={<ActionStatusBadge action={latestActionByIssue[issue.id]} status={issue.status} />}
+                    actions={null}
                   />
                 ))}
               </div>

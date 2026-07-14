@@ -36,9 +36,11 @@ function progressIndex(status) {
   switch (status) {
     case "SUBMITTED":            return 1;
     case "ACTIVE":               return 2;
+    case "FORWARDED":            return 3; // "Inspection" (coordinator transferred)
     case "IN_PROGRESS":          return 4;
     case "PENDING_VERIFICATION": return 5;
     case "CLOSED":               return 6;
+    case "FALSE":                return -1; // rendered separately
     default:                     return 0;
   }
 }
@@ -121,7 +123,19 @@ function IssueCard({ issue, expanded, onToggle, dist, onUpvote }) {
             </div>
           )}
 
-          {/* Lifecycle progress — current step glows */}
+          {/* Coordinator message (redirect apology, transfer note, false reason, …) */}
+          {issue.coordinator_message && (
+            <div className={`rounded-xl border p-2.5 text-xs italic leading-snug ${
+              issue.status === "FALSE"
+                ? "border-rose-100 bg-rose-50 text-rose-700"
+                : "border-amber-100 bg-amber-50 text-amber-800"
+            }`}>
+              {issue.coordinator_message}
+            </div>
+          )}
+
+          {/* Lifecycle progress — hidden for grievances marked FALSE */}
+          {issue.status !== "FALSE" && (
           <div className="flex items-start justify-between">
             {LIFECYCLE.map((step, idx) => {
               const done = idx < pi;
@@ -142,6 +156,7 @@ function IssueCard({ issue, expanded, onToggle, dist, onUpvote }) {
               );
             })}
           </div>
+          )}
 
           {onUpvote && (
             <button

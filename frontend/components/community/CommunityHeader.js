@@ -55,9 +55,9 @@ function StoriesStrip({ onOpenStory, onExpand, constituency, onConstituency }) {
       <div className="no-scrollbar -mx-1 flex gap-3.5 overflow-x-auto px-1">
         {STORIES.map(s => (
           <button key={s.id} onClick={() => onOpenStory(s)} className="flex w-[72px] shrink-0 flex-col items-center gap-1.5">
-            <span className={`relative rounded-full bg-gradient-to-br ${s.ring} p-[3px]`}>
+            <span className="relative rounded-[24px] bg-gradient-to-br from-beige-100 via-beige-200 to-beige-300 p-[2px]">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={s.slides[0].image} alt="" className="h-[64px] w-[64px] rounded-full border-2 border-white object-cover" />
+              <img src={s.slides[0].image} alt="" className="h-[66px] w-[66px] rounded-[22px] border-2 border-white object-cover" />
               {s.count > 0 && (
                 <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-brand px-1 text-[10px] font-bold text-white ring-2 ring-white">{s.count}</span>
               )}
@@ -87,18 +87,18 @@ function ProfilePanel({ onCollapse }) {
       {/* Hero */}
       <div className="flex items-center gap-3">
         <div className="relative shrink-0">
-          <div className="rounded-full bg-gradient-to-br from-teal-400 via-cyan-500 to-brand p-[3px]">
-            <div className="flex h-14 w-14 items-center justify-center rounded-full border-2 border-white bg-slate-100 text-xl font-black text-slate-500">
+          <div className="rounded-full bg-gradient-to-br from-amber-300 via-yellow-400 to-amber-500 p-[3px]">
+            <div className="flex h-14 w-14 items-center justify-center rounded-full border-2 border-white bg-slate-100 text-xl font-black text-brand">
               {PROFILE.name.split(" ").map(w => w[0]).join("")}
             </div>
           </div>
-          <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 rounded-full bg-brand px-1.5 py-0.5 text-[8px] font-bold text-white shadow">{PROFILE.level}</span>
+          <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 rounded-md bg-gradient-to-r from-amber-300 to-yellow-500 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wide text-brand-dark shadow">{PROFILE.level}</span>
         </div>
         <div className="min-w-0 flex-1">
           <p className="text-[11px] font-medium text-slate-400">{greeting},</p>
           <h2 className="truncate text-lg font-extrabold leading-tight text-slate-900">{PROFILE.name} 👋</h2>
-          <span className="mt-0.5 inline-flex items-center gap-1 rounded-full bg-teal-50 px-2 py-0.5 text-[10px] font-bold text-teal-700">
-            <Flame size={10} className="fill-teal-500 text-teal-500" /> {PROFILE.streak}-day streak
+          <span className="mt-0.5 inline-flex items-center gap-1 rounded-full bg-brand-50 px-2 py-0.5 text-[10px] font-bold text-brand">
+            <Flame size={10} className="fill-brand text-brand" /> {PROFILE.streak}-day streak
           </span>
         </div>
         <button onClick={onCollapse} className="self-start rounded-full p-1 text-slate-400 hover:bg-slate-200/60">
@@ -106,29 +106,37 @@ function ProfilePanel({ onCollapse }) {
         </button>
       </div>
 
-      {/* Civic score + level progress */}
-      <div className="mt-3 overflow-hidden rounded-2xl bg-gradient-to-br from-brand to-brand-dark p-3.5 text-white shadow-lg shadow-brand/25">
+      {/* Civic score — royal-green card with a "golden ticket" tier badge */}
+      <div className="mt-3 overflow-hidden rounded-2xl bg-gradient-to-br from-brand via-brand-700 to-brand-dark p-3.5 text-white shadow-lg shadow-brand/25">
         <div className="flex items-end justify-between">
           <div>
-            <p className="flex items-center gap-1 text-[11px] font-semibold text-slate-200"><ShieldCheck size={13} /> Civic Score</p>
-            <p className="text-3xl font-black leading-none">{PROFILE.civicScore}</p>
+            <p className="flex items-center gap-1 text-[11px] font-semibold text-emerald-100"><ShieldCheck size={13} /> Civic Score</p>
+            <div className="flex items-center gap-2">
+              <p className="text-3xl font-black leading-none">{PROFILE.civicScore}</p>
+              {/* Golden ticket — small tier chip */}
+              <span className="relative inline-flex items-center rounded-md bg-gradient-to-r from-amber-300 via-yellow-400 to-amber-500 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-brand-dark shadow-[inset_0_1px_0_rgba(255,255,255,0.4),0_2px_6px_rgba(217,119,6,0.4)]">
+                <span className="pointer-events-none absolute -left-1 top-1/2 h-2 w-2 -translate-y-1/2 rounded-full bg-brand" />
+                <span className="pointer-events-none absolute -right-1 top-1/2 h-2 w-2 -translate-y-1/2 rounded-full bg-brand" />
+                {PROFILE.level}
+              </span>
+            </div>
           </div>
           <div className="text-right">
             <div className="flex justify-end gap-0.5">
               {Array.from({ length: 5 }).map((_, i) => (
-                <Star key={i} size={12} className={i < Math.round(PROFILE.rating) ? "fill-white text-white" : "fill-white/25 text-white/25"} />
+                <Star key={i} size={12} className={i < Math.round(PROFILE.rating) ? "fill-amber-300 text-amber-300" : "fill-white/25 text-white/25"} />
               ))}
             </div>
-            <p className="mt-0.5 text-[10px] text-slate-200">{PROFILE.rating}/5 rating</p>
+            <p className="mt-0.5 text-[10px] text-emerald-100">{PROFILE.rating}/5 rating</p>
           </div>
         </div>
         <div className="mt-2.5">
-          <div className="mb-1 flex items-center justify-between text-[10px] font-medium text-slate-200">
+          <div className="mb-1 flex items-center justify-between text-[10px] font-medium text-emerald-100">
             <span>{PROFILE.level}</span>
             <span>{PROFILE.toNext} pts to {PROFILE.nextLevel}</span>
           </div>
           <div className="h-2 overflow-hidden rounded-full bg-white/20">
-            <div className="h-full rounded-full bg-gradient-to-r from-teal-200 to-cyan-100" style={{ width: `${pctInTier}%` }} />
+            <div className="h-full rounded-full bg-gradient-to-r from-amber-300 to-yellow-200" style={{ width: `${pctInTier}%` }} />
           </div>
         </div>
       </div>

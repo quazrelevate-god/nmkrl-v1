@@ -100,6 +100,10 @@ def init_db() -> None:
             ("zone", "TEXT DEFAULT ''"),
             ("zone_name", "TEXT DEFAULT ''"),
             ("name", "TEXT DEFAULT ''"),  # reporter's name (personal detail)
+            # Coordinator-facing message surfaced to the citizen (e.g. after a
+            # 'redirect' the citizen sees a delay-apology; after 'transfer' the
+            # citizen sees the department the ticket was routed to).
+            ("coordinator_message", "TEXT DEFAULT ''"),
         ]:
             try:
                 conn.execute(f"ALTER TABLE issues ADD COLUMN {col} {defn}")

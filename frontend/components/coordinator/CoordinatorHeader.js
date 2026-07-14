@@ -57,10 +57,10 @@ function StoriesStrip({ onOpenStory, onExpand, onAddStory, canUpload, coordinato
           title={canUpload ? "Upload a highlight" : "Daily limit reached — try again tomorrow"}
           className="flex w-[72px] shrink-0 flex-col items-center gap-1.5"
         >
-          <span className={`relative flex h-[70px] w-[70px] items-center justify-center rounded-[22px] border-2 border-dashed ${canUpload ? "border-amber-300 bg-amber-50/50 text-amber-600" : "border-slate-300 bg-slate-100 text-slate-400"}`}>
+          <span className={`relative flex h-[70px] w-[70px] items-center justify-center rounded-[22px] border-2 border-dashed ${canUpload ? "border-beige-300 bg-beige-100/60 text-slate-600" : "border-slate-300 bg-slate-100 text-slate-400"}`}>
             <Plus size={26} />
           </span>
-          <span className={`line-clamp-2 text-center text-[10px] font-semibold leading-tight ${canUpload ? "text-amber-700" : "text-slate-400"}`}>
+          <span className={`line-clamp-2 text-center text-[10px] font-semibold leading-tight ${canUpload ? "text-slate-700" : "text-slate-400"}`}>
             {canUpload ? "Add highlight" : "1/day used"}
           </span>
         </button>
@@ -69,7 +69,7 @@ function StoriesStrip({ onOpenStory, onExpand, onAddStory, canUpload, coordinato
         {coordinatorStories.slice(0, 3).map((s) => (
           <button key={s.id} onClick={() => onOpenStory({ id: s.id, label: "Yours", slides: [{ image: s.image, caption: s.caption || "" }] })}
             className="flex w-[72px] shrink-0 flex-col items-center gap-1.5">
-            <span className="rounded-[24px] bg-gradient-to-br from-amber-200 via-yellow-100 to-amber-300 p-[2px]">
+            <span className="rounded-[24px] bg-gradient-to-br from-beige-100 via-beige-200 to-beige-300 p-[2px]">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={s.image} alt="" className="h-[66px] w-[66px] rounded-[22px] border-2 border-white object-cover" />
             </span>
@@ -80,7 +80,7 @@ function StoriesStrip({ onOpenStory, onExpand, onAddStory, canUpload, coordinato
         {/* Curated highlights — squircle + thin gold gradient border (uniform) */}
         {STORIES.map((s) => (
           <button key={s.id} onClick={() => onOpenStory(s)} className="flex w-[72px] shrink-0 flex-col items-center gap-1.5">
-            <span className="relative rounded-[24px] bg-gradient-to-br from-amber-200 via-yellow-100 to-amber-300 p-[2px]">
+            <span className="relative rounded-[24px] bg-gradient-to-br from-beige-100 via-beige-200 to-beige-300 p-[2px]">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={s.slides[0].image} alt="" className="h-[66px] w-[66px] rounded-[22px] border-2 border-white object-cover" />
               {s.count > 0 && (

@@ -23,10 +23,11 @@
 import { useEffect, useRef, useState } from "react";
 import {
   X, Send, Camera, Mic, Square, CheckCircle2, Ban, ArrowRightLeft, Building2,
-  Trash2, Sparkles,
+  Trash2, Sparkles, Check,
 } from "lucide-react";
-import { DEPARTMENTS, departmentMeta } from "@/lib/departments";
+import { DEPARTMENTS, departmentMeta, slaDeadline } from "@/lib/departments";
 import { useRecorder } from "@/lib/hooks";
+import { ticketNumber } from "@/lib/ticket";
 
 /* ── Shared modal shell ── */
 function ModalShell({ open, onClose, icon: Icon, title, subtitle, children }) {
@@ -197,56 +198,139 @@ export function TransferModal({ open, issue, onClose, onSubmit }) {
   const aiSuggested = issue?.department || Object.keys(DEPARTMENTS)[0];
   const [department, setDepartment] = useState(aiSuggested);
   const [notes, setNotes] = useState("");
+  const [stage, setStage] = useState("form"); // 'form' | 'dispatch'
+  const [dispatched, setDispatched] = useState(false);
 
   useEffect(() => {
     if (open) {
       setDepartment(aiSuggested);
       setNotes("");
+      setStage("form");
+      setDispatched(false);
     }
   }, [open, aiSuggested]);
 
   const meta = departmentMeta(department);
   const changed = department !== aiSuggested;
 
+  function handleSubmit() {
+    // Fire the backend action first (parent's onSubmit calls coordinatorTransfer).
+    onSubmit({ department, aiSuggested, overridden: changed, notes: notes.trim() });
+    // Then reveal the WhatsApp dispatch preview so the coordinator can "send it".
+    setStage("dispatch");
+  }
+
+  const highlights = (issue?.summary_highlights || []).join(", ");
+  const deadline = issue?.created_at
+    ? slaDeadline(issue.created_at, department).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
+    : "";
+  const loc = issue
+    ? (issue.area_name
+        ? `${issue.area_name} (${issue.latitude?.toFixed(5)}, ${issue.longitude?.toFixed(5)})`
+        : `${issue.latitude?.toFixed(5)}, ${issue.longitude?.toFixed(5)}`)
+    : "";
+  const waMessage = issue ? `🏛️ *FixMyStreet Grievance Dispatch*
+
+*Ticket:* ${ticketNumber(issue.id)}
+*Ward No:* ${issue.ward_no ?? "—"}
+*Issue:* ${issue.title}
+*Details:* ${issue.transcript || highlights || "—"}
+*Location:* ${loc}
+*Reported:* ${new Date(issue.created_at).toLocaleDateString("en-IN")}
+*SLA Deadline:* ${deadline}${notes.trim() ? `
+
+*Coordinator note:* ${notes.trim()}` : ""}
+
+Kindly action this grievance before the SLA deadline.` : "";
+
   return (
     <ModalShell open={open} onClose={onClose} icon={Send}
       title="Department Transfer"
-      subtitle="AI-detected route — change if needed">
+      subtitle={stage === "form" ? "AI-detected route — change if needed" : "WhatsApp dispatch to the department"}>
       {issue && <IssuePreview issue={issue} />}
 
-      {/* AI suggestion badge */}
-      <div className="rounded-2xl border border-brand-100 bg-brand-50/60 p-3">
-        <p className="mb-1 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-brand">
-          <Sparkles size={11} /> AI routed to
-        </p>
-        <p className="text-sm font-bold text-slate-800">{aiSuggested}</p>
-        <p className="text-[10px] text-slate-500">SLA · {departmentMeta(aiSuggested).slaDays} days</p>
-      </div>
+      {stage === "form" && (
+        <>
+          {/* AI suggestion badge */}
+          <div className="rounded-2xl border border-brand-100 bg-brand-50/60 p-3">
+            <p className="mb-1 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-brand">
+              <Sparkles size={11} /> AI routed to
+            </p>
+            <p className="text-sm font-bold text-slate-800">{aiSuggested}</p>
+            <p className="text-[10px] text-slate-500">SLA · {departmentMeta(aiSuggested).slaDays} days</p>
+          </div>
 
-      <div>
-        <label className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-slate-600">
-          <Building2 size={13} /> Route to department {changed && <span className="text-[10px] font-normal text-amber-600">· overridden</span>}
-        </label>
-        <select value={department} onChange={(e) => setDepartment(e.target.value)}
-          className="w-full appearance-none rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 outline-none focus:border-brand">
-          {Object.keys(DEPARTMENTS).map((d) => (
-            <option key={d} value={d}>{departmentMeta(d).short} · {d}</option>
-          ))}
-        </select>
-        <p className="mt-1 text-[10px] text-slate-500">SLA · {meta.slaDays} days · {meta.phone}</p>
-      </div>
+          <div>
+            <label className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-slate-600">
+              <Building2 size={13} /> Route to department {changed && <span className="text-[10px] font-normal text-amber-600">· overridden</span>}
+            </label>
+            <select value={department} onChange={(e) => setDepartment(e.target.value)}
+              className="w-full appearance-none rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 outline-none focus:border-brand">
+              {Object.keys(DEPARTMENTS).map((d) => (
+                <option key={d} value={d}>{departmentMeta(d).short} · {d}</option>
+              ))}
+            </select>
+            <p className="mt-1 text-[10px] text-slate-500">SLA · {meta.slaDays} days · {meta.phone}</p>
+          </div>
 
-      <div>
-        <label className="mb-1 block text-xs font-semibold text-slate-600">Notes (optional)</label>
-        <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3}
-          placeholder="Additional context for the receiving department"
-          className="w-full resize-none rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-brand" />
-      </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-slate-600">Notes (optional)</label>
+            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3}
+              placeholder="Additional context for the receiving department"
+              className="w-full resize-none rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-brand" />
+          </div>
 
-      <button onClick={() => onSubmit({ department, aiSuggested, overridden: changed, notes: notes.trim() })}
-        className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand py-3 text-sm font-bold text-white shadow-lg">
-        <Send size={15} /> Submit & Transfer
-      </button>
+          <button onClick={handleSubmit}
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand py-3 text-sm font-bold text-white shadow-lg">
+            <Send size={15} /> Submit & Preview Dispatch
+          </button>
+        </>
+      )}
+
+      {stage === "dispatch" && issue && (
+        <>
+          {/* WhatsApp-styled dispatch preview */}
+          <div className="overflow-hidden rounded-2xl ring-1 ring-slate-200">
+            <div className="flex items-center gap-2 bg-[#075E54] px-3 py-2 text-white">
+              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#25D366] text-sm font-bold">W</div>
+              <div>
+                <p className="text-xs font-bold leading-tight">{meta.short} Dept.</p>
+                <p className="text-[10px] text-emerald-100">{meta.phone}</p>
+              </div>
+            </div>
+            <div className="bg-[#ECE5DD] px-3 py-3">
+              <div className="ml-auto max-w-[92%] rounded-xl rounded-tr-none bg-[#DCF8C6] p-2.5 shadow-sm">
+                <pre className="whitespace-pre-wrap font-sans text-[11px] leading-snug text-slate-800">{waMessage}</pre>
+              </div>
+              {dispatched && (
+                <p className="mt-2 text-center text-[11px] font-medium text-emerald-700">
+                  ✓ Message queued for {meta.short} Department (demo)
+                </p>
+              )}
+            </div>
+            <div className="flex items-center gap-2 border-t border-slate-200 bg-white px-3 py-2">
+              <div className="flex-1 truncate rounded-full bg-slate-100 px-4 py-2 text-xs text-slate-400">
+                Templatised grievance dispatch ready…
+              </div>
+              <button onClick={() => setDispatched(true)} disabled={dispatched}
+                className="flex h-9 w-9 items-center justify-center rounded-full bg-[#25D366] text-white shadow disabled:opacity-60">
+                {dispatched ? <Check size={16} /> : <Send size={14} />}
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <button onClick={() => setStage("form")}
+              className="rounded-xl border border-slate-300 bg-white py-2.5 text-xs font-bold text-slate-700">
+              Edit dispatch
+            </button>
+            <button onClick={onClose}
+              className="rounded-xl bg-brand py-2.5 text-xs font-bold text-white">
+              Done
+            </button>
+          </div>
+        </>
+      )}
     </ModalShell>
   );
 }

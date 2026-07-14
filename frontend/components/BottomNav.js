@@ -66,7 +66,7 @@ export default function BottomNav() {
   return (
     <nav className="pointer-events-none absolute inset-x-0 bottom-0 z-[700] flex justify-center pb-4">
       <div
-        className={`glass-strong pointer-events-auto flex items-center rounded-full shadow-[0_12px_40px_-8px_rgba(51,65,85,0.28)] ${ease} ${
+        className={`glass-strong pointer-events-auto flex items-center rounded-full shadow-[0_12px_40px_-8px_rgba(15,86,65,0.28)] ${ease} ${
           min ? "gap-0.5 px-2 py-1.5" : "gap-1 px-2.5 py-2"
         }`}
       >

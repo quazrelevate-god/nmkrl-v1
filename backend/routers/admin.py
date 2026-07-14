@@ -17,7 +17,7 @@ router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 VALID_STATUSES = {
     "SUBMITTED", "ACTIVE", "FORWARDED", "IN_PROGRESS",
-    "PENDING_VERIFICATION", "CLOSED",
+    "PENDING_VERIFICATION", "CLOSED", "FALSE",
 }
 
 

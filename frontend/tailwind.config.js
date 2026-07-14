@@ -8,15 +8,21 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        // Calm, trustworthy slate-teal primary (cool, low-fatigue, WCAG-AA).
+        // Royal algae green — deep, mossy, trustworthy (WCAG-AA compliant on white).
         brand: {
-          50:  "#eef3f5",
-          100: "#d9e4e8",
-          200: "#b4c9d1",
-          DEFAULT: "#3f6a7d",
-          600: "#3f6a7d",
-          700: "#345766",
-          dark: "#26414d",
+          50:  "#e8f2ec",
+          100: "#c9e0d1",
+          200: "#94c0a3",
+          DEFAULT: "#0f5641",
+          600: "#0f5641",
+          700: "#0b4432",
+          dark: "#083428",
+        },
+        // Beige used for uniform highlight borders (replaces the earlier gold).
+        beige: {
+          100: "#f5efe4",
+          200: "#e8dcc4",
+          300: "#d6c39c",
         },
       },
       boxShadow: {

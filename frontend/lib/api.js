@@ -166,6 +166,54 @@ export async function adminVerifyGrievance(issueId) {
   return handle(res);
 }
 
+/* ── Coordinator action endpoints (update the citizen-facing status) ── */
+
+/** Coordinator ward listing — includes every status (SUBMITTED, ACTIVE, …). */
+export async function fetchCoordinatorWardIssues(wardNo) {
+  const res = await fetch(`${API_BASE}/api/coordinator/ward/${wardNo}`);
+  return handle(res);
+}
+
+/** Coordinator "Verify Grievance" (take ownership) → status ACTIVE ("Assigned"). */
+export async function coordinatorVerify(issueId) {
+  const res = await fetch(`${API_BASE}/api/coordinator/issues/${issueId}/verify`, { method: "POST" });
+  return handle(res);
+}
+
+/** Coordinator "Dept Transfer" → FORWARDED (labeled "Inspection"), routes to a department. */
+export async function coordinatorTransfer(issueId, department, notes = "") {
+  const fd = new FormData();
+  fd.append("department", department);
+  if (notes) fd.append("notes", notes);
+  const res = await fetch(`${API_BASE}/api/coordinator/issues/${issueId}/transfer`, { method: "POST", body: fd });
+  return handle(res);
+}
+
+/** Coordinator "Redirect" → SUBMITTED with a delay-apology message. */
+export async function coordinatorRedirect(issueId, description) {
+  const fd = new FormData();
+  fd.append("description", description);
+  const res = await fetch(`${API_BASE}/api/coordinator/issues/${issueId}/redirect`, { method: "POST", body: fd });
+  return handle(res);
+}
+
+/** Coordinator "Close" → PENDING_VERIFICATION (citizen sees the verify prompt). */
+export async function coordinatorClose(issueId, notes = "") {
+  const fd = new FormData();
+  if (notes) fd.append("notes", notes);
+  const res = await fetch(`${API_BASE}/api/coordinator/issues/${issueId}/close`, { method: "POST", body: fd });
+  return handle(res);
+}
+
+/** Coordinator "False Petition" → FALSE with the coordinator's reason. */
+export async function coordinatorMarkFalse(issueId, reason, details = "") {
+  const fd = new FormData();
+  fd.append("reason", reason);
+  if (details) fd.append("details", details);
+  const res = await fetch(`${API_BASE}/api/coordinator/issues/${issueId}/mark_false`, { method: "POST", body: fd });
+  return handle(res);
+}
+
 /** Admin: forward a verified ticket to its department -> FORWARDED. */
 export async function adminForwardIssue(issueId) {
   const res = await fetch(`${API_BASE}/api/admin/issues/${issueId}/forward`, {

@@ -12,7 +12,6 @@ import MobileShell from "@/components/MobileShell";
 import CommunityHeader from "@/components/community/CommunityHeader";
 import StoryViewer from "@/components/community/StoryViewer";
 import PostCard from "@/components/community/PostCard";
-import TodaysPulse from "@/components/community/TodaysPulse";
 import { FEED } from "@/lib/communityData";
 
 const TRAVEL = 130;          // px of drag / wheel for a full 0→1 morph
@@ -106,7 +105,6 @@ export default function CommunityScreen() {
         className="no-scrollbar absolute inset-0 overflow-y-auto overscroll-contain"
         style={{ paddingTop: padTop + 8, paddingBottom: 116 }}
       >
-        <TodaysPulse constituency={constituency} />
         <div className="mt-3 space-y-3 px-4">
           {FEED.map((post, i) => (
             <PostCard key={post.id} post={post} index={i} />
