@@ -57,7 +57,7 @@ function StoriesStrip({ onOpenStory, onExpand, onAddStory, canUpload, coordinato
           title={canUpload ? "Upload a highlight" : "Daily limit reached — try again tomorrow"}
           className="flex w-[72px] shrink-0 flex-col items-center gap-1.5"
         >
-          <span className={`relative flex h-[70px] w-[70px] items-center justify-center rounded-[22px] border-2 border-dashed ${canUpload ? "border-beige-300 bg-beige-100/60 text-slate-600" : "border-slate-300 bg-slate-100 text-slate-400"}`}>
+          <span className={`relative flex h-[70px] w-[70px] items-center justify-center rounded-[22px] border-2 border-dashed ${canUpload ? "border-gold-300 bg-gold-100/60 text-slate-800" : "border-slate-300 bg-slate-100 text-slate-400"}`}>
             <Plus size={26} />
           </span>
           <span className={`line-clamp-2 text-center text-[10px] font-semibold leading-tight ${canUpload ? "text-slate-700" : "text-slate-400"}`}>
@@ -69,7 +69,7 @@ function StoriesStrip({ onOpenStory, onExpand, onAddStory, canUpload, coordinato
         {coordinatorStories.slice(0, 3).map((s) => (
           <button key={s.id} onClick={() => onOpenStory({ id: s.id, label: "Yours", slides: [{ image: s.image, caption: s.caption || "" }] })}
             className="flex w-[72px] shrink-0 flex-col items-center gap-1.5">
-            <span className="rounded-[24px] bg-gradient-to-br from-beige-100 via-beige-200 to-beige-300 p-[2px]">
+            <span className="rounded-[24px] bg-gradient-to-br from-gold-100 via-gold-200 to-gold-300 p-[2px]">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={s.image} alt="" className="h-[66px] w-[66px] rounded-[22px] border-2 border-white object-cover" />
             </span>
@@ -80,7 +80,7 @@ function StoriesStrip({ onOpenStory, onExpand, onAddStory, canUpload, coordinato
         {/* Curated highlights — squircle + thin gold gradient border (uniform) */}
         {STORIES.map((s) => (
           <button key={s.id} onClick={() => onOpenStory(s)} className="flex w-[72px] shrink-0 flex-col items-center gap-1.5">
-            <span className="relative rounded-[24px] bg-gradient-to-br from-beige-100 via-beige-200 to-beige-300 p-[2px]">
+            <span className="relative rounded-[24px] bg-gradient-to-br from-gold-100 via-gold-200 to-gold-300 p-[2px]">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={s.slides[0].image} alt="" className="h-[66px] w-[66px] rounded-[22px] border-2 border-white object-cover" />
               {s.count > 0 && (
@@ -109,11 +109,11 @@ function ProfilePanel({ onCollapse, onLogout, me, publishedCount, verifiedCount 
     <div className="pb-3">
       <div className="flex items-center gap-3">
         <div className="relative shrink-0">
-          <div className="rounded-full bg-gradient-to-br from-teal-400 via-cyan-500 to-brand p-[3px]">
+          <div className="rounded-full bg-gradient-to-br from-gold-200 via-gold-300 to-gold-400 p-[3px]">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={me.avatar} alt="" className="h-14 w-14 rounded-full border-2 border-white object-cover" />
           </div>
-          <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 rounded-full bg-brand px-1.5 py-0.5 text-[8px] font-bold text-white shadow">STAFF</span>
+          <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 rounded-md bg-gradient-to-r from-slate-900 to-black px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wide text-gold-200 ring-1 ring-gold-300/50 shadow">STAFF</span>
         </div>
         <div className="min-w-0 flex-1">
           <p className="text-[11px] font-medium text-slate-400">{greeting},</p>
@@ -127,16 +127,22 @@ function ProfilePanel({ onCollapse, onLogout, me, publishedCount, verifiedCount 
         </button>
       </div>
 
-      <div className="mt-3 overflow-hidden rounded-2xl bg-gradient-to-br from-brand to-brand-dark p-3.5 text-white shadow-lg shadow-brand/25">
-        <div className="flex items-end justify-between">
+      {/* Premium black + gold — coordinator's signature card */}
+      <div className="relative mt-3 overflow-hidden rounded-2xl bg-gradient-to-br from-slate-900 via-black to-slate-950 p-3.5 text-white shadow-[0_18px_45px_-16px_rgba(0,0,0,0.55)] ring-1 ring-gold-300/40">
+        {/* subtle gold sheen */}
+        <span className="pointer-events-none absolute -right-8 -top-10 h-32 w-32 rounded-full bg-gold-300/15 blur-2xl" />
+        <div className="relative flex items-end justify-between">
           <div>
-            <p className="flex items-center gap-1 text-[11px] font-semibold text-slate-200"><ShieldCheck size={13} /> Coordinator Score</p>
-            <p className="text-3xl font-black leading-none">{me.civicScore}</p>
+            <p className="flex items-center gap-1 text-[11px] font-semibold text-gold-200"><ShieldCheck size={13} /> Coordinator Score</p>
+            <div className="flex items-center gap-2">
+              <p className="text-3xl font-black leading-none">{me.civicScore}</p>
+              <span className="relative inline-flex items-center rounded-md bg-gradient-to-r from-gold-200 via-gold-300 to-gold-400 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-slate-900 shadow-[inset_0_1px_0_rgba(255,255,255,0.4),0_2px_6px_rgba(200,160,74,0.4)]">STAFF</span>
+            </div>
           </div>
           <div className="text-right">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-200">Assigned</p>
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-gold-200">Assigned</p>
             <p className="text-sm font-bold">{shortAC(me.constituency)}</p>
-            <p className="text-[10px] text-slate-200">Ward {me.homeWard}</p>
+            <p className="text-[10px] text-slate-300">Ward {me.homeWard}</p>
           </div>
         </div>
       </div>

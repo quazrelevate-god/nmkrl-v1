@@ -15,7 +15,7 @@ export const STATUS_META = {
   ACTIVE: {
     label: "Assigned",
     badge: "bg-brand-100 text-brand-700 border border-brand-200",
-    pin: "#0f5641", // algae green (brand)
+    pin: "#1a3556", // royal navy (brand)
     open: true,
   },
   FORWARDED: {

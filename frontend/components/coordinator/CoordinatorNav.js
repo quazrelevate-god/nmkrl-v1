@@ -58,7 +58,7 @@ export default function CoordinatorNav() {
     <nav className="pointer-events-none absolute inset-x-0 bottom-0 z-[700] flex justify-center pb-4">
       <div className={`glass-strong pointer-events-auto flex items-center rounded-full shadow-[0_12px_40px_-8px_rgba(15,86,65,0.28)] ${ease} ${min ? "gap-0.5 px-2 py-1.5" : "gap-1 px-2.5 py-2"}`}>
         {/* Community */}
-        <Link href="/coordinator" className={`${sideCls} py-1.5 ${isHome && !composerOpen ? "text-brand" : "text-slate-500"}`}>
+        <Link href="/coordinator" className={`${sideCls} py-1.5 ${isHome && !composerOpen ? "text-slate-900" : "text-slate-500"}`}>
           <Home size={min ? 19 : 20} strokeWidth={isHome && !composerOpen ? 2.4 : 1.8} />
           <span className={labelCls}>Community</span>
         </Link>
@@ -69,13 +69,13 @@ export default function CoordinatorNav() {
           aria-label={composerOpen ? "Close composer" : "Create post or poll"}
           className={`ease-spring -my-1 flex items-center justify-center rounded-full text-white shadow-lg ${ease} ${
             min ? "h-11 w-11" : "h-14 w-14"
-          } ${composerOpen ? "rotate-90 bg-slate-800" : "bg-gradient-to-br from-brand to-brand-dark shadow-brand/40"}`}
+          } ${composerOpen ? "rotate-90 bg-slate-900 ring-1 ring-gold-300/40" : "bg-gradient-to-br from-slate-900 via-slate-950 to-black text-gold-200 ring-1 ring-gold-300/60 shadow-black/40"}`}
         >
           {composerOpen ? <X size={min ? 22 : 26} /> : <Plus size={min ? 24 : 28} />}
         </button>
 
         {/* Grievance */}
-        <Link href="/coordinator/grievance" className={`${sideCls} py-1.5 ${isGrievance && !composerOpen ? "text-brand" : "text-slate-500"}`}>
+        <Link href="/coordinator/grievance" className={`${sideCls} py-1.5 ${isGrievance && !composerOpen ? "text-slate-900" : "text-slate-500"}`}>
           <MapPin size={min ? 19 : 20} strokeWidth={isGrievance && !composerOpen ? 2.4 : 1.8} />
           <span className={labelCls}>Grievance</span>
         </Link>

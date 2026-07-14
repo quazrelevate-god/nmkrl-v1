@@ -8,17 +8,29 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        // Royal algae green — deep, mossy, trustworthy (WCAG-AA compliant on white).
+        // Deep royal navy — taken from the "Namm Kural" cover.
+        // Major surface stays white; navy is the SECONDARY accent for the
+        // citizen app and admin. WCAG-AA on white.
         brand: {
-          50:  "#e8f2ec",
-          100: "#c9e0d1",
-          200: "#94c0a3",
-          DEFAULT: "#0f5641",
-          600: "#0f5641",
-          700: "#0b4432",
-          dark: "#083428",
+          50:  "#eef2f7",
+          100: "#d0dbe6",
+          200: "#8fa5be",
+          DEFAULT: "#1a3556",
+          600: "#1a3556",
+          700: "#132844",
+          dark: "#0d1d34",
         },
-        // Beige used for uniform highlight borders (replaces the earlier gold).
+        // Warm gold accent — same tone as the cover's emblem/typography.
+        // Used as tertiary highlight everywhere (also drives coordinator's
+        // black+gold FAB / civic card gradients).
+        gold: {
+          100: "#f2e4bc",
+          200: "#ddc689",
+          300: "#c8a04a",
+          400: "#a88535",
+          500: "#8c6c25",
+        },
+        // Beige kept for a few soft-neutral surfaces (very close to gold-100).
         beige: {
           100: "#f5efe4",
           200: "#e8dcc4",

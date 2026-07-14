@@ -55,7 +55,7 @@ function StoriesStrip({ onOpenStory, onExpand, constituency, onConstituency }) {
       <div className="no-scrollbar -mx-1 flex gap-3.5 overflow-x-auto px-1">
         {STORIES.map(s => (
           <button key={s.id} onClick={() => onOpenStory(s)} className="flex w-[72px] shrink-0 flex-col items-center gap-1.5">
-            <span className="relative rounded-[24px] bg-gradient-to-br from-beige-100 via-beige-200 to-beige-300 p-[2px]">
+            <span className="relative rounded-[24px] bg-gradient-to-br from-gold-100 via-gold-200 to-gold-300 p-[2px]">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={s.slides[0].image} alt="" className="h-[66px] w-[66px] rounded-[22px] border-2 border-white object-cover" />
               {s.count > 0 && (
