@@ -190,3 +190,22 @@ export async function adminStartIssue(issueId) {
   return handle(res);
 }
 
+
+/* ── Service Hub — Gemini chatbot ─────────────────────────────────────────── */
+
+/**
+ * Send a chat message to the Service Hub Gemini assistant.
+ * @param {object} args
+ * @param {string} args.message         The citizen's message.
+ * @param {Array<{role:"user"|"assistant", text:string}>} [args.history]
+ * @param {object} [args.portal]        Optional portal context {name, tagline, url, description}.
+ * @returns {Promise<{reply:string, mock?:boolean}>}
+ */
+export async function serviceHubChat({ message, history = [], portal = null }) {
+  const res = await fetch(`${API_BASE}/api/servicehub/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message, history, portal }),
+  });
+  return handle(res);
+}
