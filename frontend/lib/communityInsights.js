@@ -40,46 +40,44 @@ export const MLA_BY_AC = {
 
 /**
  * Tamil news carousel embedded in the Today's Pulse section. Illustrative
- * mocks pointing at real Tamil news portals; thumbnails via picsum. Same set
- * is used across constituencies (real system would filter by constituency).
+ * mocks pointing at real Tamil news portals; thumbnails are real civic photos
+ * bundled under /public/community/ (no stock).
  */
-const newsImg = (seed) => `https://picsum.photos/seed/news-${seed}/640/380`;
-
 export const TAMIL_NEWS = [
   {
     id: "n1",
     title: "சென்னையில் புதிய மெட்ரோ கட்டமைப்பு துவக்கம் — வேலைவாய்ப்பு உருவாகும்",
     source: "Thanthi TV",
     url: "https://www.thanthitv.com/",
-    image: newsImg("metro"),
+    image: "/community/community-04.jpg",
   },
   {
     id: "n2",
     title: "மைலாப்பூரில் காவிரி நீர் திட்டம் மேம்பாட்டு பணிகள் தொடங்கின",
     source: "Puthiya Thalaimurai",
     url: "https://www.puthiyathalaimurai.com/",
-    image: newsImg("water"),
+    image: "/community/community-08.webp",
   },
   {
     id: "n3",
     title: "திமுக அரசு புதிய வேலைவாய்ப்பு அறிவிப்பு: 50,000 பணியிடங்கள்",
     source: "Sun News",
     url: "https://www.sunnews.co.in/",
-    image: newsImg("jobs"),
+    image: "/community/community-12.webp",
   },
   {
     id: "n4",
     title: "மழை பாதிப்பு களப்பணி: நகராட்சி அதிரடி நடவடிக்கை",
     source: "Dinakaran",
     url: "https://www.dinakaran.com/",
-    image: newsImg("rain"),
+    image: "/community/community-14.jpg",
   },
   {
     id: "n5",
     title: "அண்ணா நகர் பூங்கா புத்துயிர் திட்டம் — மக்கள் வரவேற்பு",
     source: "Polimer News",
     url: "https://www.polimernews.com/",
-    image: newsImg("park"),
+    image: "/community/community-17.jpg",
   },
 ];
 

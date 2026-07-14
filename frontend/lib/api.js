@@ -12,10 +12,16 @@
 // Override with NEXT_PUBLIC_API_BASE=http://... to call FastAPI directly.
 export const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "/fms";
 
-/** Resolve a stored media path (e.g. "/uploads/..") to an absolute URL. */
+/** Resolve a stored media path (e.g. "/uploads/..") to an absolute URL.
+ *
+ * Paths starting with "/community/" are static frontend assets bundled with
+ * the app (real civic photos) — they resolve against the current origin, not
+ * proxied through /fms/uploads/.
+ */
 export function mediaUrl(path) {
   if (!path) return null;
   if (path.startsWith("http")) return path;
+  if (path.startsWith("/community/")) return path;
   return `${API_BASE}${path}`;
 }
 

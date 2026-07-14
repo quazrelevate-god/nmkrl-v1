@@ -2,13 +2,37 @@
  * lib/communityData.js
  * --------------------
  * Rich mock data powering the Community section (profile, constituency
- * highlights, feed, polls, threaded comments). PoC data only — deterministic
- * image/avatar URLs via picsum.photos and i.pravatar.cc so the feed looks alive
- * without a backend. Content is city-wide / constituency-scale civic material:
- * public grievances, official updates, news, and polls.
+ * highlights, feed, polls, threaded comments). Images are real civic photos
+ * (grievances, protests, worksites, cleanups) served from /public/community/;
+ * NO stock/picsum placeholders anywhere in the community surface.
  */
 
-const img = (seed, w = 900, h = 620) => `https://picsum.photos/seed/${seed}/${w}/${h}`;
+/** Real civic photos bundled with the app; cycled deterministically per seed. */
+const COMMUNITY_IMAGES = [
+  "/community/community-01.avif", "/community/community-02.jpg",
+  "/community/community-03.jpg",  "/community/community-04.jpg",
+  "/community/community-05.webp", "/community/community-06.jpg",
+  "/community/community-07.jpg",  "/community/community-08.webp",
+  "/community/community-09.png",  "/community/community-10.webp",
+  "/community/community-11.webp", "/community/community-12.webp",
+  "/community/community-13.jpg",  "/community/community-14.jpg",
+  "/community/community-15.jpg",  "/community/community-16.jpg",
+  "/community/community-17.jpg",  "/community/community-18.jpg",
+  "/community/community-19.webp",
+];
+
+/** Deterministic image picker: same seed → same photo, so the feed is stable. */
+function seedIdx(seed) {
+  let h = 2166136261;
+  for (let i = 0; i < seed.length; i++) { h ^= seed.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return Math.abs(h) % COMMUNITY_IMAGES.length;
+}
+const img = (seed) => COMMUNITY_IMAGES[seedIdx(String(seed))];
+/** Multi-image slot: pick `n` distinct-ish images starting from the seed offset. */
+const imgs = (seed, n) => {
+  const start = seedIdx(String(seed));
+  return Array.from({ length: n }, (_, k) => COMMUNITY_IMAGES[(start + k) % COMMUNITY_IMAGES.length]);
+};
 const avatar = (n) => `https://i.pravatar.cc/120?img=${n}`;
 
 /** Deterministic avatar for a commenter name. */

@@ -99,6 +99,23 @@ AREAS = ["1st Main Road", "2nd Cross Street", "North Street", "Bazaar Road",
          "Gandhi Nagar", "Nehru Street", "Temple Street", "Market Road",
          "Rajaji Salai", "Kamaraj Avenue", "Bharathi Nagar", "Anna Street"]
 
+# Real civic photos bundled with the frontend under /public/community/.
+# The citizen app uses mediaUrl() which resolves absolute-looking paths
+# starting with "/community/" as static frontend assets, so we can point
+# seeded grievances directly at these files.
+COMMUNITY_IMAGES = [
+    "/community/community-01.avif", "/community/community-02.jpg",
+    "/community/community-03.jpg",  "/community/community-04.jpg",
+    "/community/community-05.webp", "/community/community-06.jpg",
+    "/community/community-07.jpg",  "/community/community-08.webp",
+    "/community/community-09.png",  "/community/community-10.webp",
+    "/community/community-11.webp", "/community/community-12.webp",
+    "/community/community-13.jpg",  "/community/community-14.jpg",
+    "/community/community-15.jpg",  "/community/community-16.jpg",
+    "/community/community-17.jpg",  "/community/community-18.jpg",
+    "/community/community-19.webp",
+]
+
 
 def random_point_in(geom):
     minx, miny, maxx, maxy = geom.bounds
@@ -142,6 +159,8 @@ def build_records():
                 "created_at": created.isoformat(),
                 "created_by": f"seed-{ward}-{i}",
                 "name": random.choice(NAMES), "phone": random_phone(),
+                # Cycle a real civic photo through every seeded grievance.
+                "image_url": random.choice(COMMUNITY_IMAGES),
             })
     return rows
 
@@ -165,8 +184,8 @@ def main():
                     latitude, longitude, area_name, ward_no, zone, zone_name,
                     department, status, upvotes, notify_reporter, created_at,
                     created_by, name, phone)
-                   VALUES (?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)""",
-                (r["id"], r["title"], r["transcript"], json.dumps(r["highlights"]),
+                   VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)""",
+                (r["id"], r["title"], r["image_url"], r["transcript"], json.dumps(r["highlights"]),
                  r["lat"], r["lng"], r["area"], r["ward"], r["zone"], r["zone_name"],
                  r["department"], r["status"], r["upvotes"], r["created_at"],
                  r["created_by"], r["name"], r["phone"]),
