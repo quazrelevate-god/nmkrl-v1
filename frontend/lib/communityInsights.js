@@ -15,27 +15,27 @@ import { shortAC } from "@/lib/constituencies";
 
 /**
  * Elected MLA per constituency (matched by constituency name).
- * image URLs are illustrative placeholders — swap for real MLA portraits.
+ * The image is served from /public/mla/{N}.{ext} — the file is named after the
+ * constituency number (e.g. 12.jpeg for Perambur / C. Joseph Vijay).
  */
-const mlaImg = (seed) => `https://picsum.photos/seed/mla-${seed}/240/240`;
 
 export const MLA_BY_AC = {
-  "11 - Dr. Radhakrishnan Nagar": { mla: "N. Marie Wilson", party: "TVK", image: mlaImg("marie") },
-  "12 - Perambur": { mla: "C. Joseph Vijay", party: "TVK", image: mlaImg("vijay") },
-  "13 - Kolathur": { mla: "V.S. Babu", party: "TVK", image: mlaImg("vsbabu") },
-  "14 - Villivakkam": { mla: "Aadhav Arjuna", party: "TVK", image: mlaImg("aadhav") },
-  "15 - Thiru-Vi-Ka-Nagar": { mla: "M.R. Pallavi", party: "TVK", image: mlaImg("pallavi") },
-  "16 - Egmore": { mla: "Rajmohan", party: "TVK", image: mlaImg("rajmohan") },
-  "17 - Harbour": { mla: "P.K. Sekarbabu", party: "DMK", image: mlaImg("sekarbabu") },
-  "18 - Chepauk-Thiruvallikeni": { mla: "Udhayanidhi Stalin", party: "DMK", image: mlaImg("udhay") },
-  "19 - Thousand Lights": { mla: "J.C.D. Prabhakar", party: "TVK", image: mlaImg("prabhakar") },
-  "20 - Anna Nagar": { mla: "V.K. Ramkumar", party: "TVK", image: mlaImg("ramkumar") },
-  "21 - Virugambakkam": { mla: "R. Sabarinathan", party: "TVK", image: mlaImg("sabari") },
-  "22 - Saidapet": { mla: "M. Arul Prakasam", party: "TVK", image: mlaImg("arul") },
-  "23 - Thiyagarayanagar": { mla: "Data Pending", party: "TVK", image: mlaImg("tnagar") },
-  "24 - Mylapore": { mla: "Data Pending", party: "TVK", image: mlaImg("mylapore") },
-  "25 - Velachery": { mla: "Data Pending", party: "TVK", image: mlaImg("velachery") },
-  "26 - Shozhinganallur": { mla: "Data Pending", party: "TVK", image: mlaImg("shozhi") },
+  "11 - Dr. Radhakrishnan Nagar": { mla: "N. Marie Wilson", party: "TVK", image: "/mla/11.png" },
+  "12 - Perambur": { mla: "C. Joseph Vijay", party: "TVK", image: "/mla/12.jpeg" },
+  "13 - Kolathur": { mla: "V.S. Babu", party: "TVK", image: "/mla/13.png" },
+  "14 - Villivakkam": { mla: "Aadhav Arjuna", party: "TVK", image: "/mla/14.png" },
+  "15 - Thiru-Vi-Ka-Nagar": { mla: "M.R. Pallavi", party: "TVK", image: "/mla/15.png" },
+  "16 - Egmore": { mla: "Rajmohan", party: "TVK", image: "/mla/16.jpg" },
+  "17 - Harbour": { mla: "P.K. Sekarbabu", party: "DMK", image: "/mla/17.png" },
+  "18 - Chepauk-Thiruvallikeni": { mla: "Udhayanidhi Stalin", party: "DMK", image: "/mla/18.png" },
+  "19 - Thousand Lights": { mla: "J.C.D. Prabhakar", party: "TVK", image: "/mla/19.png" },
+  "20 - Anna Nagar": { mla: "V.K. Ramkumar", party: "TVK", image: "/mla/20.png" },
+  "21 - Virugambakkam": { mla: "R. Sabarinathan", party: "TVK", image: "/mla/21.png" },
+  "22 - Saidapet": { mla: "M. Arul Prakasam", party: "TVK", image: "/mla/22.png" },
+  "23 - Thiyagarayanagar": { mla: "Data Pending", party: "TVK", image: "/mla/23.png" },
+  "24 - Mylapore": { mla: "Data Pending", party: "TVK", image: "/mla/24.png" },
+  "25 - Velachery": { mla: "Data Pending", party: "TVK", image: "/mla/25.png" },
+  "26 - Shozhinganallur": { mla: "Data Pending", party: "TVK", image: "/mla/26.png" },
 };
 
 /**
