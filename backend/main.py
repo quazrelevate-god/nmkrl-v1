@@ -25,7 +25,7 @@ from pydantic import BaseModel
 import boundaries
 from database import get_connection, init_db
 from gemini_service import keyword_department
-from routers import admin, coordinator, issues
+from routers import admin, coordinator, issues, servicehub
 from utils import (
     UPLOAD_DIR,
     ensure_upload_dirs,
@@ -104,6 +104,7 @@ app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 app.include_router(issues.router)
 app.include_router(admin.router)
 app.include_router(coordinator.router)
+app.include_router(servicehub.router)
 
 
 @app.get("/")

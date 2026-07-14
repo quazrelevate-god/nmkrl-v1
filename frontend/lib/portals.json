@@ -1,0 +1,357 @@
+{
+  "categories": [
+    { "slug": "citizen-services", "name": "Citizen Services", "icon": "IdCard",
+      "tagline": "Certificates, ID cards, and essentials",
+      "gradient": ["#2E74EF", "#5AA0F8"], "image": null },
+    { "slug": "utilities", "name": "Utilities", "icon": "Zap",
+      "tagline": "Electricity, water, gas, and more",
+      "gradient": ["#12B47F", "#4FD6A0"], "image": null },
+    { "slug": "police-safety", "name": "Police and Safety", "icon": "Shield",
+      "tagline": "Complaints, FIRs, and safety",
+      "gradient": ["#3F51C4", "#6473E0"], "image": null },
+    { "slug": "education", "name": "Education", "icon": "GraduationCap",
+      "tagline": "Scholarships, admissions, and more",
+      "gradient": ["#7A3AF0", "#A971F6"], "image": null },
+    { "slug": "health", "name": "Health", "icon": "Heart",
+      "tagline": "Hospitals, insurance, and wellness",
+      "gradient": ["#FB7A18", "#FDA850"], "image": null },
+    { "slug": "revenue", "name": "Revenue", "icon": "Landmark",
+      "tagline": "Land records, patta, and more",
+      "gradient": ["#0EA5A8", "#2FD1C6"], "image": null },
+    { "slug": "agriculture", "name": "Agriculture", "icon": "Sprout",
+      "tagline": "Schemes, subsidies, and support",
+      "gradient": ["#20A64F", "#5ECE7C"], "image": null },
+    { "slug": "labour", "name": "Labour and Employment", "icon": "Briefcase",
+      "tagline": "Registrations, licenses, and jobs",
+      "gradient": ["#4A46E6", "#7079F2"], "image": null },
+    { "slug": "housing", "name": "Housing", "icon": "Home",
+      "tagline": "Housing schemes and support",
+      "gradient": ["#DB4C93", "#F274AC"], "image": null },
+    { "slug": "finance", "name": "Finance", "icon": "Wallet",
+      "tagline": "Treasury, pensions, and banking",
+      "gradient": ["#0C9D6E", "#37CC92"], "image": null },
+    { "slug": "transport", "name": "Transport", "icon": "Bus",
+      "tagline": "Bus pass, tickets, and more",
+      "gradient": ["#0A93C9", "#28BCE4"], "image": null }
+  ],
+  "portals": [
+    {
+      "slug": "tn-esevai",
+      "name": "TN e-Sevai",
+      "tagline": "Single-window citizen services",
+      "description": "Apply for community certificates, income certificates, nativity certificates, and more from a single portal. Track application status, download issued certificates, and pay applicable fees.",
+      "category": "citizen-services",
+      "url": "https://www.tnesevai.tn.gov.in/",
+      "commonQuestions": [
+        "How do I apply for a community certificate on e-Sevai?",
+        "What documents are required for an income certificate?",
+        "How do I check the status of my e-Sevai application?"
+      ]
+    },
+    {
+      "slug": "tnpds",
+      "name": "TNPDS Smart Card",
+      "tagline": "Ration card and PDS",
+      "description": "Manage your Tamil Nadu smart ration card — apply for a new card, add or remove family members, update address, and check nearby fair-price shops.",
+      "category": "citizen-services",
+      "url": "https://www.tnpds.gov.in/",
+      "commonQuestions": [
+        "How do I add a family member to my ration card?",
+        "How do I download my smart ration card?",
+        "How do I change my ration card category?"
+      ]
+    },
+    {
+      "slug": "tangedco",
+      "name": "TANGEDCO EBILL",
+      "tagline": "Electricity bill payment and services",
+      "description": "Pay your Tamil Nadu electricity bill online, view consumption history, apply for a new connection, and register power-cut complaints.",
+      "category": "utilities",
+      "url": "https://www.tnebnet.org/",
+      "commonQuestions": [
+        "How do I pay my TANGEDCO bill online?",
+        "How do I apply for a new electricity connection?",
+        "How do I report a power cut?"
+      ]
+    },
+    {
+      "slug": "twad",
+      "name": "TWAD Board",
+      "tagline": "Water supply and drainage",
+      "description": "Tamil Nadu Water Supply and Drainage Board portal — apply for new water connections, pay water charges, and report water supply issues in rural areas.",
+      "category": "utilities",
+      "url": "https://www.twadboard.tn.gov.in/",
+      "commonQuestions": [
+        "How do I apply for a new water connection?",
+        "How do I pay my water bill?",
+        "How do I complain about water supply issues?"
+      ]
+    },
+    {
+      "slug": "tn-police",
+      "name": "TN Police",
+      "tagline": "Complaints, FIRs, and services",
+      "description": "File online complaints, request police clearance certificates, verify tenants and employees, and access citizen safety services from the Tamil Nadu Police.",
+      "category": "police-safety",
+      "url": "https://eservices.tnpolice.gov.in/",
+      "commonQuestions": [
+        "How do I file an online FIR in Tamil Nadu?",
+        "How do I get a police clearance certificate?",
+        "How do I register a tenant verification request?"
+      ]
+    },
+    {
+      "slug": "tnea",
+      "name": "TNEA Admissions",
+      "tagline": "Engineering admission counselling",
+      "description": "Tamil Nadu Engineering Admissions — register for counselling, upload documents, participate in choice filling, and download allotment orders for TN engineering colleges.",
+      "category": "education",
+      "url": "https://www.tneaonline.org/",
+      "commonQuestions": [
+        "How do I register for TNEA counselling?",
+        "What documents are required for TNEA admission?",
+        "How do I do choice filling in TNEA?"
+      ]
+    },
+    {
+      "slug": "cmchis",
+      "name": "TN Health Portal / CMCHIS",
+      "tagline": "Health insurance and hospital services",
+      "description": "Chief Minister's Comprehensive Health Insurance Scheme — check eligibility, find network hospitals, apply for the scheme, and view covered procedures.",
+      "category": "health",
+      "url": "https://www.cmchistn.com/",
+      "commonQuestions": [
+        "Am I eligible for CMCHIS?",
+        "Which hospitals accept CMCHIS?",
+        "What treatments are covered under CMCHIS?"
+      ]
+    },
+    {
+      "slug": "tn-revenue",
+      "name": "TN Revenue and Disaster Management",
+      "tagline": "Land records, patta, and relief",
+      "description": "Access land records, apply for patta transfer, download chitta, view A-Register extracts, and access disaster relief services from the Revenue Department.",
+      "category": "revenue",
+      "url": "https://eservices.tn.gov.in/",
+      "commonQuestions": [
+        "How do I check my patta and chitta online?",
+        "How do I apply for a patta transfer?",
+        "How do I get an A-Register extract?"
+      ]
+    },
+    {
+      "slug": "tnega",
+      "name": "TNEGA",
+      "tagline": "e-Governance and agriculture services",
+      "description": "Tamil Nadu e-Governance Agency portal for accessing agriculture subsidies, farmer schemes, land record integration, and rural service applications.",
+      "category": "agriculture",
+      "url": "https://tnega.tn.gov.in/",
+      "commonQuestions": [
+        "How do I apply for farmer subsidies?",
+        "What schemes are available for TN farmers?",
+        "How do I register as a farmer?"
+      ]
+    },
+    {
+      "slug": "udyam-tn",
+      "name": "Udyam Registration TN",
+      "tagline": "MSME registration for TN businesses",
+      "description": "Register your micro, small, or medium enterprise under Udyam in Tamil Nadu. Access MSME loans, subsidies, and government tender preferences.",
+      "category": "labour",
+      "url": "https://udyamregistration.gov.in/",
+      "commonQuestions": [
+        "How do I register for Udyam in Tamil Nadu?",
+        "What benefits do MSMEs get after Udyam registration?",
+        "How do I update my Udyam registration?"
+      ]
+    },
+    {
+      "slug": "pmay-tn",
+      "name": "PMAY Tamil Nadu",
+      "tagline": "Housing scheme for the urban poor",
+      "description": "Pradhan Mantri Awas Yojana in Tamil Nadu — check eligibility, apply for housing subsidy, track application status, and view beneficiary lists.",
+      "category": "housing",
+      "url": "https://pmaymis.gov.in/",
+      "commonQuestions": [
+        "Am I eligible for PMAY in Tamil Nadu?",
+        "How do I apply for PMAY subsidy?",
+        "How do I check my PMAY application status?"
+      ]
+    },
+    {
+      "slug": "tn-treasury",
+      "name": "TN Treasury",
+      "tagline": "Pension and treasury services",
+      "description": "Treasuries and Accounts Department portal for pensioners, government employees, and state payments — pension life certificates, GPF, and salary queries.",
+      "category": "finance",
+      "url": "https://www.tn.gov.in/department/22",
+      "commonQuestions": [
+        "How do I submit my pensioner life certificate?",
+        "How do I check my GPF balance?",
+        "How do I access my treasury pay slip?"
+      ]
+    },
+    {
+      "slug": "tnstc-mtc",
+      "name": "TNSTC and MTC Bus Pass",
+      "tagline": "Bus pass and ticket booking",
+      "description": "Book TNSTC intercity bus tickets, apply for student and monthly bus passes, and manage MTC city bus services in Chennai.",
+      "category": "transport",
+      "url": "https://www.tnstc.in/",
+      "commonQuestions": [
+        "How do I book a TNSTC bus ticket online?",
+        "How do I apply for a student bus pass?",
+        "How do I renew my MTC monthly bus pass?"
+      ]
+    },
+    {
+      "slug": "tva",
+      "name": "Tamil Virtual Academy",
+      "tagline": "Tamil learning and digital resources",
+      "description": "Tamil Virtual Academy provides free online courses in Tamil language, literature, and culture — from beginner to advanced, with certification.",
+      "category": "education",
+      "url": "https://www.tamilvu.org/",
+      "commonQuestions": [
+        "How do I enrol in a Tamil Virtual Academy course?",
+        "Are Tamil Virtual Academy courses free?",
+        "How do I get a TVA certificate?"
+      ]
+    },
+    {
+      "slug": "tn-cooperative",
+      "name": "TN Cooperative Societies",
+      "tagline": "Cooperative bank and society services",
+      "description": "Access Tamil Nadu cooperative bank services, agricultural credit societies, self-help group loans, and cooperative marketing federations.",
+      "category": "finance",
+      "url": "https://www.tn.gov.in/department/8",
+      "commonQuestions": [
+        "How do I get a cooperative bank loan?",
+        "How do I join a self-help group in Tamil Nadu?",
+        "What are the interest rates for cooperative loans?"
+      ]
+    },
+    {
+      "slug": "makkalai-thedi-maruthuvam",
+      "name": "Makkalai Thedi Maruthuvam",
+      "tagline": "Doorstep healthcare scheme",
+      "description": "Government of Tamil Nadu's doorstep healthcare initiative — free medicines, checkups, and screening for hypertension, diabetes, and other conditions at your doorstep.",
+      "category": "health",
+      "url": "https://www.tn.gov.in/scheme/data_view/12751",
+      "commonQuestions": [
+        "How do I register for Makkalai Thedi Maruthuvam?",
+        "What services are provided at home?",
+        "Am I eligible for doorstep healthcare?"
+      ]
+    },
+    {
+      "slug": "cm-grievance",
+      "name": "CM's Grievance Portal",
+      "tagline": "File grievances with the Chief Minister's cell",
+      "description": "Submit grievances directly to the Tamil Nadu Chief Minister's Special Cell. Track status, upload evidence, and receive department responses.",
+      "category": "citizen-services",
+      "url": "https://cmcell.tn.gov.in/",
+      "commonQuestions": [
+        "How do I file a grievance with the CM's cell?",
+        "How long does it take to get a response?",
+        "How do I track my grievance status?"
+      ]
+    },
+    {
+      "slug": "rti-tn",
+      "name": "RTI Tamil Nadu",
+      "tagline": "Right to information requests",
+      "description": "File RTI applications online with any Tamil Nadu government department, pay fees, and track responses under the Right to Information Act, 2005.",
+      "category": "citizen-services",
+      "url": "https://www.tn.gov.in/rti",
+      "commonQuestions": [
+        "How do I file an RTI application in Tamil Nadu?",
+        "What is the fee for an RTI application?",
+        "How long does an RTI response take?"
+      ]
+    },
+    {
+      "slug": "tn-employment",
+      "name": "TN Employment",
+      "tagline": "Employment registration and job matching",
+      "description": "Tamil Nadu Employment Exchange — register for job placement, renew employment registration, and view government job notifications.",
+      "category": "labour",
+      "url": "https://tnvelaivaaippu.gov.in/",
+      "commonQuestions": [
+        "How do I register for the Tamil Nadu employment exchange?",
+        "How do I renew my employment registration?",
+        "Where do I see government job notifications?"
+      ]
+    },
+    {
+      "slug": "tnscb",
+      "name": "TNSCB",
+      "tagline": "Slum clearance and urban housing",
+      "description": "Tamil Nadu Slum Clearance Board portal — apply for tenements, check allotment status, pay housing dues, and access urban housing rehabilitation schemes.",
+      "category": "housing",
+      "url": "https://www.tnscb.tn.gov.in/",
+      "commonQuestions": [
+        "How do I apply for a TNSCB tenement?",
+        "How do I check my TNSCB allotment status?",
+        "How do I pay TNSCB housing dues?"
+      ]
+    }
+  ],
+  "schemes": [
+    {
+      "id": "sch-1",
+      "title": "Magalir Urimai Thogai",
+      "benefit": "₹1,000 / month for women",
+      "icon": "HeartHandshake",
+      "tone": "rose"
+    },
+    {
+      "id": "sch-2",
+      "title": "Vidiyal Payanam",
+      "benefit": "Free town bus travel",
+      "icon": "Bus",
+      "tone": "teal"
+    },
+    {
+      "id": "sch-3",
+      "title": "Pudhumai Penn",
+      "benefit": "₹1,000 / month for girls",
+      "icon": "GraduationCap",
+      "tone": "indigo"
+    },
+    {
+      "id": "sch-4",
+      "title": "Breakfast Scheme",
+      "benefit": "Free breakfast at school",
+      "icon": "Utensils",
+      "tone": "amber"
+    },
+    {
+      "id": "sch-5",
+      "title": "Naan Mudhalvan",
+      "benefit": "Free skill training",
+      "icon": "Rocket",
+      "tone": "indigo"
+    },
+    {
+      "id": "sch-6",
+      "title": "Makkalai Thedi Maruthuvam",
+      "benefit": "Doorstep health checkups",
+      "icon": "Stethoscope",
+      "tone": "green"
+    },
+    {
+      "id": "sch-7",
+      "title": "Illam Thedi Kalvi",
+      "benefit": "Free after-school tuition",
+      "icon": "BookOpen",
+      "tone": "amber"
+    },
+    {
+      "id": "sch-8",
+      "title": "Ungaludan Stalin",
+      "benefit": "Doorstep govt services",
+      "icon": "Handshake",
+      "tone": "teal"
+    }
+  ]
+}
