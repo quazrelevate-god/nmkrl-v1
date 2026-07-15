@@ -9,46 +9,19 @@
  * NOTE: This is illustrative PoC auth — never use plain-text passwords in prod.
  */
 
+// All four coordinators run under the Egmore MLA office. They share the
+// constituency but cover different wards so the map filter and per-ward
+// grievance queue actually stratify the demo data.
 export const COORDINATORS = [
   {
     username: "raja",
     password: "raja123",
     name: "V. Ramkumar Raja",
     initials: "VR",
-    role: "Ward Coordinator",
-    constituency: "20 - Anna Nagar",
-    homeWard: "103",
-    avatar: "https://i.pravatar.cc/160?img=12",
-    civicScore: 1240,
-    reports: 87,
-    resolved: 62,
-    upvotes: 156,
-    tenure: "3y 4m",
-  },
-  {
-    username: "divya",
-    password: "divya123",
-    name: "Divya Nathan",
-    initials: "DN",
-    role: "Constituency PA",
-    constituency: "18 - Chepauk-Thiruvallikeni",
-    homeWard: "115",
-    avatar: "https://i.pravatar.cc/160?img=45",
-    civicScore: 980,
-    reports: 64,
-    resolved: 51,
-    upvotes: 132,
-    tenure: "2y 1m",
-  },
-  {
-    username: "karthik",
-    password: "karthik123",
-    name: "Karthik Sundaram",
-    initials: "KS",
-    role: "Ward Coordinator",
-    constituency: "23 - Thiyagarayanagar",
-    homeWard: "133",
-    avatar: "https://i.pravatar.cc/160?img=15",
+    role: "Constituency Lead",
+    constituency: "16 - Egmore",
+    homeWard: "58",
+    avatar: "https://i.pravatar.cc/160?img=51",
     civicScore: 1560,
     reports: 112,
     resolved: 88,
@@ -56,14 +29,44 @@ export const COORDINATORS = [
     tenure: "4y 8m",
   },
   {
+    username: "suresh",
+    password: "suresh123",
+    name: "Suresh Balan",
+    initials: "SB",
+    role: "Constituency PA",
+    constituency: "16 - Egmore",
+    homeWard: "77",
+    avatar: "https://i.pravatar.cc/160?img=33",
+    civicScore: 1180,
+    reports: 92,
+    resolved: 71,
+    upvotes: 168,
+    tenure: "2y 6m",
+  },
+  {
+    username: "karthik",
+    password: "karthik123",
+    name: "Karthik Sundaram",
+    initials: "KS",
+    role: "Ward Coordinator",
+    constituency: "16 - Egmore",
+    homeWard: "78",
+    avatar: "https://i.pravatar.cc/160?img=68",
+    civicScore: 1240,
+    reports: 87,
+    resolved: 62,
+    upvotes: 156,
+    tenure: "3y 4m",
+  },
+  {
     username: "meena",
     password: "meena123",
     name: "Meena Lakshmi",
     initials: "ML",
-    role: "Constituency PA",
-    constituency: "24 - Mylapore",
-    homeWard: "173",
-    avatar: "https://i.pravatar.cc/160?img=32",
+    role: "Ward Coordinator",
+    constituency: "16 - Egmore",
+    homeWard: "104",
+    avatar: "https://i.pravatar.cc/160?img=25",
     civicScore: 1105,
     reports: 78,
     resolved: 60,
@@ -74,11 +77,131 @@ export const COORDINATORS = [
 
 const SESSION_KEY = "fms_coordinator_session";
 
-/** Public helper for the login form. Returns the matched coordinator or null. */
+/* ── Directory: seed COORDINATORS layered with admin edits from localStorage ──
+ * The admin app can create, edit, disable, or reset the password of coordinators.
+ * Those actions persist to a per-browser overrides bag so a demo pilot can add a
+ * user, log in as them, disable them, and reload — everything sticks. In prod
+ * this whole layer moves to the FastAPI backend.
+ * ────────────────────────────────────────────────────────────────────────── */
+
+const DIRECTORY_KEY = "fms_coordinator_directory_v1";
+
+/** Read the persisted directory bag: {overrides:{[username]:partial}, extras:[coord]}. */
+function readDirectoryBag() {
+  const empty = { overrides: {}, extras: [] };
+  if (typeof window === "undefined") return empty;
+  try {
+    const raw = localStorage.getItem(DIRECTORY_KEY);
+    if (!raw) return empty;
+    return { ...empty, ...JSON.parse(raw) };
+  } catch { return empty; }
+}
+
+function writeDirectoryBag(bag) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(DIRECTORY_KEY, JSON.stringify(bag));
+  try {
+    window.dispatchEvent(new CustomEvent("fms:coordinator-directory-changed"));
+  } catch { /* older browsers */ }
+}
+
+/** Every coordinator known to the app — seed + admin extras + admin overrides. */
+export function listCoordinators() {
+  const bag = readDirectoryBag();
+  const merged = COORDINATORS.map((c) => ({
+    status: "active",
+    mustChangePassword: false,
+    createdAt: null,
+    ...c,
+    ...(bag.overrides[c.username] || {}),
+  }));
+  const knownUsernames = new Set(merged.map((c) => c.username));
+  for (const extra of bag.extras) {
+    if (!knownUsernames.has(extra.username)) {
+      merged.push({
+        status: "active",
+        mustChangePassword: false,
+        ...extra,
+      });
+    }
+  }
+  return merged;
+}
+
+export function getCoordinator(username) {
+  return listCoordinators().find((c) => c.username === username) || null;
+}
+
+/** Persist an override for a seeded coordinator (any subset of fields). */
+export function updateCoordinator(username, patch) {
+  const bag = readDirectoryBag();
+  const seeded = COORDINATORS.some((c) => c.username === username);
+  if (seeded) {
+    bag.overrides = {
+      ...bag.overrides,
+      [username]: { ...(bag.overrides[username] || {}), ...patch },
+    };
+  } else {
+    bag.extras = bag.extras.map((e) =>
+      e.username === username ? { ...e, ...patch } : e
+    );
+  }
+  writeDirectoryBag(bag);
+  return getCoordinator(username);
+}
+
+/** Add a brand-new coordinator (admin-created). Rejects duplicate usernames. */
+export function createCoordinator(coord) {
+  const bag = readDirectoryBag();
+  const username = (coord.username || "").trim().toLowerCase();
+  if (!username) throw new Error("Username is required");
+  const clash = listCoordinators().some((c) => c.username === username);
+  if (clash) throw new Error("That username is already taken");
+  const record = {
+    status: "active",
+    mustChangePassword: true,
+    civicScore: 0,
+    reports: 0,
+    resolved: 0,
+    upvotes: 0,
+    tenure: "New",
+    initials: initialsFrom(coord.name),
+    avatar: coord.avatar || `https://i.pravatar.cc/160?u=${encodeURIComponent(username)}`,
+    createdAt: new Date().toISOString(),
+    ...coord,
+    username,
+  };
+  bag.extras = [...bag.extras, record];
+  writeDirectoryBag(bag);
+  return record;
+}
+
+/** Compute 2-letter initials for the avatar fallback. */
+export function initialsFrom(name = "") {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return "??";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+/** Reset a coordinator's password (admin action). */
+export function resetPassword(username, newPassword, { mustChange = true } = {}) {
+  return updateCoordinator(username, { password: newPassword, mustChangePassword: mustChange });
+}
+
+/** Toggle account status without deleting; disabled users cannot authenticate. */
+export function setStatus(username, status) {
+  return updateCoordinator(username, { status });
+}
+
+/** Public helper for the login form. Returns the matched active coordinator or null. */
 export function authenticate(username, password) {
   const u = (username || "").trim().toLowerCase();
   const p = (password || "").trim();
-  return COORDINATORS.find((c) => c.username === u && c.password === p) || null;
+  const c = listCoordinators().find((x) => x.username === u && x.password === p);
+  if (!c) return null;
+  if (c.status === "disabled") return null;
+  return c;
 }
 
 /** Persist / read the signed-in coordinator (localStorage). */
@@ -93,7 +216,10 @@ export function loadSession() {
     const raw = localStorage.getItem(SESSION_KEY);
     if (!raw) return null;
     const { username } = JSON.parse(raw);
-    return COORDINATORS.find((c) => c.username === username) || null;
+    const c = getCoordinator(username);
+    // A previously signed-in user who was later disabled is signed out.
+    if (!c || c.status === "disabled") return null;
+    return c;
   } catch { return null; }
 }
 

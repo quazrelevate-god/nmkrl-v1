@@ -8,21 +8,40 @@
  * verification badge) — plus the signed-in staff footer.
  */
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Ticket, ClipboardCheck, Landmark, LogOut } from "lucide-react";
+import { LayoutDashboard, Ticket, ClipboardCheck, Users, Landmark, LogOut } from "lucide-react";
 import { useAdminData } from "./AdminDataProvider";
+import { listCoordinators } from "@/lib/coordinators";
 
 const NAV = [
   { href: "/admin/performance", label: "Performance", icon: LayoutDashboard, badgeKey: null },
   { href: "/admin", label: "Tickets", icon: Ticket, badgeKey: "tickets" },
   { href: "/admin/petition-review", label: "Petition Review", icon: ClipboardCheck, badgeKey: "pending" },
+  { href: "/admin/coordinators", label: "Coordinators", icon: Users, badgeKey: "coordinators" },
 ];
 
 export default function AdminSidebar() {
   const pathname = usePathname();
   const { tickets, pending } = useAdminData();
-  const badges = { tickets: tickets.length, pending: pending.length };
+
+  // Live coordinator count, refreshes when the admin creates/disables users
+  // (both this sidebar and the /admin/coordinators page listen for the event).
+  const [coordinatorCount, setCoordinatorCount] = useState(0);
+  useEffect(() => {
+    const sync = () => setCoordinatorCount(listCoordinators().length);
+    sync();
+    const listener = () => sync();
+    window.addEventListener("fms:coordinator-directory-changed", listener);
+    return () => window.removeEventListener("fms:coordinator-directory-changed", listener);
+  }, []);
+
+  const badges = {
+    tickets: tickets.length,
+    pending: pending.length,
+    coordinators: coordinatorCount,
+  };
 
   return (
     <aside className="glass-sidebar flex h-screen w-60 shrink-0 flex-col text-slate-600">
