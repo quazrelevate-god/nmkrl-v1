@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { STATUS_STYLE } from "@/lib/communityData";
 import CommentThread from "./CommentThread";
+import ShareSheet from "@/components/ShareSheet";
 
 function ImageGrid({ media }) {
   if (!media?.length) return null;
@@ -110,7 +111,21 @@ export default function PostCard({ post, index = 0 }) {
   const [likes, setLikes] = useState(post.likes);
   const [shares, setShares] = useState(post.shares || 0);
   const [showComments, setShowComments] = useState(false);
+  const [showShare, setShowShare] = useState(false);
   const commentCount = countComments(post.comments);
+
+  // Share payload — headline + a one-line body + deep link to this post.
+  const shareTitle = post.type === "poll" ? post.question : (post.title || `Namkural community post`);
+  const shareText = post.body || (post.status ? `Status: ${post.status.replace(/_/g, " ")}` : "");
+  const sharePath = `/community/${post.id || ""}`.replace(/\/$/, "");
+  const shareUrl = typeof window !== "undefined"
+    ? `${window.location.origin}${sharePath}`
+    : sharePath;
+
+  function openShare() {
+    setShares((s) => s + 1);
+    setShowShare(true);
+  }
 
   function toggleLike() {
     setLiked(l => !l);
@@ -197,7 +212,7 @@ export default function PostCard({ post, index = 0 }) {
           <button onClick={() => setShowComments(true)} className="flex items-center gap-1.5 text-sm font-medium">
             <MessageCircle size={17} /> {commentCount}
           </button>
-          <button onClick={() => setShares(s => s + 1)} className="flex items-center gap-1.5 text-sm font-medium">
+          <button onClick={openShare} className="flex items-center gap-1.5 text-sm font-medium">
             <Share2 size={17} /> {shares}
           </button>
           <button onClick={() => setSaved(s => !s)} className={saved ? "text-brand" : ""}>
@@ -207,6 +222,14 @@ export default function PostCard({ post, index = 0 }) {
       </article>
 
       {showComments && <CommentThread post={post} onClose={() => setShowComments(false)} />}
+      <ShareSheet
+        open={showShare}
+        onClose={() => setShowShare(false)}
+        title={shareTitle}
+        text={shareText}
+        url={shareUrl}
+        variant="sheet"
+      />
     </>
   );
 }
