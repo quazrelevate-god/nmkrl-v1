@@ -22,15 +22,19 @@ import { shortAC } from "@/lib/constituencies";
 
 const fmt = (n) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`);
 
-export default function TodaysPulse({ constituency }) {
+export default function TodaysPulse({ constituency, variant = "citizen" }) {
   const social = useMemo(() => socialMentions(constituency), [constituency]);
   const up = social.trend >= 0;
+  const isAdmin = variant === "admin";
 
   return (
-    <section className="mt-3 px-4">
-      <article className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#0e2545] via-[#0a1a35] to-[#050d1f] p-4 text-white shadow-[0_25px_60px_-20px_rgba(3,10,30,0.7)] ring-1 ring-white/10">
-        {/* MLA portrait bleeds in from the right at medium opacity */}
-        {social.image && (
+    <section className={isAdmin ? "flex h-full flex-col" : "mt-3 px-4"}>
+      <article className={`relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#0e2545] via-[#0a1a35] to-[#050d1f] p-4 text-white shadow-[0_25px_60px_-20px_rgba(3,10,30,0.7)] ring-1 ring-white/10 ${isAdmin ? "flex h-full flex-col" : ""}`}>
+        {/* MLA portrait bleeds in from the right — citizen variant only.
+            Admin lists the MLA face inside its own briefing card + the
+            constituency-wide NammKuralPulse, so the portrait here would just
+            crowd the KPI tiles in the narrower admin column. */}
+        {!isAdmin && social.image && (
           <div className="pointer-events-none absolute inset-y-0 right-0 w-[58%]">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
@@ -48,12 +52,15 @@ export default function TodaysPulse({ constituency }) {
           </div>
         )}
 
-        {/* Bottom scrim — covers the face's lower portion so the news carousel below sits on a clean dark surface */}
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-[#050d1f] via-[#050d1f]/85 to-transparent" />
+        {/* Bottom scrim — only meaningful when the face bleed AND news carousel
+            are present (citizen). Skip on admin for a flat dark surface. */}
+        {!isAdmin && (
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-[#050d1f] via-[#050d1f]/85 to-transparent" />
+        )}
 
         {/* Header row */}
         <div className="relative z-10 flex items-center gap-2">
-          <h2 className="text-base font-extrabold tracking-tight">Today's Pulse</h2>
+          <h2 className="text-base font-extrabold tracking-tight">{isAdmin ? "Highlights" : "Today's Pulse"}</h2>
           <span className="flex items-center gap-1 rounded-full border border-amber-400/50 bg-amber-500/10 px-2.5 py-0.5 text-[11px] font-bold text-amber-300">
             <MapPin size={11} /> {shortAC(constituency)}
           </span>
@@ -61,9 +68,11 @@ export default function TodaysPulse({ constituency }) {
 
         <div className="relative z-10 my-3 h-px bg-gradient-to-r from-white/20 via-white/10 to-transparent" />
 
-        {/* Top body row: MLA identity on the left, KPI tiles floating on the face on the right */}
+        {/* Top body row: MLA identity on the left, KPI tiles on the right.
+            Widths only need to work around the face bleed on the citizen
+            variant; admin gets the full card width. */}
         <div className="relative z-10 flex items-start gap-3">
-          <div className="min-w-0 flex-1 max-w-[60%]">
+          <div className={`min-w-0 flex-1 ${isAdmin ? "" : "max-w-[60%]"}`}>
             <p className={`text-[18px] font-extrabold leading-tight ${social.pending ? "italic text-slate-300" : "text-white"}`}>
               {social.mla}
             </p>
@@ -77,8 +86,8 @@ export default function TodaysPulse({ constituency }) {
             <p className="mt-1 text-[11px] font-semibold text-slate-300">MLA · {shortAC(constituency)}</p>
           </div>
 
-          {/* KPI grid — glass tiles float over the portrait */}
-          <div className="grid w-[48%] shrink-0 grid-cols-2 gap-1.5">
+          {/* KPI grid */}
+          <div className={`grid shrink-0 grid-cols-2 gap-1.5 ${isAdmin ? "w-[52%]" : "w-[48%]"}`}>
             <KpiTile label="Mentions" value={fmt(social.mentions)} valueColor="text-amber-300" />
             <KpiTile label="Reach" value={`${social.reach}k`} valueColor="text-white" />
             <KpiTile label="Positive" value={`${social.pos}%`} valueColor="text-emerald-400" />
@@ -87,8 +96,8 @@ export default function TodaysPulse({ constituency }) {
           </div>
         </div>
 
-        {/* Sentiment bar — constrained to the left column so the face stays clean */}
-        <div className="relative z-10 mt-4 max-w-[62%]">
+        {/* Sentiment bar */}
+        <div className={`relative z-10 mt-4 ${isAdmin ? "" : "max-w-[62%]"}`}>
           <div className="flex h-2 overflow-hidden rounded-full bg-white/10">
             <span className="bg-emerald-500" style={{ width: `${social.pos}%` }} />
             <span className="bg-white/30" style={{ width: `${social.neu}%` }} />
@@ -101,13 +110,13 @@ export default function TodaysPulse({ constituency }) {
           </div>
         </div>
 
-        {/* Summary — constrained to left column */}
-        <p className="relative z-10 mt-3 max-w-[62%] text-[13px] leading-relaxed text-slate-200">
+        {/* Summary */}
+        <p className={`relative z-10 mt-3 text-[13px] leading-relaxed text-slate-200 ${isAdmin ? "" : "max-w-[62%]"}`}>
           {social.summary}
         </p>
 
-        {/* Golden hashtag chips — constrained too so they don't wrap over the face */}
-        <div className="relative z-10 mt-3 flex max-w-[62%] flex-wrap gap-1.5">
+        {/* Golden hashtag chips */}
+        <div className={`relative z-10 mt-3 flex flex-wrap gap-1.5 ${isAdmin ? "" : "max-w-[62%]"}`}>
           {social.hashtags.map((h) => (
             <span key={h} className="rounded-full border border-amber-400/40 bg-amber-500/10 px-2.5 py-0.5 text-[11px] font-semibold text-amber-200">
               {h}
@@ -115,32 +124,35 @@ export default function TodaysPulse({ constituency }) {
           ))}
         </div>
 
-        {/* Tamil news carousel — INSIDE the card, on the bottom scrim */}
-        <div className="relative z-10 mt-4 border-t border-white/10 pt-3">
-          <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-amber-300/80">
-            Tamil news around this constituency
-          </p>
-          <div className="no-scrollbar -mx-4 flex gap-3 overflow-x-auto px-4 pb-1">
-            {TAMIL_NEWS.map((n) => (
-              <a key={n.id} href={n.url} target="_blank" rel="noopener noreferrer"
-                className="group flex w-[200px] shrink-0 flex-col overflow-hidden rounded-2xl bg-white/10 ring-1 ring-white/15 backdrop-blur-sm transition hover:-translate-y-0.5 hover:bg-white/15">
-                <div className="relative h-[110px] w-full overflow-hidden">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={n.image} alt="" className="h-full w-full object-cover" />
-                  <span className="absolute left-2 top-2 rounded-full bg-black/70 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white backdrop-blur">
-                    {n.source}
-                  </span>
-                </div>
-                <div className="flex flex-1 flex-col gap-1 p-2.5">
-                  <p className="line-clamp-3 text-[12px] font-semibold leading-tight text-white">{n.title}</p>
-                  <span className="mt-auto flex items-center gap-1 text-[10px] font-semibold text-amber-300 group-hover:underline">
-                    Read <ExternalLink size={9} />
-                  </span>
-                </div>
-              </a>
-            ))}
+        {/* Tamil news carousel — citizen variant only. Admin already gets a
+            richer media grid in the NammKuralPulse section below. */}
+        {!isAdmin && (
+          <div className="relative z-10 mt-4 border-t border-white/10 pt-3">
+            <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-amber-300/80">
+              Tamil news around this constituency
+            </p>
+            <div className="no-scrollbar -mx-4 flex gap-3 overflow-x-auto px-4 pb-1">
+              {TAMIL_NEWS.map((n) => (
+                <a key={n.id} href={n.url} target="_blank" rel="noopener noreferrer"
+                  className="group flex w-[200px] shrink-0 flex-col overflow-hidden rounded-2xl bg-white/10 ring-1 ring-white/15 backdrop-blur-sm transition hover:-translate-y-0.5 hover:bg-white/15">
+                  <div className="relative h-[110px] w-full overflow-hidden">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={n.image} alt="" className="h-full w-full object-cover" />
+                    <span className="absolute left-2 top-2 rounded-full bg-black/70 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white backdrop-blur">
+                      {n.source}
+                    </span>
+                  </div>
+                  <div className="flex flex-1 flex-col gap-1 p-2.5">
+                    <p className="line-clamp-3 text-[12px] font-semibold leading-tight text-white">{n.title}</p>
+                    <span className="mt-auto flex items-center gap-1 text-[10px] font-semibold text-amber-300 group-hover:underline">
+                      Read <ExternalLink size={9} />
+                    </span>
+                  </div>
+                </a>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
       </article>
     </section>
   );

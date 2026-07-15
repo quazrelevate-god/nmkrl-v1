@@ -18,45 +18,43 @@ export default function SplashScreen({ onDone }) {
       }`}
       style={{ background: "linear-gradient(160deg, #1e3a5f 0%, #0f1f36 100%)" }}
     >
-      {/* TN Government emblem */}
-      <div className="mb-6 flex h-28 w-28 items-center justify-center rounded-full bg-white/10 ring-2 ring-white/20">
-        <svg viewBox="0 0 100 100" className="h-20 w-20" xmlns="http://www.w3.org/2000/svg">
-          {/* Stylised Sarnath Lion Capital / TN emblem shape */}
-          <circle cx="50" cy="50" r="46" fill="none" stroke="#c5a44e" strokeWidth="3"/>
-          <circle cx="50" cy="50" r="38" fill="none" stroke="#c5a44e" strokeWidth="1.5"/>
-          {/* Ashoka Chakra */}
-          <circle cx="50" cy="50" r="14" fill="none" stroke="#c5a44e" strokeWidth="2"/>
-          {Array.from({ length: 24 }).map((_, i) => {
-            const angle = (i * 15 * Math.PI) / 180;
-            const x1 = 50 + 10 * Math.cos(angle);
-            const y1 = 50 + 10 * Math.sin(angle);
-            const x2 = 50 + 14 * Math.cos(angle);
-            const y2 = 50 + 14 * Math.sin(angle);
-            return <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} stroke="#c5a44e" strokeWidth="1.2"/>;
-          })}
-          {/* Pillars */}
-          <rect x="30" y="22" width="4" height="20" rx="1" fill="#c5a44e"/>
-          <rect x="66" y="22" width="4" height="20" rx="1" fill="#c5a44e"/>
-          <rect x="30" y="58" width="4" height="20" rx="1" fill="#c5a44e"/>
-          <rect x="66" y="58" width="4" height="20" rx="1" fill="#c5a44e"/>
-          {/* Top dome */}
-          <path d="M38 26 Q50 10 62 26" fill="none" stroke="#c5a44e" strokeWidth="2"/>
-          {/* Base */}
-          <path d="M28 78 H72" stroke="#c5a44e" strokeWidth="2.5"/>
-          <path d="M32 82 H68" stroke="#c5a44e" strokeWidth="1.5"/>
+      {/* Wordmark: Tamil title with the signal-wave mark radiating from
+          the top-right, exactly as on the cover reference. */}
+      <div className="relative flex items-end gap-3">
+        <h1
+          className="text-[56px] font-extrabold leading-[0.95] tracking-tight"
+          style={{ color: "#f2e4bc" }}
+        >
+          நம் குரல்
+        </h1>
+
+        {/* Signal-wave mark: gold dot with three concentric arcs opening
+            up-and-right, sitting above the last consonant. */}
+        <svg
+          viewBox="0 0 64 64"
+          className="absolute -right-8 top-[-6px] h-10 w-10"
+          xmlns="http://www.w3.org/2000/svg"
+          aria-hidden
+        >
+          <circle cx="18" cy="46" r="4.5" fill="#c8a04a" />
+          <path d="M18 34 A22 22 0 0 1 40 56"      fill="none" stroke="#c8a04a" strokeWidth="3"  strokeLinecap="round" />
+          <path d="M18 24 A32 32 0 0 1 50 56"      fill="none" stroke="#c8a04a" strokeWidth="2.5" strokeLinecap="round" />
+          <path d="M18 14 A42 42 0 0 1 60 56"      fill="none" stroke="#c8a04a" strokeWidth="2"   strokeLinecap="round" />
         </svg>
       </div>
 
-      {/* Tamil title */}
-      <h1 className="text-3xl font-extrabold tracking-wide" style={{ color: "#c5a44e" }}>
-        நம் குறள்
-      </h1>
-      <p className="mt-2 text-sm font-medium text-white/60 tracking-wider">
-        TAMILNADU GOVERNMENT
+      {/* Gold ornamental underline with centred diamond */}
+      <div className="mt-4 flex items-center gap-2" aria-hidden>
+        <span className="h-px w-16 bg-gold-300/80" />
+        <span className="h-1.5 w-1.5 rotate-45 bg-gold-300" />
+        <span className="h-px w-16 bg-gold-300/80" />
+      </div>
+
+      <p className="mt-6 text-[11px] font-medium tracking-[0.28em] text-white/55">
+        TAMIL NADU GOVERNMENT
       </p>
 
-      {/* Subtle tagline */}
-      <p className="mt-6 text-xs text-white/40">
+      <p className="mt-2 text-xs text-white/40">
         Civic Grievance Redressal Platform
       </p>
 

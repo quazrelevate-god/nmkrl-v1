@@ -3,8 +3,8 @@ import SplashWrapper from "@/components/SplashWrapper";
 import ReportProvider from "@/components/ReportProvider";
 
 export const metadata = {
-  title: "FixMyStreet India",
-  description: "Report and track civic street grievances",
+  title: "Project(நம்_குரல்)",
+  description: "Namm Kural — a civic voice platform for Tamil Nadu",
 };
 
 export const viewport = {

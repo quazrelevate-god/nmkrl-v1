@@ -158,6 +158,176 @@ export function communityKpis() {
   };
 }
 
+/**
+ * NAMM KURAL PULSE
+ * ================
+ * Editorial-style briefing for a constituency's MLA — deterministic mock data
+ * driving the /admin/performance "நம் குரல் pulse" section. Emulates what a
+ * combined news-scraper + social-listening pipeline (X/IG/FB APIs, RSS + bot
+ * scrapers) would surface for that MLA on a given day.
+ *
+ * Everything is derived from a hash of the constituency name so filter changes
+ * feel like fresh intelligence per constituency without any real API call.
+ */
+
+const NEWS_OUTLETS = [
+  { id: "ndtv",   name: "NDTV",              tier: "National", logo: "NDT", tint: "#e51b23" },
+  { id: "itdy",   name: "India Today",       tier: "National", logo: "IT",  tint: "#fbc02d" },
+  { id: "thanti", name: "Thanthi TV",        tier: "Tamil",    logo: "தந்", tint: "#c8a04a" },
+  { id: "sunn",   name: "Sun News",          tier: "Tamil",    logo: "☀",   tint: "#f97316" },
+  { id: "polmr",  name: "Polimer News",      tier: "Tamil",    logo: "पो",  tint: "#7c3aed" },
+  { id: "putyt",  name: "Puthiya Thalaimurai", tier: "Tamil",  logo: "PT",  tint: "#059669" },
+];
+
+const NEWS_THUMBS = [
+  "/pulse/news-01.jpeg",
+  "/pulse/civic-drain.webp",
+  "/pulse/rally-crowd.webp",
+  "/pulse/news-04.jpeg",
+  "/pulse/road-project.webp",
+  "/pulse/newspaper.jpg",
+];
+
+/** Six deterministic news items — 2 national + 4 Tamil regional. */
+function newsFor(mla, shortName, party, h) {
+  const pool = [
+    (m, s) => ({ headline: `Hon'ble ${m} inaugurates monsoon desilting drive across ${s}`, snippet: `A ₹4.2 crore stormwater-drain refresh across 42 streets kicked off this morning.`, mentions: [`@${slug(m)}`, "@GreaterChennaiCorp"], reach: 620 }),
+    (m, s) => ({ headline: `${s} residents applaud fresh e-bus route inaugurated by MLA ${m}`, snippet: `The new feeder route connects five interior colonies to the metro.`, mentions: [`@${slug(m)}`, "@CMRLOfficial"], reach: 410 }),
+    (m, s) => ({ headline: `${m} to hold direct grievance camp in ${s} on Saturday`, snippet: `Ward officers, water-board, PWD engineers to attend — walk-in for citizens.`, mentions: [`@${slug(m)}`, "@TN_PWD"], reach: 290 }),
+    (m, s) => ({ headline: `Assembly floor: ${m} demands faster stormwater-drain audit for ${s}`, snippet: `Cites 2015-flood parallels; calls for a 30-day CAG-style audit.`, mentions: [`@${slug(m)}`, "@TN_Assembly"], reach: 830 }),
+    (m, s) => ({ headline: `Youth in ${s} rally behind ${m}'s digital-grievance push`, snippet: `Namm Kural pilot logs 3,400 issues in three weeks; 71% resolved.`, mentions: [`@${slug(m)}`, "@NammKuralApp", `#${slug(s)}Speaks`], reach: 350 }),
+    (m, s) => ({ headline: `${m} visits SRMC to review dengue preparedness for ${s}`, snippet: `Fever camps to be doubled; fogging schedule doubled through October.`, mentions: [`@${slug(m)}`, "@TNHealthDept"], reach: 240 }),
+  ];
+  return NEWS_OUTLETS.map((outlet, i) => {
+    const seed = pool[(h + i) % pool.length](mla, shortName);
+    return {
+      id: `n-${outlet.id}`,
+      outlet: outlet.name,
+      tier: outlet.tier,
+      logo: outlet.logo,
+      tint: outlet.tint,
+      image: NEWS_THUMBS[i],
+      headline: seed.headline,
+      snippet: seed.snippet,
+      mentions: seed.mentions,
+      reach: seed.reach + ((h + i * 37) % 220),   // thousand impressions
+      time: `${((h + i) % 5) + 1}h ago`,
+    };
+  });
+}
+
+function slug(s) {
+  return (s || "")
+    .replace(/[^A-Za-z\s]/g, "")
+    .trim()
+    .split(/\s+/)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join("");
+}
+
+/** Instagram/Facebook/X listening card content, keyed off (mla, shortName, h). */
+function socialListening(mla, shortName, h) {
+  const igMentions = 900 + (h % 2400);
+  const fbMentions = 1600 + ((h * 3) % 3000);
+  const xMentions  = 3200 + ((h * 7) % 4200);
+  return {
+    instagram: {
+      platform: "Instagram",
+      mentions: igMentions,
+      followers: `${180 + (h % 60)}k`,
+      topHandle: `@${slug(mla)}_Official`,
+      topPost: `"Kicked off the ${shortName} monsoon prep with our team today — 42 streets, 8 crews, one promise: no waterlogging this season." 🌧️`,
+      topHashtag: `#${slug(shortName)}Rising`,
+      engagement: 62 + (h % 22),
+      medium: "reel",
+    },
+    facebook: {
+      platform: "Facebook",
+      mentions: fbMentions,
+      followers: `${240 + (h % 90)}k`,
+      topHandle: `${mla} — Official`,
+      topPost: `Live now: Ward-level review meeting with sanitation supervisors from ${shortName}. Every complaint on Namm Kural gets a response this week.`,
+      topHashtag: `#WithMLA${slug(mla).slice(0, 8)}`,
+      engagement: 48 + (h % 24),
+      medium: "live video",
+    },
+    x: {
+      platform: "X",
+      mentions: xMentions,
+      followers: `${310 + (h % 120)}k`,
+      topHandle: `@${slug(mla)}`,
+      topPost: `Two hours in ${shortName} this morning. Met 40+ families. Filed 11 issues on @NammKuralApp before I left. Follow-ups by Friday. #${slug(shortName)}Speaks`,
+      topHashtag: `#${slug(shortName)}Speaks`,
+      engagement: 74 + (h % 18),
+      medium: "thread",
+    },
+  };
+}
+
+/** A pinned "voice of the constituency" quote — the top-engaged citizen post. */
+function voiceOfConstituency(shortName, h) {
+  const bank = [
+    { author: "Ramesh K.",   handle: `@ramesh_${slug(shortName).toLowerCase()}`, text: `AGS Colony interior streets waterlogged again. Requesting GCC to fast-track the stormwater drain project before the next monsoon spell.` },
+    { author: "Kavya S.",    handle: `@kavya.chennai`,                            text: `The new LED streetlights on 2nd Avenue changed how we feel walking home after 8pm. Small change, huge difference — thank you.` },
+    { author: "Arun M.",     handle: `@arun_${slug(shortName).toLowerCase()}`,   text: `We need a proper bus shelter at the ${shortName} junction. Elderly and students are standing in rain every morning.` },
+    { author: "Priya V.",    handle: `@priyav`,                                    text: `Dengue cases up in our block. Please double fogging schedule — my son's school shut for 3 days last week.` },
+  ];
+  return { ...bank[h % bank.length], likes: 320 + (h % 900), shares: 40 + (h % 120), replies: 60 + (h % 140) };
+}
+
+/** Three prioritised, PA-voice recommendations for the day. */
+function talkingPoints(mla, shortName, h) {
+  const buckets = [
+    { icon: "🎥", label: "Sound byte", body: `Puthiya Thalaimurai requested a 2-minute soundbite on the ${shortName} desilting drive by 5pm — high prime-time reach.` },
+    { icon: "💬", label: "Personal reply", body: `Three citizen threads on X (~4k impressions each) are still awaiting a personal reply — one from a school teacher.` },
+    { icon: "📸", label: "Visual push",   body: `Post before/after visuals of the new e-bus route on Instagram — Reels format is over-performing 3× your average this week.` },
+    { icon: "📞", label: "Ground call",   body: `Ward-7 coordinator flagged a spike in dengue-related grievances (+34%); consider a brief video message today.` },
+    { icon: "🤝", label: "Stakeholder",   body: `Hon'ble Health Secretary has an open slot at 4pm — good window to align fogging schedule for ${shortName}.` },
+  ];
+  return [0, 1, 2].map((i) => buckets[(h + i) % buckets.length]);
+}
+
+/** Public: full pulse briefing for a constituency. */
+export function nammKuralPulse(ac) {
+  const info = MLA_BY_AC[ac] || { mla: "the Ward Councillor", party: "", image: null };
+  const pending = info.mla === "Data Pending";
+  const shortName = shortAC(ac);
+  const h = hash(ac || "chennai");
+
+  const buzz    = 6000 + (h % 8000);                         // total mentions today
+  const posPct  = 58 + (h % 24);
+  const negPct  = 8 + ((h * 3) % 12);
+  const neuPct  = Math.max(0, 100 - posPct - negPct);
+  const trend   = (Math.floor(h / 17) % 34) + 4;             // +4..+37 %
+
+  const briefing = pending
+    ? `The ${shortName} seat outcome is still being finalised. Media chatter is warming up — a good moment to prep a first-100-days plan and share visuals before day one.`
+    : `Hon'ble ${info.mla}, today ${posPct}% of ${buzz.toLocaleString()} online mentions about your work carry positive sentiment — driven by the desilting drive and the new e-bus route. Regional Tamil press wants two soundbites before evening. Three high-signal citizen threads deserve a personal reply — the first is from a school teacher in ${shortName}.`;
+
+  // A sparkline of the last 7 days of buzz (small ints, deterministic).
+  const spark = Array.from({ length: 7 }, (_, i) => 40 + ((h * (i + 3)) % 60));
+
+  return {
+    mla: info.mla,
+    party: info.party,
+    image: info.image,
+    pending,
+    shortName,
+    ac,
+    buzz,
+    posPct,
+    neuPct,
+    negPct,
+    trend,
+    spark,
+    briefing,
+    news: newsFor(info.mla, shortName, info.party, h),
+    social: socialListening(info.mla, shortName, h),
+    voice: voiceOfConstituency(shortName, h),
+    talkingPoints: talkingPoints(info.mla, shortName, h),
+  };
+}
+
 /* Community content flagged by the auto-moderation model as abusive/violating. */
 export const FLAGGED_CONTENT = [
   {

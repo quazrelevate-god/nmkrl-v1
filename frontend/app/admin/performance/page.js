@@ -13,14 +13,16 @@ import { useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import {
   LayoutDashboard, Flame, ThumbsUp, Ticket, CheckCircle2, TimerOff, Clock, Gauge,
-  MapPin, Megaphone, TrendingUp, TrendingDown, Radio, Users, MessageCircle,
+  MapPin, Megaphone, TrendingUp, Users, MessageCircle,
   Share2, BarChart3, Sparkles, ShieldAlert, ShieldCheck, Trash2, Heart, X,
 } from "lucide-react";
 import { useAdminData } from "@/components/admin/AdminDataProvider";
 import { departmentMeta } from "@/lib/departments";
 import { derivePriority, PRIORITY_META, slaBreached, daysOpen } from "@/lib/adminModel";
 import { CONSTITUENCIES, issueInConstituency, shortAC, constituenciesForWard } from "@/lib/constituencies";
-import { socialMentions, communityKpis, FLAGGED_CONTENT } from "@/lib/communityInsights";
+import { communityKpis, FLAGGED_CONTENT } from "@/lib/communityInsights";
+import TodaysPulse from "@/components/community/TodaysPulse";
+import NammKuralPulse from "@/components/admin/NammKuralPulse";
 
 const AdminHeatMap = dynamic(() => import("@/components/AdminHeatMap"), {
   ssr: false,
@@ -61,7 +63,6 @@ export default function PerformancePage() {
   }, [scoped]);
 
   const kpi = useMemo(() => computeKpis(scoped), [scoped]);
-  const social = useMemo(() => socialMentions(ac || DEFAULT_AC), [ac]);
   const community = useMemo(() => communityKpis(), []);
 
   // KPI cards double as map filters: clicking one plots its grievances at their
@@ -155,8 +156,18 @@ export default function PerformancePage() {
             </div>
           </div>
 
-          <SocialMentionsCard social={social} ac={ac || DEFAULT_AC} isDefault={!ac} />
+          {/* Social Mentions column — Today's Pulse card (from /coordinator),
+              bounded to the map's height so the layout mirrors the previous
+              two-column shape. Internal scroll for the news carousel. */}
+          <div className="h-[46vh] min-h-0 overflow-hidden">
+            <div className="no-scrollbar h-full overflow-y-auto rounded-3xl">
+              <TodaysPulse constituency={ac || DEFAULT_AC} variant="admin" />
+            </div>
+          </div>
         </div>
+
+        {/* நம் குரல் pulse — media + social listening briefing for the MLA */}
+        <NammKuralPulse ac={ac || DEFAULT_AC} isDefault={!ac} />
 
         {/* Grievance KPIs */}
         <SectionTitle icon={Ticket}>
@@ -249,74 +260,6 @@ export default function PerformancePage() {
 
 const selectCls = "rounded-lg border border-white/60 bg-white/60 px-2.5 py-1.5 text-xs font-semibold text-slate-700 outline-none backdrop-blur focus:border-brand";
 const fmt = (n) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`);
-
-/* ── MLA social mentions card ── */
-function SocialMentionsCard({ social, ac, isDefault }) {
-  const up = social.trend >= 0;
-  return (
-    <div className="glass-panel glass-hover flex flex-col rounded-2xl p-5">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-start gap-3">
-          {/* MLA image ABOVE the name — a portrait tile alongside the label */}
-          <div className="shrink-0">
-            {social.image ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={social.image} alt="MLA portrait" className="h-16 w-16 rounded-2xl object-cover ring-2 ring-white shadow-sm" />
-            ) : (
-              <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-100 text-xs text-slate-400">—</div>
-            )}
-          </div>
-          <div>
-            <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-brand"><Radio size={12} /> Social mentions · MLA</p>
-            <div className="mt-1 flex items-center gap-2">
-              <p className={`text-lg font-extrabold leading-tight ${social.pending ? "italic text-slate-400" : "text-slate-900"}`}>{social.mla}</p>
-              {social.party && (
-                <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold ${
-                  social.party === "DMK" ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-800"
-                }`}>{social.party}</span>
-              )}
-            </div>
-            <p className="text-xs font-semibold text-slate-500">MLA · {shortAC(ac)} {isDefault && <span className="text-slate-400">(select a constituency to change)</span>}</p>
-          </div>
-        </div>
-        {/* KPI numbers at the corner of the summary */}
-        <div className="grid shrink-0 grid-cols-2 gap-1.5 text-right">
-          <Corner label="Mentions" value={fmt(social.mentions)} tone="text-brand" />
-          <Corner label="Reach" value={`${social.reach}k`} tone="text-slate-800" />
-          <Corner label="Positive" value={`${social.pos}%`} tone="text-emerald-600" />
-          <Corner label="Trend" value={`${up ? "+" : ""}${social.trend}%`} tone={up ? "text-emerald-600" : "text-red-500"} icon={up ? TrendingUp : TrendingDown} />
-        </div>
-      </div>
-
-      {/* Sentiment bar */}
-      <div className="mt-4 flex h-2 overflow-hidden rounded-full">
-        <span className="bg-emerald-500" style={{ width: `${social.pos}%` }} />
-        <span className="bg-slate-300" style={{ width: `${social.neu}%` }} />
-        <span className="bg-red-400" style={{ width: `${social.neg}%` }} />
-      </div>
-      <div className="mt-1 flex justify-between text-[10px] font-medium text-slate-400">
-        <span>Positive {social.pos}%</span><span>Neutral {social.neu}%</span><span>Negative {social.neg}%</span>
-      </div>
-
-      <p className="mt-3 flex-1 text-[13px] leading-relaxed text-slate-600">{social.summary}</p>
-
-      <div className="mt-3 flex flex-wrap gap-1.5">
-        {social.hashtags.map((h) => (
-          <span key={h} className="rounded-full bg-brand-50 px-2.5 py-0.5 text-[11px] font-semibold text-brand ring-1 ring-brand-100">{h}</span>
-        ))}
-      </div>
-      <p className="mt-3 text-[10px] italic text-slate-400">Illustrative social-listening data · updates hourly</p>
-    </div>
-  );
-}
-function Corner({ label, value, tone, icon: Icon }) {
-  return (
-    <div className="rounded-lg bg-white/50 px-2 py-1 ring-1 ring-white/60">
-      <p className="text-[9px] font-bold uppercase tracking-wide text-slate-400">{label}</p>
-      <p className={`flex items-center justify-end gap-0.5 text-sm font-extrabold ${tone}`}>{Icon && <Icon size={12} />}{value}</p>
-    </div>
-  );
-}
 
 /* ── Moderation row ── */
 function ModerationRow({ item, resolved, onAct }) {
