@@ -20,7 +20,9 @@ import {
   ThumbsUp, MapPin, RotateCcw, Ticket, Sparkles, Navigation,
   Search, X, Users, FileText, Landmark, ChevronDown, ChevronUp,
   ShieldCheck, Send, ArrowRightLeft, CheckCircle2, Ban, Check, ClipboardList,
+  Share2,
 } from "lucide-react";
+import ShareSheet from "@/components/ShareSheet";
 import CoordinatorShell from "@/components/coordinator/CoordinatorShell";
 import { useCoordinator } from "@/components/coordinator/CoordinatorProvider";
 import {
@@ -63,6 +65,19 @@ function ActionStatusBadge({ action, status }) {
 
 function GrievanceCard({ issue, expanded, onToggle, dist, actions, actionBadge }) {
   const m = statusMeta(issue.status);
+  const [shareOpen, setShareOpen] = useState(false);
+
+  const shareTitle = issue.title;
+  const shareText = [
+    `Ticket: ${ticketNumber(issue.id)}`,
+    issue.area_name && `Area: ${issue.area_name}`,
+    issue.ward_no != null && `Ward ${issue.ward_no}`,
+    issue.transcript && `"${issue.transcript.slice(0, 140)}${issue.transcript.length > 140 ? "…" : ""}"`,
+  ].filter(Boolean).join(" · ");
+  const shareUrl = typeof window !== "undefined"
+    ? `${window.location.origin}/coordinator/grievance?id=${encodeURIComponent(issue.id)}`
+    : `/coordinator/grievance?id=${issue.id}`;
+
   return (
     <article className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
       <button onClick={onToggle} className="flex w-full items-center gap-3 p-3 text-left">
@@ -135,8 +150,27 @@ function GrievanceCard({ issue, expanded, onToggle, dist, actions, actionBadge }
           )}
 
           {actions}
+
+          {/* Secondary utility row — share this grievance */}
+          <div className="flex justify-end pt-1">
+            <button
+              onClick={(e) => { e.stopPropagation(); setShareOpen(true); }}
+              className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-bold text-slate-600 active:scale-95"
+            >
+              <Share2 size={12} /> Share
+            </button>
+          </div>
         </div>
       )}
+
+      <ShareSheet
+        open={shareOpen}
+        onClose={() => setShareOpen(false)}
+        title={shareTitle}
+        text={shareText}
+        url={shareUrl}
+        variant="dialog"
+      />
     </article>
   );
 }
