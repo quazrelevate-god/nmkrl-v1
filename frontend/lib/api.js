@@ -8,9 +8,17 @@
  * routers/issues.py or routers/admin.py.
  */
 
-// /fms prefix is proxied by Next.js rewrites → FastAPI on localhost:8000.
-// Override with NEXT_PUBLIC_API_BASE=http://... to call FastAPI directly.
-export const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "/fms";
+// /fms prefix is proxied by Next.js rewrites → FastAPI. NEXT_PUBLIC_API_BASE
+// can override to call FastAPI directly. A scheme-less value (e.g. a bare
+// Railway domain) is upgraded to https:// so it resolves as an absolute URL
+// instead of a same-origin path.
+function _resolveApiBase() {
+  const b = (process.env.NEXT_PUBLIC_API_BASE || "").trim();
+  if (!b) return "/fms";
+  if (b.startsWith("/") || /^https?:\/\//i.test(b)) return b;
+  return `https://${b}`;
+}
+export const API_BASE = _resolveApiBase();
 
 /** Resolve a stored media path (e.g. "/uploads/..") to an absolute URL.
  *
