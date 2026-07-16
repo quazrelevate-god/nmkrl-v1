@@ -11,14 +11,16 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Ticket, ClipboardCheck, Users, Landmark, LogOut, FolderTree, Network } from "lucide-react";
+import { LayoutDashboard, Ticket, ClipboardCheck, Megaphone, Users, Landmark, LogOut, FolderTree, Network } from "lucide-react";
 import { useAdminData } from "./AdminDataProvider";
 import { listCoordinators } from "@/lib/coordinators";
+import { listPending, MODERATION_EVENT } from "@/lib/postModeration";
 
 const NAV = [
   { href: "/admin/performance", label: "Performance", icon: LayoutDashboard, badgeKey: null },
   { href: "/admin", label: "Tickets", icon: Ticket, badgeKey: "tickets" },
   { href: "/admin/petition-review", label: "Petition Review", icon: ClipboardCheck, badgeKey: "pending" },
+  { href: "/admin/post-review", label: "Post Review", icon: Megaphone, badgeKey: "postReview" },
   { href: "/admin/departments", label: "Departments", icon: FolderTree, badgeKey: null },
   { href: "/admin/routing", label: "Dept Routing", icon: Network, badgeKey: null },
   { href: "/admin/coordinators", label: "Coordinators", icon: Users, badgeKey: "coordinators" },
@@ -39,9 +41,25 @@ export default function AdminSidebar() {
     return () => window.removeEventListener("fms:coordinator-directory-changed", listener);
   }, []);
 
+  // Live pending-post count, refreshes on approve/reject or new coordinator posts.
+  const [pendingPosts, setPendingPosts] = useState(0);
+  useEffect(() => {
+    const sync = () => setPendingPosts(listPending().length);
+    sync();
+    window.addEventListener(MODERATION_EVENT, sync);
+    // Post creation happens on other tabs / coordinator side — poll every 5s
+    // to catch new pending submissions when this sidebar isn't the focus.
+    const iv = setInterval(sync, 5000);
+    return () => {
+      window.removeEventListener(MODERATION_EVENT, sync);
+      clearInterval(iv);
+    };
+  }, []);
+
   const badges = {
     tickets: tickets.length,
     pending: pending.length,
+    postReview: pendingPosts,
     coordinators: coordinatorCount,
   };
 

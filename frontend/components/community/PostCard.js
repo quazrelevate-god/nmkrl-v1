@@ -158,6 +158,13 @@ export default function PostCard({ post, index = 0 }) {
         {/* Header: flair · source · time · menu */}
         <div className="flex items-center gap-2">
           <span className={`shrink-0 rounded-md px-2 py-0.5 text-[11px] font-bold ${flair.cls}`}>{flair.label}</span>
+          {/* Moderation status pill — surfaces admin decisions on coordinator posts. */}
+          {post.moderationStatus === "pending" && (
+            <span className="shrink-0 rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold text-amber-800 ring-1 ring-amber-200">⏳ PENDING</span>
+          )}
+          {post.moderationStatus === "rejected" && (
+            <span className="shrink-0 rounded-full bg-rose-100 px-1.5 py-0.5 text-[9px] font-bold text-rose-700 ring-1 ring-rose-200">✕ REJECTED</span>
+          )}
           <p className="min-w-0 flex-1 truncate text-[12.5px] text-slate-400">
             <span className="font-semibold text-slate-500">{source}</span> · {post.time}
           </p>
