@@ -14,6 +14,8 @@ Run with:
 """
 
 import os
+import shutil
+import sqlite3
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
@@ -23,7 +25,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import boundaries
-from database import get_connection, init_db
+from database import DB_PATH, get_connection, init_db
 from gemini_service import keyword_department
 from routers import admin, coordinator, issues, servicehub
 from utils import (
@@ -33,6 +35,8 @@ from utils import (
     new_id,
     now_iso,
 )
+
+SEED_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "seed")
 
 load_dotenv()
 
@@ -69,9 +73,61 @@ def _backfill_zones_and_departments() -> None:
                 )
 
 
+def _db_is_empty() -> bool:
+    """True when the target DB file is missing or has no grievances yet."""
+    if not os.path.exists(DB_PATH):
+        return True
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        try:
+            n = conn.execute("SELECT COUNT(*) FROM issues").fetchone()[0]
+        finally:
+            conn.close()
+        return n == 0
+    except sqlite3.Error:
+        # No schema yet (freshly-created empty file) → treat as empty.
+        return True
+
+
+def _seed_if_needed() -> None:
+    """Self-heal a fresh/empty persistent volume from the bundled seed.
+
+    On the first boot against an empty volume (or a brand-new container) the
+    demo DB + uploaded media are copied into place BEFORE requests are served,
+    so the presentation data is always present. It never overwrites live data:
+    the DB is only seeded when empty, and each media file is copied only if it
+    isn't already there.
+    """
+    seed_db = os.path.join(SEED_DIR, "fixmystreet.db")
+    if os.path.exists(seed_db) and _db_is_empty():
+        os.makedirs(os.path.dirname(DB_PATH) or ".", exist_ok=True)
+        shutil.copy2(seed_db, DB_PATH)
+        print(f"[seed] Seeded demo DB → {DB_PATH}")
+
+    seed_uploads = os.path.join(SEED_DIR, "uploads")
+    if os.path.isdir(seed_uploads):
+        copied = 0
+        for sub in ("images", "audio"):
+            src = os.path.join(seed_uploads, sub)
+            dst = os.path.join(UPLOAD_DIR, sub)
+            if not os.path.isdir(src):
+                continue
+            os.makedirs(dst, exist_ok=True)
+            for name in os.listdir(src):
+                if name == ".gitkeep":
+                    continue
+                dst_file = os.path.join(dst, name)
+                if not os.path.exists(dst_file):
+                    shutil.copy2(os.path.join(src, name), dst_file)
+                    copied += 1
+        if copied:
+            print(f"[seed] Restored {copied} media file(s) → {UPLOAD_DIR}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialise DB + upload dirs, and parse the GCC boundary KMLs once."""
+    _seed_if_needed()  # populate a fresh volume with the bundled demo data
     ensure_upload_dirs()
     init_db()
     # Parse zones.kml + wards.kml into in-memory shapely polygons exactly once.
