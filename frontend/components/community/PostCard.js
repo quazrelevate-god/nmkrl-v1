@@ -138,6 +138,17 @@ export default function PostCard({ post, index = 0 }) {
                   <BarChart3 size={9} /> POLL
                 </span>
               )}
+              {/* Moderation status pill — surfaces admin decisions on coordinator posts. */}
+              {post.moderationStatus === "pending" && (
+                <span className="ml-1 rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold text-amber-800 ring-1 ring-amber-200">
+                  ⏳ PENDING
+                </span>
+              )}
+              {post.moderationStatus === "rejected" && (
+                <span className="ml-1 rounded-full bg-rose-100 px-1.5 py-0.5 text-[9px] font-bold text-rose-700 ring-1 ring-rose-200">
+                  ✕ REJECTED
+                </span>
+              )}
             </div>
             <p className="flex items-center gap-1 text-[11px] font-medium text-green-600">
               <MapPin size={10} /> {[post.area, post.handle].filter(Boolean).join(" · ")}

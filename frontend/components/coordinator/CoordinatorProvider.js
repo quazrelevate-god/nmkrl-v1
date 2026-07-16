@@ -117,20 +117,40 @@ export function CoordinatorProvider({ children }) {
     return true;
   }, [me, canUploadStory, feed, persistFeed, t]);
 
+  // New posts/polls land in the moderation queue as "pending" and only appear
+  // in the citizen-facing feed after the admin approves them. Coordinators
+  // still see their own submissions on their community view with a status
+  // pill so they know where each one stands.
   const addPost = useCallback((post) => {
     if (!me || !canUploadPost) return false;
+    const now = new Date().toISOString();
     persistFeed({
       ...feed,
-      posts: [{ id: `p-${Date.now()}`, author: me.username, date: t, ...post }, ...feed.posts],
+      posts: [{
+        id: `p-${Date.now()}`,
+        author: me.username,
+        date: t,
+        submittedAt: now,
+        status: "pending",
+        ...post,
+      }, ...feed.posts],
     });
     return true;
   }, [me, canUploadPost, feed, persistFeed, t]);
 
   const addPoll = useCallback((poll) => {
     if (!me || !canUploadPoll) return false;
+    const now = new Date().toISOString();
     persistFeed({
       ...feed,
-      polls: [{ id: `poll-${Date.now()}`, author: me.username, date: t, ...poll }, ...feed.polls],
+      polls: [{
+        id: `poll-${Date.now()}`,
+        author: me.username,
+        date: t,
+        submittedAt: now,
+        status: "pending",
+        ...poll,
+      }, ...feed.polls],
     });
     return true;
   }, [me, canUploadPoll, feed, persistFeed, t]);

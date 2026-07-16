@@ -92,7 +92,13 @@ export default function CoordinatorHomePage() {
     if (!feed) return [];
     const authorMap = Object.fromEntries(COORDINATORS.map((c) => [c.username, c]));
 
-    const posts = (feed.posts || []).map((p) => {
+    // Hide rejected submissions from the feed entirely (only the author's own
+    // admin queue view reveals rejections). Pending items stay visible so
+    // coordinators can watch their own posts move through review in real time.
+    const visiblePosts = (feed.posts || []).filter((p) => p.status !== "rejected");
+    const visiblePolls = (feed.polls || []).filter((p) => p.status !== "rejected");
+
+    const posts = visiblePosts.map((p) => {
       const a = authorMap[p.author] || { name: p.author, username: p.author, avatar: "" };
       return {
         id: p.id,
@@ -115,10 +121,11 @@ export default function CoordinatorHomePage() {
         mentions: p.mentions,
         hashtags: p.hashtags,
         audience: p.audience,
+        moderationStatus: p.status || "approved",
       };
     });
 
-    const polls = (feed.polls || []).map((p) => {
+    const polls = visiblePolls.map((p) => {
       const a = authorMap[p.author] || { name: p.author, username: p.author, avatar: "" };
       return {
         id: p.id,
@@ -135,6 +142,7 @@ export default function CoordinatorHomePage() {
         totalVotes: 0,
         daysLeft: 7, likes: 0, shares: 0, comments: [],
         audience: p.audience,
+        moderationStatus: p.status || "approved",
       };
     });
 
