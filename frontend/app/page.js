@@ -8,6 +8,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import MobileShell from "@/components/MobileShell";
 import CommunityHeader from "@/components/community/CommunityHeader";
 import StoryViewer from "@/components/community/StoryViewer";
@@ -18,16 +19,26 @@ const TRAVEL = 130;          // px of drag / wheel for a full 0→1 morph
 const SNAP_DELAY = 160;      // ms of wheel inactivity before snapping
 
 export default function CommunityScreen() {
-  const [progress, setProgress] = useState(0);
+  const router = useRouter();
+  const [authed, setAuthed] = useState(false);
+  // Profile starts EXPANDED (the "drop-down" profile view) on first landing.
+  const [progress, setProgress] = useState(1);
   const [dragging, setDragging] = useState(false);
   const [activeStory, setActiveStory] = useState(null);
   const [padTop, setPadTop] = useState(170);
-  const [constituency, setConstituency] = useState("20 - Anna Nagar");
+  const [constituency, setConstituency] = useState("16 - Egmore");
 
   const scrollRef = useRef(null);
-  const pRef = useRef(0);         // live progress for native listeners
+  const pRef = useRef(1);         // live progress for native listeners
   const drag = useRef(null);      // touch drag session
   const snapTimer = useRef(null);
+
+  // Gate the citizen app behind the login page (illustrative PoC auth).
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (localStorage.getItem("nk_citizen_authed") === "1") setAuthed(true);
+    else router.replace("/login");
+  }, [router]);
 
   const setP = useCallback((v) => {
     const c = Math.max(0, Math.min(1, v));
@@ -87,6 +98,10 @@ export default function CommunityScreen() {
       clearTimeout(snapTimer.current);
     };
   }, [setP, snap]);
+
+  // Hold rendering until the auth check resolves (prevents a feed flash before
+  // redirecting unauthenticated visitors to /login).
+  if (!authed) return null;
 
   return (
     <MobileShell fullBleed>

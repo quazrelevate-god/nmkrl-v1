@@ -30,16 +30,16 @@ const MapView = dynamic(() => import("@/components/MapView"), {
 });
 
 const RADIUS = 1500;
-const LIFECYCLE = ["Submitted", "Pending Verification", "Assigned", "Inspection", "Repair", "Verification", "Completed"];
+const LIFECYCLE = ["Submitted", "Pending Verification", "Assigned", "In Progress", "Verification", "Completed"];
 
 function progressIndex(status) {
   switch (status) {
     case "SUBMITTED":            return 1;
     case "ACTIVE":               return 2;
-    case "FORWARDED":            return 3; // "Inspection" (coordinator transferred)
-    case "IN_PROGRESS":          return 4;
-    case "PENDING_VERIFICATION": return 5;
-    case "CLOSED":               return 6;
+    case "FORWARDED":            return 3; // In Progress (coordinator transferred / inspection)
+    case "IN_PROGRESS":          return 3; // In Progress (repair) — merged into one step
+    case "PENDING_VERIFICATION": return 4;
+    case "CLOSED":               return 5;
     case "FALSE":                return -1; // rendered separately
     default:                     return 0;
   }
@@ -52,13 +52,16 @@ function IssueCard({ issue, expanded, onToggle, dist, onUpvote }) {
   return (
     <article className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
       <button onClick={onToggle} className="flex w-full items-center gap-3 p-3 text-left">
-        {issue.image_url
+        {/* Thumbnail only in the collapsed row — the expanded view shows the full image. */}
+        {!expanded && (issue.image_url
           ? <img src={mediaUrl(issue.image_url)} alt="" className="h-10 w-10 shrink-0 rounded-lg object-cover" />
-          : <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-lg">🛣️</div>}
+          : <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-lg">🛣️</div>)}
         <div className="min-w-0 flex-1">
           <h3 className="text-sm font-bold leading-tight text-slate-900 truncate">{issue.title}</h3>
-          <div className="mt-0.5 flex items-center gap-3 text-[11px] text-slate-400">
-            <span className="flex items-center gap-1"><ThumbsUp size={10} /> {issue.upvotes}</span>
+          <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-slate-400">
+            <span className="flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 font-bold text-amber-700 ring-1 ring-amber-200">
+              <ThumbsUp size={10} className="fill-amber-500 text-amber-600" /> {issue.upvotes}
+            </span>
             {dist != null && (
               <span className="flex items-center gap-1">
                 <Navigation size={10} />
@@ -78,9 +81,9 @@ function IssueCard({ issue, expanded, onToggle, dist, onUpvote }) {
       {expanded && (
         <div className="border-t border-slate-100 px-3 pb-3 pt-2 space-y-3">
           <div className="flex gap-3">
-            {issue.image_url && (
-              <img src={mediaUrl(issue.image_url)} alt="issue" className="h-24 w-24 shrink-0 rounded-xl object-cover" />
-            )}
+            {issue.image_url
+              ? <img src={mediaUrl(issue.image_url)} alt="issue" className="h-24 w-24 shrink-0 rounded-xl object-cover" />
+              : <div className="flex h-24 w-24 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-3xl">🛣️</div>}
             <div className="min-w-0 flex-1 space-y-1">
               {issue.area_name && (
                 <p className="flex items-center gap-1 text-[11px] text-slate-500">
@@ -273,18 +276,14 @@ export default function MapHistoryScreen() {
     );
   }, [query, publicIssues]);
 
-  async function confirmUpvote(name) {
-    try {
-      const updated = await upvoteIssue(upvoteTarget.id, userId, name);
-      const apply = (arr) => arr.map(i => i.id === updated.id ? updated : i);
-      setSelected(updated);
-      setMapIssues(apply);
-      setWardIssues(apply);
-      setUpvoteTarget(null);
-    } catch (err) {
-      setError(err.message);
-      setUpvoteTarget(null);
-    }
+  // Adds the current user's support. Throws on failure so UpvoteModal can show
+  // the error inline; the modal owns the success animation + closing itself.
+  async function confirmUpvote() {
+    const updated = await upvoteIssue(upvoteTarget.id, userId);
+    const apply = (arr) => arr.map(i => i.id === updated.id ? updated : i);
+    setSelected(updated);
+    setMapIssues(apply);
+    setWardIssues(apply);
   }
 
   async function handleVerify(issue, response) {
@@ -312,8 +311,9 @@ export default function MapHistoryScreen() {
 
   return (
     <MobileShell noPad splitView>
-      {/* ── MAP: top 40% ── */}
-      <div className="relative shrink-0" style={{ height: "40%" }}>
+      {/* ── MAP: top 40% (rounded card) ── */}
+      <div className="shrink-0 px-2.5 pb-1 pt-2.5" style={{ height: "40%" }}>
+       <div className="relative h-full overflow-hidden rounded-[28px] shadow-lg ring-1 ring-slate-200/70">
         <MapView
           center={center}
           issues={filteredMapIssues}
@@ -387,7 +387,7 @@ export default function MapHistoryScreen() {
 
         {/* Status legend */}
         <div className="absolute bottom-2 left-2 z-[400] flex flex-col gap-0.5 rounded-xl bg-white/90 p-1.5 text-[9px] shadow ring-1 ring-slate-200">
-          {Object.entries(STATUS_META).filter(([k]) => k !== "SUBMITTED").map(([key, m]) => (
+          {Object.entries(STATUS_META).filter(([k]) => k !== "SUBMITTED" && k !== "FORWARDED").map(([key, m]) => (
             <span key={key} className="flex items-center gap-1">
               <span className="inline-block h-2 w-2 rounded-full" style={{ background: m.pin }} />
               {m.label}
@@ -443,10 +443,11 @@ export default function MapHistoryScreen() {
             </div>
           </div>
         )}
+       </div>
       </div>
 
       {/* ── BOTTOM 60%: tabs ── */}
-      <div className="no-scrollbar flex-1 overflow-y-auto bg-slate-50 px-4 pt-3 pb-28">
+      <div className="no-scrollbar flex-1 overflow-y-auto px-4 pt-3 pb-28">
         {/* Tab switcher */}
         <div className="mb-3 flex gap-1 rounded-xl bg-slate-200/70 p-1">
           <button

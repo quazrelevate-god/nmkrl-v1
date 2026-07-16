@@ -22,15 +22,16 @@ const SNAP_DELAY = 160;
 
 export default function CoordinatorHomePage() {
   const { me, feed, addStory, canUploadStory } = useCoordinator();
-  const [progress, setProgress] = useState(0);
+  // Profile starts EXPANDED (drop-down profile view) on landing — mirrors citizen.
+  const [progress, setProgress] = useState(1);
   const [dragging, setDragging] = useState(false);
   const [activeStory, setActiveStory] = useState(null);
   const [padTop, setPadTop] = useState(170);
   const [storyOpen, setStoryOpen] = useState(false);
-  const [constituency, setConstituency] = useState(me?.constituency || "20 - Anna Nagar");
+  const [constituency, setConstituency] = useState("16 - Egmore");
 
   const scrollRef = useRef(null);
-  const pRef = useRef(0);
+  const pRef = useRef(1);
   const drag = useRef(null);
   const snapTimer = useRef(null);
 

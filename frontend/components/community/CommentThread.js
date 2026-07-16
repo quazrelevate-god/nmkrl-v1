@@ -8,31 +8,63 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { X, Heart, CornerDownRight, Send, MessageCircle } from "lucide-react";
+import {
+  X, ArrowBigUp, ArrowBigDown, CornerDownRight, Send, MessageCircle, CheckCircle2,
+} from "lucide-react";
+import { ROLE_TINT } from "./CommentSection";
 
-function Comment({ node, depth, liked, onLike, onReply }) {
+function OfficialUpdate({ data }) {
+  return (
+    <div className="mt-2 rounded-xl bg-emerald-50 px-3 py-2.5 ring-1 ring-emerald-100">
+      <div className="flex items-center justify-between">
+        <span className="flex items-center gap-1.5 text-[12px] font-bold text-emerald-700">
+          <CheckCircle2 size={13} className="fill-emerald-500 text-white" /> Official Update
+        </span>
+        <span className="text-[11px] text-emerald-600/70">{data.time}</span>
+      </div>
+      <p className="mt-1 text-[13px] leading-snug text-emerald-900">
+        <span className="font-bold">{data.team}:</span> {data.text}
+      </p>
+    </div>
+  );
+}
+
+function Comment({ node, depth, onReply }) {
   const [showReply, setShowReply] = useState(false);
   const [draft, setDraft] = useState("");
-  const isLiked = liked[node.id];
+  const [voted, setVoted] = useState(0);
+  const score = (node.upvotes ?? 0) + voted;
 
   return (
     <div className={depth > 0 ? "relative pl-4" : ""}>
       {depth > 0 && <span className="absolute left-0 top-0 h-full w-px bg-slate-200" />}
       <div className="flex gap-2.5 py-2.5">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={node.avatar} alt="" className="h-8 w-8 shrink-0 rounded-full object-cover" />
+        <img src={node.avatar} alt="" className="h-8 w-8 shrink-0 rounded-full object-cover ring-2 ring-white" />
         <div className="min-w-0 flex-1">
-          <div className="rounded-2xl rounded-tl-sm bg-slate-100/80 px-3 py-2">
-            <p className="text-xs font-bold text-slate-800">{node.name}</p>
-            <p className="text-sm leading-snug text-slate-700">{node.text}</p>
+          <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+            <span className="text-[13px] font-bold text-slate-900">{node.name}</span>
+            {node.role && (
+              <span className={`text-[11px] font-semibold ${ROLE_TINT[node.roleTint] || "text-slate-500"}`}>{node.role}</span>
+            )}
+            <span className="text-[11px] text-slate-400">· {node.time}</span>
           </div>
-          <div className="mt-1 flex items-center gap-4 pl-1 text-[11px] font-medium text-slate-400">
-            <span>{node.time}</span>
-            <button onClick={() => onLike(node.id)} className={`flex items-center gap-1 ${isLiked ? "text-rose-500" : ""}`}>
-              <Heart size={12} className={isLiked ? "fill-rose-500" : ""} /> {node.likes + (isLiked ? 1 : 0)}
-            </button>
+          <p className="mt-1 text-[13.5px] leading-snug text-slate-700">{node.text}</p>
+
+          {node.official && <OfficialUpdate data={node.official} />}
+
+          <div className="mt-1.5 flex items-center gap-4 text-[12px] font-semibold text-slate-400">
+            <span className="flex items-center gap-1">
+              <button onClick={() => setVoted(v => (v === 1 ? 0 : 1))} className={voted === 1 ? "text-orange-500" : "hover:text-slate-600"} aria-label="Upvote">
+                <ArrowBigUp size={16} className={voted === 1 ? "fill-orange-500" : ""} />
+              </button>
+              <span className={`min-w-[16px] text-center ${voted === 1 ? "text-orange-500" : voted === -1 ? "text-indigo-500" : "text-slate-600"}`}>{score}</span>
+              <button onClick={() => setVoted(v => (v === -1 ? 0 : -1))} className={voted === -1 ? "text-indigo-500" : "hover:text-slate-600"} aria-label="Downvote">
+                <ArrowBigDown size={16} className={voted === -1 ? "fill-indigo-500" : ""} />
+              </button>
+            </span>
             <button onClick={() => setShowReply(s => !s)} className="flex items-center gap-1 hover:text-slate-600">
-              <CornerDownRight size={12} /> Reply
+              <CornerDownRight size={13} /> Reply
             </button>
           </div>
 
@@ -56,7 +88,7 @@ function Comment({ node, depth, liked, onLike, onReply }) {
           {node.replies?.length > 0 && (
             <div className="mt-1">
               {node.replies.map(child => (
-                <Comment key={child.id} node={child} depth={depth + 1} liked={liked} onLike={onLike} onReply={onReply} />
+                <Comment key={child.id} node={child} depth={depth + 1} onReply={onReply} />
               ))}
             </div>
           )}
@@ -68,7 +100,6 @@ function Comment({ node, depth, liked, onLike, onReply }) {
 
 export default function CommentThread({ post, onClose }) {
   const [tree, setTree] = useState(post?.comments || []);
-  const [liked, setLiked] = useState({});
   const [draft, setDraft] = useState("");
   const rootRef = useRef(null);
 
@@ -98,10 +129,13 @@ export default function CommentThread({ post, onClose }) {
 
   if (!post) return null;
 
-  function likeNode(id) { setLiked(l => ({ ...l, [id]: !l[id] })); }
+  const mkNode = (text) => ({
+    id: `me-${Date.now()}`, name: "You", avatar: "https://i.pravatar.cc/120?img=68",
+    time: "now", text, role: "You", roleTint: "resident", upvotes: 0, official: null, replies: [],
+  });
 
   function addReply(parentId, text) {
-    const reply = { id: `r${Date.now()}`, name: "You", avatar: "https://i.pravatar.cc/120?img=68", time: "now", text, likes: 0, replies: [] };
+    const reply = mkNode(text);
     const insert = (nodes) => nodes.map(n =>
       n.id === parentId ? { ...n, replies: [...(n.replies || []), reply] } : { ...n, replies: insert(n.replies || []) }
     );
@@ -111,7 +145,7 @@ export default function CommentThread({ post, onClose }) {
   function addTop() {
     const t = draft.trim();
     if (!t) return;
-    setTree(prev => [...prev, { id: `t${Date.now()}`, name: "You", avatar: "https://i.pravatar.cc/120?img=68", time: "now", text: t, likes: 0, replies: [] }]);
+    setTree(prev => [...prev, mkNode(t)]);
     setDraft("");
   }
 
@@ -134,7 +168,7 @@ export default function CommentThread({ post, onClose }) {
             <p className="py-10 text-center text-sm text-slate-400">No comments yet. Start the conversation.</p>
           ) : (
             tree.map(node => (
-              <Comment key={node.id} node={node} depth={0} liked={liked} onLike={likeNode} onReply={addReply} />
+              <Comment key={node.id} node={node} depth={0} onReply={addReply} />
             ))
           )}
         </div>

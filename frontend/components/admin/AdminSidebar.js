@@ -11,7 +11,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Ticket, ClipboardCheck, Users, Landmark, LogOut } from "lucide-react";
+import { LayoutDashboard, Ticket, ClipboardCheck, Users, Landmark, LogOut, FolderTree, Network } from "lucide-react";
 import { useAdminData } from "./AdminDataProvider";
 import { listCoordinators } from "@/lib/coordinators";
 
@@ -19,6 +19,8 @@ const NAV = [
   { href: "/admin/performance", label: "Performance", icon: LayoutDashboard, badgeKey: null },
   { href: "/admin", label: "Tickets", icon: Ticket, badgeKey: "tickets" },
   { href: "/admin/petition-review", label: "Petition Review", icon: ClipboardCheck, badgeKey: "pending" },
+  { href: "/admin/departments", label: "Departments", icon: FolderTree, badgeKey: null },
+  { href: "/admin/routing", label: "Dept Routing", icon: Network, badgeKey: null },
   { href: "/admin/coordinators", label: "Coordinators", icon: Users, badgeKey: "coordinators" },
 ];
 

@@ -22,12 +22,102 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
-  X, Send, Camera, Mic, Square, CheckCircle2, Ban, ArrowRightLeft, Building2,
-  Trash2, Sparkles, Check,
+  X, Send, Camera, Mic, Square, CheckCircle2, Ban, ChevronsUp, Building2,
+  Trash2, Sparkles, Check, Paperclip,
 } from "lucide-react";
 import { DEPARTMENTS, departmentMeta, slaDeadline } from "@/lib/departments";
 import { useRecorder } from "@/lib/hooks";
 import { ticketNumber } from "@/lib/ticket";
+
+/* ── Shared evidence capture (live photo + voice note), used across the action
+   modals. Optional by default. Manages its own photo + recorder state and
+   resets when the modal closes. `data()` returns the collected payload. ── */
+function useEvidence(open) {
+  const recorder = useRecorder();
+  const [photo, setPhoto] = useState(null);
+  const [photoUrl, setPhotoUrl] = useState(null);
+  const cameraRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) {
+      setPhoto(null);
+      setPhotoUrl((u) => { if (u) URL.revokeObjectURL(u); return null; });
+      if (recorder.audioUrl) recorder.reset();
+      if (cameraRef.current) cameraRef.current.value = "";
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  function onPickPhoto(e) {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    setPhoto(f);
+    setPhotoUrl((u) => { if (u) URL.revokeObjectURL(u); return URL.createObjectURL(f); });
+  }
+  function clearPhoto() {
+    setPhoto(null);
+    setPhotoUrl((u) => { if (u) URL.revokeObjectURL(u); return null; });
+    if (cameraRef.current) cameraRef.current.value = "";
+  }
+
+  return {
+    recorder, photo, photoUrl, cameraRef, onPickPhoto, clearPhoto,
+    data: () => ({
+      photoUrl: photoUrl || null,
+      photoName: photo?.name || null,
+      audioUrl: recorder.audioUrl || null,
+      audioSeconds: recorder.seconds || 0,
+    }),
+  };
+}
+
+function EvidenceSection({ evidence, label = "Attach evidence (optional)" }) {
+  const { recorder, photoUrl, cameraRef, onPickPhoto, clearPhoto } = evidence;
+  const mm = String(Math.floor(recorder.seconds / 60)).padStart(2, "0");
+  const ss = String(recorder.seconds % 60).padStart(2, "0");
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white p-3">
+      <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-slate-700">
+        <Paperclip size={13} /> {label}
+      </p>
+      <div className="grid grid-cols-2 gap-2">
+        {/* Live camera */}
+        {photoUrl ? (
+          <div className="relative">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={photoUrl} alt="evidence" className="h-24 w-full rounded-xl object-cover" />
+            <button onClick={clearPhoto} className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-slate-900/70 text-white"><X size={12} /></button>
+          </div>
+        ) : (
+          <button onClick={() => cameraRef.current?.click()}
+            className="flex h-24 flex-col items-center justify-center gap-1 rounded-xl bg-brand-50 text-brand ring-1 ring-brand/15">
+            <Camera size={20} /><span className="text-[11px] font-bold">Live photo</span>
+          </button>
+        )}
+        <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={onPickPhoto} />
+
+        {/* Voice note */}
+        <div className="flex h-24 flex-col items-center justify-center gap-1.5 rounded-xl bg-brand-50 ring-1 ring-brand/15">
+          <button onClick={recorder.isRecording ? recorder.stop : recorder.start}
+            className={`flex h-11 w-11 items-center justify-center rounded-full text-white transition ${recorder.isRecording ? "recording-pulse bg-red-500" : "bg-brand"}`}>
+            {recorder.isRecording ? <Square size={15} className="fill-white" /> : <Mic size={18} />}
+          </button>
+          <span className="text-[11px] font-bold text-brand">
+            {recorder.isRecording ? `${mm}:${ss}` : recorder.audioUrl ? `✓ ${mm}:${ss}` : "Voice note"}
+          </span>
+        </div>
+      </div>
+      {recorder.audioUrl && !recorder.isRecording && (
+        <div className="mt-2 flex items-center gap-2">
+          {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+          <audio src={recorder.audioUrl} controls className="h-8 flex-1" />
+          <button onClick={recorder.reset} className="shrink-0 text-rose-400"><Trash2 size={15} /></button>
+        </div>
+      )}
+      {recorder.error && <p className="mt-1 text-[11px] text-rose-500">{recorder.error}</p>}
+    </section>
+  );
+}
 
 /* ── Shared modal shell ── */
 function ModalShell({ open, onClose, icon: Icon, title, subtitle, children }) {
@@ -57,27 +147,29 @@ function ModalShell({ open, onClose, icon: Icon, title, subtitle, children }) {
   );
 }
 
-/* ── Redirect ── */
-export function RedirectModal({ open, issue, onClose, onSubmit }) {
+/* ── Escalate ── */
+export function EscalateModal({ open, issue, onClose, onSubmit }) {
   const [description, setDescription] = useState("");
+  const ev = useEvidence(open);
   useEffect(() => { if (!open) setDescription(""); }, [open]);
   const canSubmit = description.trim().length >= 8;
   return (
-    <ModalShell open={open} onClose={onClose} icon={ArrowRightLeft}
-      title="Redirect Grievance"
-      subtitle="Send this back to admin with a brief note">
+    <ModalShell open={open} onClose={onClose} icon={ChevronsUp}
+      title="Escalate Grievance"
+      subtitle="Raise to a higher authority — stays In Progress">
       {issue && <IssuePreview issue={issue} />}
       <div>
-        <label className="mb-1 block text-xs font-semibold text-slate-600">Reason for redirect *</label>
-        <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={4}
-          placeholder="e.g. This grievance falls under Public Works. Redirecting for further review."
+        <label className="mb-1 block text-xs font-semibold text-slate-600">Reason for escalation *</label>
+        <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3}
+          placeholder="e.g. Beyond ward capacity — escalating to Public Works for structural action."
           className="w-full resize-none rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-brand" />
         <p className="mt-1 text-[10px] text-slate-400">Minimum 8 characters</p>
       </div>
-      <button onClick={() => canSubmit && onSubmit({ description: description.trim() })}
+      <EvidenceSection evidence={ev} />
+      <button onClick={() => canSubmit && onSubmit({ description: description.trim(), ...ev.data() })}
         disabled={!canSubmit}
         className="flex w-full items-center justify-center gap-2 rounded-xl bg-slate-800 py-3 text-sm font-bold text-white shadow-lg disabled:opacity-50">
-        <Send size={14} /> Submit & Redirect
+        <ChevronsUp size={14} /> Submit & Escalate
       </button>
     </ModalShell>
   );
@@ -200,6 +292,7 @@ export function TransferModal({ open, issue, onClose, onSubmit }) {
   const [notes, setNotes] = useState("");
   const [stage, setStage] = useState("form"); // 'form' | 'dispatch'
   const [dispatched, setDispatched] = useState(false);
+  const ev = useEvidence(open);
 
   useEffect(() => {
     if (open) {
@@ -215,7 +308,7 @@ export function TransferModal({ open, issue, onClose, onSubmit }) {
 
   function handleSubmit() {
     // Fire the backend action first (parent's onSubmit calls coordinatorTransfer).
-    onSubmit({ department, aiSuggested, overridden: changed, notes: notes.trim() });
+    onSubmit({ department, aiSuggested, overridden: changed, notes: notes.trim(), ...ev.data() });
     // Then reveal the WhatsApp dispatch preview so the coordinator can "send it".
     setStage("dispatch");
   }
@@ -279,6 +372,8 @@ Kindly action this grievance before the SLA deadline.` : "";
               placeholder="Additional context for the receiving department"
               className="w-full resize-none rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-brand" />
           </div>
+
+          <EvidenceSection evidence={ev} />
 
           <button onClick={handleSubmit}
             className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand py-3 text-sm font-bold text-white shadow-lg">
@@ -348,6 +443,7 @@ const FALSE_REASONS = [
 export function FalsePetitionModal({ open, issue, onClose, onSubmit }) {
   const [reason, setReason] = useState(FALSE_REASONS[0]);
   const [details, setDetails] = useState("");
+  const ev = useEvidence(open);
 
   useEffect(() => {
     if (open) { setReason(FALSE_REASONS[0]); setDetails(""); }
@@ -375,7 +471,8 @@ export function FalsePetitionModal({ open, issue, onClose, onSubmit }) {
           placeholder="Explain why this is a false petition"
           className="w-full resize-none rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-brand" />
       </div>
-      <button onClick={() => canSubmit && onSubmit({ reason, details: details.trim() })}
+      <EvidenceSection evidence={ev} label="Attach evidence (optional)" />
+      <button onClick={() => canSubmit && onSubmit({ reason, details: details.trim(), ...ev.data() })}
         disabled={!canSubmit}
         className="flex w-full items-center justify-center gap-2 rounded-xl bg-rose-600 py-3 text-sm font-bold text-white shadow-lg disabled:opacity-50">
         <Ban size={15} /> Submit & Flag as False

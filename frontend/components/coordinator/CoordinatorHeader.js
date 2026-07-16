@@ -14,7 +14,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   ChevronDown, ChevronUp, ShieldCheck, Flame, ClipboardList, ThumbsUp,
-  CheckCircle2, Trophy, Star, MapPin, Plus, LogOut,
+  CheckCircle2, Trophy, Star, MapPin, Plus, LogOut, Search,
 } from "lucide-react";
 import { STORIES } from "@/lib/communityData";
 import { useCoordinator } from "./CoordinatorProvider";
@@ -26,27 +26,39 @@ function greetingFor(h) {
   return "Good evening";
 }
 
+/* ── Brand wordmark: நம்குரல் in deep navy (crisp on the light frosted-glass
+   header) with a gold signal-wave mark. ── */
+function BrandMark() {
+  const ink = "#1a3556";
+  return (
+    <div className="relative inline-flex select-none items-end leading-none">
+      <span className="text-[22px] font-black tracking-tight" style={{ color: ink }}>நம்குரல்</span>
+      <svg viewBox="0 0 40 40" className="absolute -top-2.5 left-[38px] h-4 w-4" style={{ color: "#c8a04a" }} aria-hidden>
+        <circle cx="10" cy="30" r="3" fill="currentColor" />
+        <path d="M10 21 A15 15 0 0 1 28 37" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
+        <path d="M10 14 A22 22 0 0 1 34 37" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      </svg>
+    </div>
+  );
+}
+
 /* ── Compact: constituency highlights (with + tile for the coordinator) ── */
-function StoriesStrip({ onOpenStory, onExpand, onAddStory, canUpload, coordinatorStories, constituency, onConstituency }) {
+function StoriesStrip({ onOpenStory, onAddStory, canUpload, coordinatorStories, constituency, onConstituency }) {
   return (
     <div className="pb-3">
-      <div className="mb-2 flex items-center gap-2 px-0.5">
-        <div className="min-w-0">
-          <h2 className="text-sm font-extrabold tracking-tight text-slate-900">Constituency highlights</h2>
-          <div className="mt-1 inline-flex items-center gap-1 rounded-full bg-white/80 py-1 pl-2 pr-1 ring-1 ring-brand/20">
-            <MapPin size={11} className="shrink-0 text-brand" />
-            <div className="relative flex items-center">
-              <select value={constituency} onChange={(e) => onConstituency(e.target.value)}
-                className="max-w-[150px] cursor-pointer appearance-none truncate bg-transparent pr-4 text-[11px] font-bold text-brand outline-none">
-                {CONSTITUENCIES.map((c) => (<option key={c} value={c}>{shortAC(c)}</option>))}
-              </select>
-              <ChevronDown size={12} className="pointer-events-none absolute right-0 text-brand" />
-            </div>
+      <div className="mb-2.5 flex items-center justify-between gap-2 px-0.5">
+        <h2 className="text-[19px] font-extrabold tracking-tight text-slate-900">Constituency highlights</h2>
+        {/* Constituency selector — pill on the right */}
+        <div className="inline-flex shrink-0 items-center gap-1 rounded-full bg-white/90 py-1.5 pl-2.5 pr-1.5 ring-1 ring-slate-200 shadow-sm">
+          <MapPin size={12} className="shrink-0 text-brand" />
+          <div className="relative flex items-center">
+            <select value={constituency} onChange={(e) => onConstituency(e.target.value)}
+              className="max-w-[130px] cursor-pointer appearance-none truncate bg-transparent pr-4 text-[12px] font-bold text-slate-700 outline-none">
+              {CONSTITUENCIES.map((c) => (<option key={c} value={c}>{shortAC(c)}</option>))}
+            </select>
+            <ChevronDown size={12} className="pointer-events-none absolute right-0 text-slate-400" />
           </div>
         </div>
-        <button onClick={onExpand} className="ml-auto flex shrink-0 items-center gap-1 self-start rounded-full bg-white/70 px-2.5 py-1 text-[11px] font-semibold text-slate-500 ring-1 ring-white/60">
-          Profile <ChevronDown size={14} />
-        </button>
       </div>
 
       <div className="no-scrollbar -mx-1 flex gap-3.5 overflow-x-auto px-1">
@@ -69,9 +81,9 @@ function StoriesStrip({ onOpenStory, onExpand, onAddStory, canUpload, coordinato
         {coordinatorStories.slice(0, 3).map((s) => (
           <button key={s.id} onClick={() => onOpenStory({ id: s.id, label: "Yours", slides: [{ image: s.image, caption: s.caption || "" }] })}
             className="flex w-[72px] shrink-0 flex-col items-center gap-1.5">
-            <span className="rounded-[24px] bg-gradient-to-br from-gold-100 via-gold-200 to-gold-300 p-[2px]">
+            <span className="rounded-[22px] bg-gradient-to-br from-gold-200 via-gold-300 to-gold-400 p-[2.5px] shadow-sm">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={s.image} alt="" className="h-[66px] w-[66px] rounded-[22px] border-2 border-white object-cover" />
+              <img src={s.image} alt="" className="h-[66px] w-[66px] rounded-[20px] border-2 border-white object-cover" />
             </span>
             <span className="line-clamp-2 text-center text-[10px] font-semibold leading-tight text-slate-600">Yours</span>
           </button>
@@ -80,9 +92,9 @@ function StoriesStrip({ onOpenStory, onExpand, onAddStory, canUpload, coordinato
         {/* Curated highlights — squircle + thin gold gradient border (uniform) */}
         {STORIES.map((s) => (
           <button key={s.id} onClick={() => onOpenStory(s)} className="flex w-[72px] shrink-0 flex-col items-center gap-1.5">
-            <span className="relative rounded-[24px] bg-gradient-to-br from-gold-100 via-gold-200 to-gold-300 p-[2px]">
+            <span className="relative rounded-[22px] bg-gradient-to-br from-gold-200 via-gold-300 to-gold-400 p-[2.5px] shadow-sm">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={s.slides[0].image} alt="" className="h-[66px] w-[66px] rounded-[22px] border-2 border-white object-cover" />
+              <img src={s.slides[0].image} alt="" className="h-[66px] w-[66px] rounded-[20px] border-2 border-white object-cover" />
               {s.count > 0 && (
                 <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-brand px-1 text-[10px] font-bold text-white ring-2 ring-white">{s.count}</span>
               )}
@@ -180,7 +192,7 @@ export default function CoordinatorHeader({
       const s = storiesRef.current?.offsetHeight || 140;
       const pf = profileRef.current?.offsetHeight || 440;
       setHeights({ stories: s, profile: pf });
-      onCompact?.((rootRef.current?.querySelector("[data-status]")?.offsetHeight || 34) + s);
+      onCompact?.((rootRef.current?.querySelector("[data-fixedhead]")?.offsetHeight || 78) + s);
     };
     measure();
     window.addEventListener("resize", measure);
@@ -194,14 +206,41 @@ export default function CoordinatorHeader({
   const trans = dragging ? "none" : "height .55s cubic-bezier(.22,1,.36,1), opacity .4s ease, transform .55s cubic-bezier(.22,1,.36,1)";
 
   return (
-    <div ref={rootRef} className="glass-strong absolute inset-x-0 top-0 z-30 rounded-b-[28px] border-b border-white/50 shadow-[0_18px_45px_-14px_rgba(0,0,0,0.35)]">
-      <div data-status className="flex items-center justify-between px-5 pt-2.5 pb-1 text-[12px] font-semibold text-slate-800">
-        <span>9:41</span>
-        <span className="flex items-center gap-1.5">
-          <span className="inline-block h-2.5 w-2.5 rounded-full bg-slate-700" />
-          <span className="tracking-tighter">5G</span>
-          <span className="inline-block h-2.5 w-5 rounded-sm border border-slate-700" />
-        </span>
+    <div ref={rootRef} className="glass-clear absolute inset-x-0 top-0 z-30 rounded-b-[28px] shadow-[0_18px_40px_-20px_rgba(15,23,42,0.25)]">
+      {/* Fixed head: status bar + logo/search/avatar bar (always visible) */}
+      <div data-fixedhead>
+        <div className="flex items-center justify-between px-5 pt-2.5 pb-1 text-[12px] font-semibold text-slate-800">
+          <span>9:41</span>
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block h-2.5 w-2.5 rounded-full bg-slate-700" />
+            <span className="tracking-tighter">5G</span>
+            <span className="inline-block h-2.5 w-5 rounded-sm border border-slate-700" />
+          </span>
+        </div>
+
+        {/* logo bar */}
+        <div className="flex items-center justify-between px-4 pb-2 pt-0.5">
+          <BrandMark />
+          <div className="flex items-center gap-2.5">
+            <button aria-label="Search" className="flex h-9 w-9 items-center justify-center rounded-full text-slate-600 hover:bg-white/70">
+              <Search size={20} />
+            </button>
+            {/* Coordinator avatar — shown only in the minimised view; fades out
+                once the profile is expanded (redundant there). */}
+            <button
+              onClick={() => onSetProgress(1)}
+              aria-label="Open profile"
+              className="relative"
+              style={{ opacity: 1 - Math.min(1, p * 2), pointerEvents: p > 0.4 ? "none" : "auto", transition: dragging ? "none" : "opacity .3s ease" }}
+            >
+              <span className="block rounded-full bg-gradient-to-br from-gold-200 via-gold-300 to-gold-400 p-[2px] shadow-sm">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={me.avatar} alt="" className="h-8 w-8 rounded-full border-2 border-white object-cover" />
+              </span>
+              <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-white bg-emerald-500" />
+            </button>
+          </div>
+        </div>
       </div>
 
       <div className="relative overflow-hidden rounded-b-[28px] px-4" style={{ height: bodyH, transition: trans }}>
@@ -209,7 +248,6 @@ export default function CoordinatorHeader({
           style={{ opacity: 1 - Math.min(1, p * 1.4), transform: `translateY(${-p * 12}px)`, transition: trans, pointerEvents: p < 0.4 ? "auto" : "none" }}>
           <StoriesStrip
             onOpenStory={onOpenStory}
-            onExpand={() => onSetProgress(1)}
             onAddStory={onAddStory}
             canUpload={canUploadStory}
             coordinatorStories={(feed?.stories || []).filter((s) => s.author === me?.username)}

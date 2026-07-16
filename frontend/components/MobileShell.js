@@ -18,14 +18,16 @@ import { useReport } from "./ReportProvider";
  *   fullBleed – the page owns the whole frame: content scrolls edge-to-edge and
  *               the page provides its own fixed glass bars (community feed). No
  *               status bar / main padding is injected here.
+ *   bgClass   – background utility for the frame (default "app-bg"). Community +
+ *               grievance pass "app-bg-blue" for the subtle navy wash.
  */
-export default function MobileShell({ children, noPad = false, splitView = false, fullBleed = false }) {
+export default function MobileShell({ children, noPad = false, splitView = false, fullBleed = false, bgClass = "app-bg" }) {
   const { open, closeReport } = useReport();
 
   if (fullBleed) {
     return (
       <div className="flex min-h-screen w-full justify-center">
-        <div className="app-bg relative flex h-screen w-full max-w-md flex-col overflow-hidden shadow-phone">
+        <div className={`${bgClass} relative flex h-screen w-full max-w-md flex-col overflow-hidden shadow-phone`}>
           {children}
           <div className="bottom-blur" aria-hidden />
           <ReportModal open={open} onClose={closeReport} />
@@ -38,7 +40,7 @@ export default function MobileShell({ children, noPad = false, splitView = false
 
   return (
     <div className="flex min-h-screen w-full justify-center">
-      <div className="app-bg relative flex h-screen w-full max-w-md flex-col overflow-hidden shadow-phone">
+      <div className={`${bgClass} relative flex h-screen w-full max-w-md flex-col overflow-hidden shadow-phone`}>
         {/* Faux status bar */}
         <div className="z-20 flex shrink-0 items-center justify-between px-5 pt-3 pb-1 text-[12px] font-semibold text-slate-800">
           <span>9:41</span>

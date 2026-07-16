@@ -42,17 +42,49 @@ function avatarFor(name) {
   return avatar(h + 1);
 }
 
-/** Map the provided [{commenterName, text}] into threaded comment nodes. */
-function comments(list = []) {
-  return list.map((c, i) => ({
-    id: `cm-${i}-${c.commenterName}`,
+/**
+ * Auto-assign a coloured role tag to a commenter when the caller doesn't
+ * specify one — keeps the Reddit-style threads visually rich everywhere.
+ * `roleTint` is a key mapped to a text colour in the comment renderer.
+ */
+function autoRole(name, i) {
+  const n = name.toLowerCase();
+  if (/gcc|official|cell|office|council|corporation|dept|department|health|minister|mla/.test(n)) {
+    return { role: "Verified Official", roleTint: "official" };
+  }
+  const pool = [
+    { role: "Resident", roleTint: "resident" },
+    { role: "Local Volunteer", roleTint: "volunteer" },
+    { role: "Area Reporter", roleTint: "reporter" },
+  ];
+  return pool[i % pool.length];
+}
+
+/**
+ * Map a plain entry into a threaded comment node. Entries may be simple
+ * ({commenterName, text}) or rich ({role, roleTint, upvotes, time, official,
+ * replies:[…]}). Replies recurse. `official` renders the green "Official
+ * Update" box beneath the comment body.
+ */
+function mkComment(c, i, depth = 0) {
+  const r = c.role ? { role: c.role, roleTint: c.roleTint || "resident" } : autoRole(c.commenterName, i);
+  return {
+    id: `cm-${depth}-${i}-${c.commenterName}`,
     name: c.commenterName.replace(/_/g, " "),
     avatar: avatarFor(c.commenterName),
-    time: `${i + 1}h`,
+    time: c.time || `${i + 1}h ago`,
     text: c.text,
-    likes: 3 + ((i * 7) % 20),
-    replies: [],
-  }));
+    role: r.role,
+    roleTint: r.roleTint,
+    upvotes: c.upvotes ?? (12 + ((i * 13) % 60)),
+    official: c.official || null,
+    replies: (c.replies || []).map((child, j) => mkComment(child, j, depth + 1)),
+  };
+}
+
+/** Map the provided entries into threaded comment nodes. */
+function comments(list = []) {
+  return list.map((c, i) => mkComment(c, i));
 }
 
 /* ── The 16 Chennai (district) Assembly Constituencies ── */
@@ -151,9 +183,29 @@ export const FEED = [
     tag: "Storm Water Drain", location: "AGS Colony, Velachery",
     likes: 342, shares: 58, saved: false,
     comments: comments([
-      { commenterName: "SureshKumar_Anand", text: "Every year it is the same story in AGS colony. Hope the officials act fast this time." },
-      { commenterName: "GCC_Grievance_Cell", text: "Thank you for bringing this to our notice. We have forwarded this to the zonal engineer for immediate action." },
-      { commenterName: "Preethi_M", text: "The main roads are fine, but interior streets really need attention." },
+      {
+        commenterName: "Ramesh K.", role: "Velachery Resident", roleTint: "resident",
+        time: "2h ago", upvotes: 68,
+        text: "Same issue near 7th Cross St, water enters houses. We need a permanent solution, not just patchwork.",
+        replies: [
+          {
+            commenterName: "Divya S.", role: "Local Volunteer", roleTint: "volunteer",
+            time: "1h ago", upvotes: 21,
+            text: "I've raised this last month as well. Here's the response from GCC. Let's keep pushing!",
+            official: { team: "GCC Team", time: "1h ago", text: "Drain cleaning and desilting work scheduled for this week." },
+          },
+        ],
+      },
+      {
+        commenterName: "Karthik M.", role: "Resident", roleTint: "resident",
+        time: "48m ago", upvotes: 15,
+        text: "Can we get a rainwater audit for this area? This recurring problem needs a proper engineering assessment, not temporary fixes.",
+      },
+      {
+        commenterName: "GCC_Grievance_Cell", role: "Verified Official", roleTint: "official",
+        time: "30m ago", upvotes: 40,
+        text: "Thank you for bringing this to our notice. We have forwarded this to the zonal engineer for immediate action.",
+      },
     ]),
   },
   {

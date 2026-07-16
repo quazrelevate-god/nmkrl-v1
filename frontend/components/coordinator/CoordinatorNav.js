@@ -58,8 +58,12 @@ export default function CoordinatorNav() {
     <nav className="pointer-events-none absolute inset-x-0 bottom-0 z-[700] flex justify-center pb-4">
       <div className={`glass-strong pointer-events-auto flex items-center rounded-full shadow-[0_12px_40px_-8px_rgba(15,86,65,0.28)] ${ease} ${min ? "gap-0.5 px-2 py-1.5" : "gap-1 px-2.5 py-2"}`}>
         {/* Community */}
-        <Link href="/coordinator" className={`${sideCls} py-1.5 ${isHome && !composerOpen ? "text-slate-900" : "text-slate-500"}`}>
-          <Home size={min ? 19 : 20} strokeWidth={isHome && !composerOpen ? 2.4 : 1.8} />
+        <Link href="/coordinator" className={`${sideCls} py-1 ${isHome && !composerOpen ? "text-brand" : "text-slate-500"}`}>
+          <span className={`flex items-center justify-center rounded-full ${ease} ${min ? "h-8 w-8" : "h-9 w-9"} ${
+            isHome && !composerOpen ? "bg-gradient-to-br from-brand/90 via-brand-700/85 to-gold-300/85 text-white shadow-md shadow-brand/20" : ""
+          }`}>
+            <Home size={min ? 18 : 20} strokeWidth={isHome && !composerOpen ? 2.4 : 1.9} />
+          </span>
           <span className={labelCls}>Community</span>
         </Link>
 
@@ -75,8 +79,12 @@ export default function CoordinatorNav() {
         </button>
 
         {/* Grievance */}
-        <Link href="/coordinator/grievance" className={`${sideCls} py-1.5 ${isGrievance && !composerOpen ? "text-slate-900" : "text-slate-500"}`}>
-          <MapPin size={min ? 19 : 20} strokeWidth={isGrievance && !composerOpen ? 2.4 : 1.8} />
+        <Link href="/coordinator/grievance" className={`${sideCls} py-1 ${isGrievance && !composerOpen ? "text-brand" : "text-slate-500"}`}>
+          <span className={`flex items-center justify-center rounded-full ${ease} ${min ? "h-8 w-8" : "h-9 w-9"} ${
+            isGrievance && !composerOpen ? "bg-gradient-to-br from-brand/90 via-brand-700/85 to-gold-300/85 text-white shadow-md shadow-brand/20" : ""
+          }`}>
+            <MapPin size={min ? 18 : 20} strokeWidth={isGrievance && !composerOpen ? 2.4 : 1.9} />
+          </span>
           <span className={labelCls}>Grievance</span>
         </Link>
       </div>

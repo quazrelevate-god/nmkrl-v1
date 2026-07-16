@@ -12,14 +12,16 @@
  * Reuses every backend action from the current project.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import {
   X, Phone, User, MapPin, Building2, ThumbsUp, Sparkles, ImageIcon, Volume2,
   ShieldCheck, Send, PlayCircle, CheckCircle2, Clock, Landmark, Hash, Flag,
+  Route, CornerDownRight, UserCheck, AlertCircle,
 } from "lucide-react";
 import { mediaUrl, adminVerifyGrievance, adminForwardIssue, adminStartIssue, adminCloseIssue } from "@/lib/api";
 import { departmentMeta } from "@/lib/departments";
+import { loadDeptTree, resolveRouting, contactForRouting } from "@/lib/deptRouting";
 import {
   portalStatus, derivePriority, PRIORITY_META, ticketNo, tokenNo,
   daysOpen, slaWeeksLabel, slaBreached, citizenName,
@@ -43,6 +45,26 @@ export default function TicketDrawer({ issue, onClose, onChanged }) {
   const [busy, setBusy] = useState(null);
   const [error, setError] = useState(null);
   const [wa, setWa] = useState(false);
+  const [routing, setRouting] = useState(null);
+  const [contact, setContact] = useState(null);
+
+  // Resolve the AI routing chain (Gov Dept → … → Responsible Officer) + look up
+  // the officer's configured contact whenever the ticket changes; re-check the
+  // contact if the departmental config is edited elsewhere.
+  useEffect(() => {
+    if (!issue) return undefined;
+    let alive = true;
+    let current = null;
+    loadDeptTree().then((tree) => {
+      if (!alive) return;
+      current = resolveRouting(issue, tree);
+      setRouting(current);
+      setContact(contactForRouting(current));
+    });
+    const sync = () => setContact(contactForRouting(current));
+    window.addEventListener("nk:dept-contacts-changed", sync);
+    return () => { alive = false; window.removeEventListener("nk:dept-contacts-changed", sync); };
+  }, [issue]);
 
   if (!issue) return null;
 
@@ -161,20 +183,52 @@ export default function TicketDrawer({ issue, onClose, onChanged }) {
               )}
             </div>
 
-            {/* Department routing */}
+            {/* Department routing — AI-resolved chain to the responsible officer */}
             <div className="rounded-2xl border border-slate-200 p-4">
-              <p className="mb-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-slate-400"><Building2 size={12} /> Department routing (AI)</p>
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <p className="text-sm font-bold text-slate-800">{issue.department || "Unassigned"}</p>
-                  <p className="text-[11px] text-slate-400">SLA window · {dept.slaDays} days</p>
-                </div>
-                {canDispatch && (
-                  <button onClick={() => setWa(true)} className="flex items-center gap-1.5 rounded-lg bg-[#25D366] px-3 py-2 text-xs font-bold text-white hover:brightness-95">
-                    <Send size={13} /> WhatsApp dispatch
-                  </button>
-                )}
+              <div className="mb-3 flex items-center justify-between">
+                <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-slate-400"><Route size={12} /> AI Routing → Responsible Officer</p>
+                <span className="rounded-full bg-brand-50 px-2 py-0.5 text-[10px] font-bold text-brand ring-1 ring-brand-100">{dept.short} · {dept.slaDays}d SLA</span>
               </div>
+
+              {routing ? (
+                <>
+                  <div className="space-y-0">
+                    <RouteStep label="Government Department" value={routing.govDept} first />
+                    <RouteStep label="Grievance Type" value={routing.type} />
+                    <RouteStep label="Grievance SubType" value={routing.subtype} />
+                    <RouteStep label="Sub Department" value={routing.subDept} />
+                    <RouteStep label="Responsible Officer" value={routing.officer} officer />
+                  </div>
+
+                  {/* Resolved officer contact (from Departmental Configuration) */}
+                  <div className={`mt-3 rounded-xl p-3 ring-1 ${contact ? "bg-emerald-50 ring-emerald-200" : "bg-amber-50 ring-amber-200"}`}>
+                    {contact ? (
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <UserCheck size={16} className="shrink-0 text-emerald-600" />
+                          <div>
+                            <p className="text-sm font-bold text-slate-800">{contact.name}</p>
+                            <p className="flex items-center gap-1 text-xs text-slate-600"><Phone size={11} /> +91 {contact.mobile}</p>
+                          </div>
+                        </div>
+                        <span className="rounded-md bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700">Contact on file</span>
+                      </div>
+                    ) : (
+                      <p className="flex items-center gap-1.5 text-xs font-medium text-amber-800">
+                        <AlertCircle size={14} className="shrink-0" /> No contact configured for this officer — add it in <b>Departments</b>.
+                      </p>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <p className="text-sm text-slate-400">Resolving routing…</p>
+              )}
+
+              {canDispatch && (
+                <button onClick={() => setWa(true)} className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg bg-[#25D366] px-3 py-2.5 text-xs font-bold text-white hover:brightness-95">
+                  <Send size={13} /> WhatsApp dispatch to officer
+                </button>
+              )}
             </div>
 
             {/* Lifecycle */}
@@ -222,6 +276,23 @@ export default function TicketDrawer({ issue, onClose, onChanged }) {
       </div>
 
       {wa && <WhatsAppModal issue={issue} onClose={() => setWa(false)} />}
+    </div>
+  );
+}
+
+function RouteStep({ label, value, officer }) {
+  return (
+    <div className="flex gap-3">
+      <div className="flex flex-col items-center pt-0.5">
+        <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${officer ? "bg-brand text-white" : "bg-slate-200 text-slate-500"}`}>
+          {officer ? <UserCheck size={11} /> : <CornerDownRight size={11} />}
+        </span>
+        {!officer && <span className="my-0.5 w-px flex-1 bg-slate-200" />}
+      </div>
+      <div className="min-w-0 pb-3">
+        <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{label}</p>
+        <p className={`text-sm font-semibold leading-snug ${officer ? "text-brand" : "text-slate-800"}`}>{value}</p>
+      </div>
     </div>
   );
 }

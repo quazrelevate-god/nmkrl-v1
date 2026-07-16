@@ -73,8 +73,12 @@ export default function BottomNav() {
         }`}
       >
         {/* Community */}
-        <Link href="/" className={`${sideCls} py-1.5 ${isCommunity && !open ? "text-brand" : "text-slate-500"}`}>
-          <Home size={min ? 19 : 20} strokeWidth={isCommunity && !open ? 2.4 : 1.8} />
+        <Link href="/" className={`${sideCls} py-1 ${isCommunity && !open ? "text-brand" : "text-slate-500"}`}>
+          <span className={`flex items-center justify-center rounded-full ${ease} ${min ? "h-8 w-8" : "h-9 w-9"} ${
+            isCommunity && !open ? "bg-gradient-to-br from-brand/90 via-brand-700/85 to-gold-300/85 text-white shadow-md shadow-brand/20" : ""
+          }`}>
+            <Home size={min ? 18 : 20} strokeWidth={isCommunity && !open ? 2.4 : 1.9} />
+          </span>
           <span className={labelCls}>Community</span>
         </Link>
 
@@ -89,10 +93,14 @@ export default function BottomNav() {
           {open ? <X size={min ? 22 : 26} /> : <Plus size={min ? 24 : 28} />}
         </button>
 
-        {/* Map & History */}
-        <Link href="/map" className={`${sideCls} py-1.5 ${isMap && !open ? "text-brand" : "text-slate-500"}`}>
-          <MapPin size={min ? 19 : 20} strokeWidth={isMap && !open ? 2.4 : 1.8} />
-          <span className={labelCls}>Map &amp; History</span>
+        {/* Grievance (map + history) */}
+        <Link href="/map" className={`${sideCls} py-1 ${isMap && !open ? "text-brand" : "text-slate-500"}`}>
+          <span className={`flex items-center justify-center rounded-full ${ease} ${min ? "h-8 w-8" : "h-9 w-9"} ${
+            isMap && !open ? "bg-gradient-to-br from-brand/90 via-brand-700/85 to-gold-300/85 text-white shadow-md shadow-brand/20" : ""
+          }`}>
+            <MapPin size={min ? 18 : 20} strokeWidth={isMap && !open ? 2.4 : 1.9} />
+          </span>
+          <span className={labelCls}>Grievance</span>
         </Link>
       </div>
     </nav>

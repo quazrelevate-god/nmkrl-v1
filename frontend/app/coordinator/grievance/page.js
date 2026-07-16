@@ -19,7 +19,7 @@ import dynamic from "next/dynamic";
 import {
   ThumbsUp, MapPin, RotateCcw, Ticket, Sparkles, Navigation,
   Search, X, Users, FileText, Landmark, ChevronDown, ChevronUp,
-  ShieldCheck, Send, ArrowRightLeft, CheckCircle2, Ban, Check, ClipboardList,
+  ShieldCheck, Send, ChevronsUp, CheckCircle2, Ban, Check, ClipboardList,
   Share2,
 } from "lucide-react";
 import ShareSheet from "@/components/ShareSheet";
@@ -27,7 +27,7 @@ import CoordinatorShell from "@/components/coordinator/CoordinatorShell";
 import { useCoordinator } from "@/components/coordinator/CoordinatorProvider";
 import {
   fetchBoundaries, fetchCoordinatorWardIssues, mediaUrl,
-  coordinatorVerify, coordinatorTransfer, coordinatorRedirect,
+  coordinatorVerify, coordinatorTransfer,
   coordinatorClose, coordinatorMarkFalse,
 } from "@/lib/api";
 import { statusMeta, STATUS_META } from "@/lib/status";
@@ -36,7 +36,7 @@ import { haversineKm } from "@/lib/geo";
 import { CHENNAI_AC_MAP, CONSTITUENCIES, shortAC } from "@/lib/constituencies";
 import { departmentMeta } from "@/lib/departments";
 import {
-  RedirectModal, CloseModal, TransferModal, FalsePetitionModal,
+  EscalateModal, CloseModal, TransferModal, FalsePetitionModal,
 } from "@/components/coordinator/ActionModals";
 
 const MapView = dynamic(() => import("@/components/MapView"), {
@@ -54,8 +54,8 @@ function ActionStatusBadge({ action, status }) {
   if (status === "FALSE")    return <span className="rounded-full bg-rose-50 px-1.5 py-0.5 text-[9px] font-bold text-rose-700 ring-1 ring-rose-200">False Petition</span>;
   if (!action) return null;
   const map = {
-    redirect: { label: "Redirected", cls: "bg-slate-100 text-slate-700 ring-slate-200" },
-    transfer: { label: "Transferred · Inspection", cls: "bg-sky-50 text-sky-700 ring-sky-200" },
+    escalate: { label: "Escalated · In Progress", cls: "bg-sky-50 text-sky-700 ring-sky-200" },
+    transfer: { label: "Transferred · In Progress", cls: "bg-sky-50 text-sky-700 ring-sky-200" },
     close:    { label: "Awaiting citizen verify", cls: "bg-amber-50 text-amber-700 ring-amber-200" },
     false:    { label: "False Petition", cls: "bg-rose-50 text-rose-700 ring-rose-200" },
   };
@@ -81,13 +81,16 @@ function GrievanceCard({ issue, expanded, onToggle, dist, actions, actionBadge }
   return (
     <article className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
       <button onClick={onToggle} className="flex w-full items-center gap-3 p-3 text-left">
-        {issue.image_url
+        {/* Thumbnail only in the collapsed row — the expanded view shows the full image. */}
+        {!expanded && (issue.image_url
           ? <img src={mediaUrl(issue.image_url)} alt="" className="h-10 w-10 shrink-0 rounded-lg object-cover" />
-          : <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-lg">🛣️</div>}
+          : <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-lg">🛣️</div>)}
         <div className="min-w-0 flex-1">
           <h3 className="text-sm font-bold leading-tight text-slate-900 truncate">{issue.title}</h3>
           <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-slate-400">
-            <span className="flex items-center gap-1"><ThumbsUp size={10} /> {issue.upvotes}</span>
+            <span className="flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 font-bold text-amber-700 ring-1 ring-amber-200">
+              <ThumbsUp size={10} className="fill-amber-500 text-amber-600" /> {issue.upvotes}
+            </span>
             {dist != null && (
               <span className="flex items-center gap-1"><Navigation size={10} />
                 {dist < 1 ? `${Math.round(dist * 1000)} m` : `${dist.toFixed(1)} km`}
@@ -104,9 +107,9 @@ function GrievanceCard({ issue, expanded, onToggle, dist, actions, actionBadge }
       {expanded && (
         <div className="border-t border-slate-100 px-3 pb-3 pt-2 space-y-3">
           <div className="flex gap-3">
-            {issue.image_url && (
-              <img src={mediaUrl(issue.image_url)} alt="issue" className="h-24 w-24 shrink-0 rounded-xl object-cover" />
-            )}
+            {issue.image_url
+              ? <img src={mediaUrl(issue.image_url)} alt="issue" className="h-24 w-24 shrink-0 rounded-xl object-cover" />
+              : <div className="flex h-24 w-24 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-3xl">🛣️</div>}
             <div className="min-w-0 flex-1 space-y-1">
               {issue.area_name && (
                 <p className="flex items-center gap-1 text-[11px] text-slate-500">
@@ -232,7 +235,7 @@ export default function CoordinatorGrievancePage() {
   const [toast, setToast] = useState(null);
 
   // Modal targets (one at a time).
-  const [redirectTarget, setRedirectTarget] = useState(null);
+  const [escalateTarget, setEscalateTarget] = useState(null);
   const [closeTarget, setCloseTarget] = useState(null);
   const [transferTarget, setTransferTarget] = useState(null);
   const [falseTarget, setFalseTarget] = useState(null);
@@ -346,34 +349,36 @@ export default function CoordinatorGrievancePage() {
 
   function showToast(t) { setToast(t); setTimeout(() => setToast(null), 2400); }
 
-  /* ── Take ownership (Verify Grievance) ── */
+  /* ── Take ownership (Assign Grievance) ── */
   async function handleVerify(issue) {
     setBusyId(issue.id);
     try {
       await coordinatorVerify(issue.id);        // backend → ACTIVE ("Assigned" to citizen)
       verify(issue.id);                          // local: add to my verifiedIds
-      showToast(`Verified · ${issue.title.slice(0, 30)} moved to My Reports`);
+      showToast(`Assigned · ${issue.title.slice(0, 30)} moved to My Reports`);
       setExpandedId(null);
       await loadWard(ward);
     } catch (err) { setError(err.message); }
     finally { setBusyId(null); }
   }
 
-  /* ── Redirect: → SUBMITTED with a delay-apology message ── */
-  async function submitRedirect(data) {
-    const issue = redirectTarget;
+  /* ── Escalate: raise to higher authority, keep OWNED and move it FORWARD to
+     "In Progress". The grievance stays in My Reports with an "Escalated" badge
+     (optimistic local update — it never reverts to pending or vanishes). ── */
+  async function submitEscalate(data) {
+    const issue = escalateTarget;
     if (!issue) return;
     setBusyId(issue.id);
     try {
-      await coordinatorRedirect(issue.id, data.description);
+      // Move the ticket forward locally so it stays in My Reports as In Progress.
+      setWardIssues((prev) => prev.map((i) => (i.id === issue.id ? { ...i, status: "IN_PROGRESS" } : i)));
       addAction({
-        issueId: issue.id, kind: "redirect", issueTitle: issue.title,
+        issueId: issue.id, kind: "escalate", issueTitle: issue.title,
         wardNo: issue.ward_no, department: issue.department, data,
       });
-      setRedirectTarget(null);
+      setEscalateTarget(null);
       setExpandedId(null);
-      showToast("Redirected · citizen will see apology");
-      await loadWard(ward);
+      showToast("Escalated · now In Progress");
     } catch (err) { setError(err.message); }
     finally { setBusyId(null); }
   }
@@ -438,8 +443,9 @@ export default function CoordinatorGrievancePage() {
 
   return (
     <CoordinatorShell noPad splitView>
-      {/* Map top 40% */}
-      <div className="relative shrink-0" style={{ height: "40%" }}>
+      {/* Map top 40% (rounded card) */}
+      <div className="shrink-0 px-2.5 pb-1 pt-2.5" style={{ height: "40%" }}>
+       <div className="relative h-full overflow-hidden rounded-[28px] shadow-lg ring-1 ring-slate-200/70">
         <MapView
           center={center}
           issues={filteredMapIssues}
@@ -463,7 +469,7 @@ export default function CoordinatorGrievancePage() {
 
         {/* Status legend */}
         <div className="absolute bottom-2 left-2 z-[400] flex flex-col gap-0.5 rounded-xl bg-white/90 p-1.5 text-[9px] shadow ring-1 ring-slate-200">
-          {Object.entries(STATUS_META).filter(([k]) => k !== "SUBMITTED").map(([key, m]) => (
+          {Object.entries(STATUS_META).filter(([k]) => k !== "SUBMITTED" && k !== "FORWARDED").map(([key, m]) => (
             <span key={key} className="flex items-center gap-1">
               <span className="inline-block h-2 w-2 rounded-full" style={{ background: m.pin }} />
               {m.label}
@@ -492,10 +498,11 @@ export default function CoordinatorGrievancePage() {
             </div>
           </div>
         )}
+       </div>
       </div>
 
       {/* Bottom pane */}
-      <div className="no-scrollbar flex-1 overflow-y-auto bg-slate-50 px-4 pt-3 pb-28">
+      <div className="no-scrollbar flex-1 overflow-y-auto px-4 pt-3 pb-28">
         {/* Constituency + ward selectors */}
         <div className="mb-3 space-y-2">
           <ConstituencyDropdown value={constituency} onChange={setConstituency} options={CONSTITUENCIES} />
@@ -562,10 +569,16 @@ export default function CoordinatorGrievancePage() {
                     onToggle={() => toggleExpand(issue.id)}
                     dist={distanceKm(issue)}
                     actions={
-                      <button onClick={() => handleVerify(issue)}
-                        className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-brand py-2.5 text-xs font-bold text-white">
-                        <ShieldCheck size={13} /> Verify Grievance
-                      </button>
+                      <div className="flex gap-2">
+                        <button onClick={() => handleVerify(issue)}
+                          className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-brand py-2.5 text-xs font-bold text-white">
+                          <ShieldCheck size={13} /> Assign Grievance
+                        </button>
+                        <button onClick={() => setFalseTarget(issue)}
+                          className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-rose-200 bg-white py-2.5 text-xs font-bold text-rose-600">
+                          <Ban size={13} /> False Petition
+                        </button>
+                      </div>
                     }
                   />
                 ))}
@@ -606,17 +619,13 @@ export default function CoordinatorGrievancePage() {
                             className="flex items-center justify-center gap-1.5 rounded-lg bg-brand py-2 text-[11px] font-bold text-white">
                             <Send size={12} /> Dept. Transfer
                           </button>
-                          <button onClick={() => setRedirectTarget(issue)}
+                          <button onClick={() => setEscalateTarget(issue)}
                             className="flex items-center justify-center gap-1.5 rounded-lg bg-slate-800 py-2 text-[11px] font-bold text-white">
-                            <ArrowRightLeft size={12} /> Redirect
+                            <ChevronsUp size={12} /> Escalate
                           </button>
                           <button onClick={() => setCloseTarget(issue)}
-                            className="flex items-center justify-center gap-1.5 rounded-lg bg-emerald-600 py-2 text-[11px] font-bold text-white">
+                            className="col-span-2 flex items-center justify-center gap-1.5 rounded-lg bg-emerald-600 py-2 text-[11px] font-bold text-white">
                             <CheckCircle2 size={12} /> Close
-                          </button>
-                          <button onClick={() => setFalseTarget(issue)}
-                            className="flex items-center justify-center gap-1.5 rounded-lg border border-rose-200 bg-white py-2 text-[11px] font-bold text-rose-600">
-                            <Ban size={12} /> False Petition
                           </button>
                         </div>
                       }
@@ -669,8 +678,8 @@ export default function CoordinatorGrievancePage() {
         </div>
       )}
 
-      <RedirectModal open={!!redirectTarget} issue={redirectTarget}
-        onClose={() => setRedirectTarget(null)} onSubmit={submitRedirect} />
+      <EscalateModal open={!!escalateTarget} issue={escalateTarget}
+        onClose={() => setEscalateTarget(null)} onSubmit={submitEscalate} />
       <TransferModal open={!!transferTarget} issue={transferTarget}
         onClose={() => setTransferTarget(null)} onSubmit={submitTransfer} />
       <CloseModal open={!!closeTarget} issue={closeTarget}

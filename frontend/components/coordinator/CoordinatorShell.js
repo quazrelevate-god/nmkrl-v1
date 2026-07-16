@@ -14,13 +14,13 @@ import CoordinatorNav from "./CoordinatorNav";
 import PostComposer from "./PostComposer";
 import { useCoordinator } from "./CoordinatorProvider";
 
-export default function CoordinatorShell({ children, noPad = false, splitView = false, fullBleed = false }) {
+export default function CoordinatorShell({ children, noPad = false, splitView = false, fullBleed = false, bgClass = "app-bg" }) {
   const { composerOpen, closeComposer } = useCoordinator();
 
   if (fullBleed) {
     return (
       <div className="flex min-h-screen w-full justify-center">
-        <div className="app-bg relative flex h-screen w-full max-w-md flex-col overflow-hidden shadow-phone">
+        <div className={`${bgClass} relative flex h-screen w-full max-w-md flex-col overflow-hidden shadow-phone`}>
           {children}
           <div className="bottom-blur" aria-hidden />
           <PostComposer open={composerOpen} onClose={closeComposer} />
@@ -32,7 +32,7 @@ export default function CoordinatorShell({ children, noPad = false, splitView = 
 
   return (
     <div className="flex min-h-screen w-full justify-center">
-      <div className="app-bg relative flex h-screen w-full max-w-md flex-col overflow-hidden shadow-phone">
+      <div className={`${bgClass} relative flex h-screen w-full max-w-md flex-col overflow-hidden shadow-phone`}>
         {/* Status bar */}
         <div className="z-20 flex shrink-0 items-center justify-between px-5 pt-3 pb-1 text-[12px] font-semibold text-slate-800">
           <span>9:41</span>

@@ -99,6 +99,15 @@ body {
   -webkit-backdrop-filter: blur(18px) saturate(160%);
   border: 1px solid rgba(255, 255, 255, 0.12);
 }
+/* Near-transparent frosted glass — no white fill, just blur + a hair of tint.
+   Used for the community/constituency-highlights header so the feed shows
+   softly through it. */
+.glass-clear {
+  background: rgba(255, 255, 255, 0.10);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+}
 
 /* Soft app background gradient the glass floats over — near-white with just a
    whisper of warm maroon/gold so the brand reads subtly, never dominating. */
@@ -109,6 +118,15 @@ body {
     radial-gradient(1000px 500px at 110% 10%, rgba(200,160,74,0.06), transparent 55%),
     radial-gradient(900px 700px at 50% 120%, rgba(26,53,86,0.045), transparent 55%),
     #fbfcfd;
+}
+
+/* Deep navy wash — the exact login / cover gradient — used on the community +
+   grievance surfaces. The white foreground cards + frosted glass chrome float
+   over it. A whisper of gold in the top-right ties it back to the brand. */
+.app-bg-blue {
+  background:
+    radial-gradient(900px 500px at 100% -6%, rgba(200,160,74,0.12), transparent 55%),
+    linear-gradient(165deg, #1e3a5f 0%, #12233f 55%, #0b1626 100%);
 }
 
 /* Natural spring-ish easing used across transitions. */

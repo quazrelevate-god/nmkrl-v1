@@ -19,8 +19,9 @@ export const STATUS_META = {
     open: true,
   },
   FORWARDED: {
-    // Coordinator's "Dept. Transfer" moves the ticket into an Inspection state.
-    label: "Inspection",
+    // Coordinator's "Dept. Transfer" / escalation moves the ticket into the
+    // combined "In Progress" working state (merged Inspection + Repair).
+    label: "In Progress",
     badge: "bg-sky-50 text-sky-700 border border-sky-100",
     pin: "#0284c7",
     open: true,
