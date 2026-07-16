@@ -3,10 +3,16 @@ import sqlite3
 from contextlib import contextmanager
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-# DB_PATH is env-overridable so production (Railway) can point it at a
-# persistent volume, e.g. DB_PATH=/data/fixmystreet.db. Defaults to the local
-# file for development.
-DB_PATH = os.environ.get("DB_PATH") or os.path.join(BASE_DIR, "fixmystreet.db")
+# Persistence path resolution (in priority order):
+#   1. DB_PATH env var — explicit override.
+#   2. A mounted /data volume (Railway) — auto-detected so it works even if the
+#      env var isn't applied.
+#   3. Local file — development default.
+DB_PATH = (
+    os.environ.get("DB_PATH")
+    or ("/data/fixmystreet.db" if os.path.isdir("/data") else None)
+    or os.path.join(BASE_DIR, "fixmystreet.db")
+)
 
 
 def _connect() -> sqlite3.Connection:

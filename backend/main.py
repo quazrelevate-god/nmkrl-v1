@@ -98,6 +98,7 @@ def _seed_if_needed() -> None:
     the DB is only seeded when empty, and each media file is copied only if it
     isn't already there.
     """
+    print(f"[seed] DB_PATH={DB_PATH} UPLOAD_DIR={UPLOAD_DIR} /data mounted={os.path.isdir('/data')}")
     seed_db = os.path.join(SEED_DIR, "fixmystreet.db")
     if os.path.exists(seed_db) and _db_is_empty():
         os.makedirs(os.path.dirname(DB_PATH) or ".", exist_ok=True)

@@ -14,10 +14,13 @@ from datetime import datetime, timezone
 from math import asin, cos, radians, sin, sqrt
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-# UPLOAD_DIR is env-overridable so production (Railway) can point uploaded media
-# at a persistent volume, e.g. UPLOAD_DIR=/data/uploads. Defaults to the local
-# folder for development.
-UPLOAD_DIR = os.environ.get("UPLOAD_DIR") or os.path.join(BASE_DIR, "uploads")
+# UPLOAD_DIR resolution mirrors DB_PATH: env override → mounted /data volume
+# (Railway, auto-detected) → local folder (development default).
+UPLOAD_DIR = (
+    os.environ.get("UPLOAD_DIR")
+    or ("/data/uploads" if os.path.isdir("/data") else None)
+    or os.path.join(BASE_DIR, "uploads")
+)
 IMAGE_DIR = os.path.join(UPLOAD_DIR, "images")
 AUDIO_DIR = os.path.join(UPLOAD_DIR, "audio")
 
