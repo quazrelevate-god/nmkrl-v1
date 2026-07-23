@@ -21,6 +21,8 @@ class IssueCard extends StatelessWidget {
     required this.onToggle,
     this.distanceKm,
     this.onUpvote,
+    this.actions,
+    this.badge,
   });
 
   final Issue issue;
@@ -28,6 +30,13 @@ class IssueCard extends StatelessWidget {
   final VoidCallback onToggle;
   final double? distanceKm;
   final ValueChanged<Issue>? onUpvote;
+
+  /// Coordinator variant: replaces the lifecycle tracker + support button
+  /// with an action-button slot (Assign/False, Transfer/Escalate/Close, …).
+  final Widget? actions;
+
+  /// Extra chip after the status chip (coordinator action-status badge).
+  final Widget? badge;
 
   @override
   Widget build(BuildContext context) {
@@ -143,6 +152,7 @@ class IssueCard extends StatelessWidget {
                                 ],
                               ),
                             StatusChip(status: issue.status),
+                            if (badge != null) badge!,
                           ],
                         ),
                       ],
@@ -433,14 +443,21 @@ class IssueCard extends StatelessWidget {
                           ),
                         ],
 
-                        // Lifecycle tracker (hidden for FALSE)
-                        if (issue.status != 'FALSE') ...[
+                        // Coordinator action slot replaces the citizen
+                        // lifecycle + support button entirely.
+                        if (actions != null) ...[
+                          const SizedBox(height: 12),
+                          actions!,
+                        ],
+
+                        // Lifecycle tracker (citizen cards; hidden for FALSE)
+                        if (actions == null && issue.status != 'FALSE') ...[
                           const SizedBox(height: 12),
                           _LifecycleTracker(
                               index: progressIndex(issue.status)),
                         ],
 
-                        if (onUpvote != null) ...[
+                        if (actions == null && onUpvote != null) ...[
                           const SizedBox(height: 12),
                           GestureDetector(
                             onTap: () => onUpvote!(issue),

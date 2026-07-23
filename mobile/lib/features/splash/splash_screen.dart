@@ -35,11 +35,17 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
   @override
   void initState() {
     super.initState();
-    // Hold ~1.4s (like the web splash), then fade to the right screen.
+    // Hold ~1.4s (like the web splash), then fade to the right screen for
+    // whichever role is signed in (citizen wins if somehow both are).
     _leave = Timer(const Duration(milliseconds: 1600), () {
       if (!mounted) return;
-      final authed = ref.read(authProvider);
-      context.go(authed ? '/home' : '/login');
+      if (ref.read(authProvider)) {
+        context.go('/home');
+      } else if (ref.read(coordinatorAuthProvider) != null) {
+        context.go('/coordinator');
+      } else {
+        context.go('/login');
+      }
     });
   }
 

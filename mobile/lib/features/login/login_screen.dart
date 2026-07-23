@@ -6,12 +6,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/theme.dart';
+import '../../domain/constituencies.dart';
+import '../../domain/coordinator_data.dart';
 import '../../state/providers.dart';
 import '../shared/wave_mark.dart';
 
-/// Citizen sign-in — port of app/login/page.js. Aadhaar/Voter-ID + MOCK OTP
-/// (illustrative PoC auth: any 6-digit code verifies; demo code shown inline).
-/// The "Continue as Raj Kumar" pill autofills everything and signs in.
+/// Combined sign-in — one screen, two roles, switched by the toggle at the
+/// top corner:
+///   • Citizen     (port of app/login/page.js — Aadhaar/Voter + MOCK OTP)
+///   • Coordinator (port of app/coordinator/login — username/password with
+///                  the 4 seeded staff accounts as tap-to-fill cards)
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
 
@@ -20,6 +24,121 @@ class LoginScreen extends ConsumerStatefulWidget {
 }
 
 class _LoginScreenState extends ConsumerState<LoginScreen> {
+  bool _coordinator = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle.light,
+      child: Scaffold(
+        body: Container(
+          decoration: const BoxDecoration(gradient: nkNavyGradient),
+          child: SafeArea(
+            child: Stack(
+              children: [
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 380),
+                  switchInCurve: NkMotion.settle,
+                  switchOutCurve: Curves.easeIn,
+                  transitionBuilder: (child, anim) => FadeTransition(
+                    opacity: anim,
+                    child: SlideTransition(
+                      position: Tween(
+                        begin: const Offset(0, 0.02),
+                        end: Offset.zero,
+                      ).animate(anim),
+                      child: child,
+                    ),
+                  ),
+                  child: _coordinator
+                      ? const _CoordinatorLoginForm(
+                          key: ValueKey('coordinator'))
+                      : const _CitizenLoginForm(key: ValueKey('citizen')),
+                ),
+
+                // ── Role toggle (top corner) ──
+                Positioned(
+                  top: 8,
+                  right: 16,
+                  child: Container(
+                    padding: const EdgeInsets.all(3),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.2)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        for (final (coord, icon, tip) in [
+                          (false, Icons.person_outline, 'Citizen'),
+                          (true, Icons.account_balance_outlined, 'Coordinator'),
+                        ])
+                          GestureDetector(
+                            onTap: () {
+                              HapticFeedback.selectionClick();
+                              setState(() => _coordinator = coord);
+                            },
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 260),
+                              curve: NkMotion.settle,
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: _coordinator == coord
+                                    ? NkColors.gold300
+                                    : Colors.transparent,
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    icon,
+                                    size: 14,
+                                    color: _coordinator == coord
+                                        ? NkColors.brandDark
+                                        : Colors.white
+                                            .withValues(alpha: 0.7),
+                                  ),
+                                  if (_coordinator == coord) ...[
+                                    const SizedBox(width: 5),
+                                    Text(
+                                      tip,
+                                      style: const TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w800,
+                                        color: NkColors.brandDark,
+                                      ),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/* ═══════════════════════ Citizen form ═══════════════════════ */
+
+class _CitizenLoginForm extends ConsumerStatefulWidget {
+  const _CitizenLoginForm({super.key});
+
+  @override
+  ConsumerState<_CitizenLoginForm> createState() => _CitizenLoginFormState();
+}
+
+class _CitizenLoginFormState extends ConsumerState<_CitizenLoginForm> {
   static const _demo = (
     name: 'Raj Kumar',
     idType: 'aadhaar',
@@ -155,464 +274,794 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: SystemUiOverlayStyle.light,
-      child: Scaffold(
-        body: Container(
-          decoration: const BoxDecoration(gradient: nkNavyGradient),
-          child: SafeArea(
-            child: ListView(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              children: [
-                const SizedBox(height: 32),
-                // Brand lockup
-                Center(
-                  child: Column(
-                    children: [
-                      Stack(
-                        clipBehavior: Clip.none,
-                        children: const [
-                          Text(
-                            'நம்குரல்',
-                            style: TextStyle(
-                              fontSize: 34,
-                              fontWeight: FontWeight.w900,
-                              letterSpacing: -0.5,
-                              height: 1,
-                              color: Color(0xFFEADFBF),
+    return ListView(
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      children: [
+        // Clears the role toggle floating at the top corner.
+        const SizedBox(height: 56),
+        Center(
+          child: Column(
+            children: [
+              Stack(
+                clipBehavior: Clip.none,
+                children: const [
+                  Text(
+                    'நம்குரல்',
+                    style: TextStyle(
+                      fontSize: 34,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: -0.5,
+                      height: 1,
+                      color: Color(0xFFEADFBF),
+                    ),
+                  ),
+                  Positioned(
+                    right: -26,
+                    top: -8,
+                    child: WaveMark(size: 24),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'CITIZEN SIGN IN',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 3.1,
+                  color: Colors.white.withValues(alpha: 0.5),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 28),
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.95),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.4)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.35),
+                blurRadius: 40,
+                offset: const Offset(0, 18),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _label(Icons.person_outline, 'Full name'),
+              TextField(
+                  controller: _name, decoration: _dec('As per your ID')),
+              const SizedBox(height: 16),
+              _label(
+                _idType == 'aadhaar'
+                    ? Icons.badge_outlined
+                    : Icons.how_to_vote_outlined,
+                'Identity',
+              ),
+              Container(
+                padding: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  color: NkColors.slate100,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    for (final (key, label, icon) in [
+                      ('aadhaar', 'Aadhaar', Icons.badge_outlined),
+                      ('voter', 'Voter ID', Icons.how_to_vote_outlined),
+                    ])
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: () {
+                            HapticFeedback.selectionClick();
+                            setState(() => _idType = key);
+                          },
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 250),
+                            curve: NkMotion.settle,
+                            padding:
+                                const EdgeInsets.symmetric(vertical: 7),
+                            decoration: BoxDecoration(
+                              color: _idType == key
+                                  ? Colors.white
+                                  : Colors.transparent,
+                              borderRadius: BorderRadius.circular(8),
+                              boxShadow: _idType == key
+                                  ? [
+                                      BoxShadow(
+                                        color: Colors.black
+                                            .withValues(alpha: 0.06),
+                                        blurRadius: 4,
+                                        offset: const Offset(0, 1),
+                                      ),
+                                    ]
+                                  : null,
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(icon,
+                                    size: 13,
+                                    color: _idType == key
+                                        ? NkColors.brand
+                                        : NkColors.slate500),
+                                const SizedBox(width: 6),
+                                Text(
+                                  label,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    color: _idType == key
+                                        ? NkColors.brand
+                                        : NkColors.slate500,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                          Positioned(
-                            right: -26,
-                            top: -8,
-                            child: WaveMark(size: 24),
-                          ),
-                        ],
+                        ),
                       ),
-                      const SizedBox(height: 12),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _id,
+                keyboardType: _idType == 'aadhaar'
+                    ? TextInputType.number
+                    : TextInputType.text,
+                decoration: _dec(
+                    _idType == 'aadhaar' ? 'XXXX XXXX XXXX' : 'ABC1234567'),
+              ),
+              const SizedBox(height: 16),
+              _label(Icons.smartphone, 'Aadhaar-linked mobile'),
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: NkColors.slate50,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: NkColors.slate200),
+                    ),
+                    child: const Text(
+                      '+91',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: NkColors.slate500,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextField(
+                      controller: _mobile,
+                      keyboardType: TextInputType.phone,
+                      decoration: _dec('98xxx xxxxx'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  SizedBox(
+                    height: 46,
+                    child: FilledButton(
+                      onPressed:
+                          _mobileDigits.length >= 10 ? _sendOtp : null,
+                      style: FilledButton.styleFrom(
+                        backgroundColor: NkColors.brand,
+                        disabledBackgroundColor:
+                            NkColors.brand.withValues(alpha: 0.4),
+                        padding:
+                            const EdgeInsets.symmetric(horizontal: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: Text(
+                        _otpSent ? 'Resend' : 'Send OTP',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              AnimatedSize(
+                duration: const Duration(milliseconds: 350),
+                curve: NkMotion.settle,
+                alignment: Alignment.topCenter,
+                child: !_otpSent
+                    ? const SizedBox.shrink()
+                    : Padding(
+                        padding: const EdgeInsets.only(top: 16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            _label(Icons.key, 'Enter OTP'),
+                            Stack(
+                              alignment: Alignment.centerRight,
+                              children: [
+                                TextField(
+                                  controller: _otp,
+                                  keyboardType: TextInputType.number,
+                                  maxLength: 6,
+                                  textAlign: TextAlign.center,
+                                  inputFormatters: [
+                                    FilteringTextInputFormatter.digitsOnly,
+                                  ],
+                                  style: const TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w700,
+                                    letterSpacing: 8,
+                                  ),
+                                  decoration:
+                                      _dec('••••••').copyWith(counterText: ''),
+                                ),
+                                if (_verified)
+                                  const Padding(
+                                    padding: EdgeInsets.only(right: 12),
+                                    child: Icon(
+                                      Icons.check_circle,
+                                      size: 20,
+                                      color: NkColors.emerald500,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              'OTP sent to +91 ${_mobile.text.isEmpty ? '98xxx xxxxx' : _mobile.text} · demo code 246813',
+                              style: const TextStyle(
+                                fontSize: 11,
+                                color: NkColors.slate500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+              ),
+              const SizedBox(height: 16),
+              _label(Icons.lock_outline, 'Password'),
+              TextField(
+                controller: _password,
+                obscureText: true,
+                decoration: _dec('••••••••'),
+              ),
+              if (_error != null) ...[
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: NkColors.rose50,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    _error!,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                      color: NkColors.rose600,
+                    ),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 16),
+              GestureDetector(
+                onTap: _submit,
+                child: AnimatedOpacity(
+                  duration: const Duration(milliseconds: 200),
+                  opacity: _canLogin ? 1 : 0.45,
+                  child: Container(
+                    height: 48,
+                    decoration: BoxDecoration(
+                      gradient: nkBrandGradient,
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: [
+                        BoxShadow(
+                          color: NkColors.brand.withValues(alpha: 0.3),
+                          blurRadius: 16,
+                          offset: const Offset(0, 8),
+                        ),
+                      ],
+                    ),
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.login, size: 16, color: Colors.white),
+                        SizedBox(width: 8),
+                        Text(
+                          'Login',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.verified_user,
+                      size: 11, color: NkColors.emerald500),
+                  SizedBox(width: 6),
+                  Text(
+                    'Secured by Aadhaar e-KYC · Illustrative PoC',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w500,
+                      color: NkColors.slate400,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 20),
+        GestureDetector(
+          onTap: _demoLogin,
+          child: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(16),
+              border:
+                  Border.all(color: Colors.white.withValues(alpha: 0.15)),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  height: 44,
+                  width: 44,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    gradient: nkGoldGradient,
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.3),
+                        width: 2),
+                  ),
+                  child: const Text(
+                    'RK',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w900,
+                      color: NkColors.brandDark,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Continue as Raj Kumar',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                        ),
+                      ),
                       Text(
-                        'CITIZEN SIGN IN',
+                        'Demo citizen · autofills every field & signs in',
                         style: TextStyle(
                           fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: 3.1,
-                          color: Colors.white.withValues(alpha: 0.5),
+                          color: Colors.white.withValues(alpha: 0.6),
                         ),
                       ),
                     ],
                   ),
                 ),
-
-                const SizedBox(height: 28),
-                // Form card
-                Container(
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.95),
-                    borderRadius: BorderRadius.circular(24),
-                    border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.4)),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.35),
-                        blurRadius: 40,
-                        offset: const Offset(0, 18),
-                      ),
-                    ],
+                const Icon(Icons.arrow_forward,
+                    size: 18, color: NkColors.gold200),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Center(
+          child: Text.rich(
+            TextSpan(
+              text: 'New to Namm Kural? ',
+              style: TextStyle(
+                fontSize: 11,
+                color: Colors.white.withValues(alpha: 0.4),
+              ),
+              children: const [
+                TextSpan(
+                  text: 'Register with Aadhaar',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: NkColors.gold200,
                   ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      _label(Icons.person_outline, 'Full name'),
-                      TextField(
-                        controller: _name,
-                        decoration: _dec('As per your ID'),
-                      ),
-                      const SizedBox(height: 16),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 32),
+      ],
+    );
+  }
+}
 
-                      _label(
-                        _idType == 'aadhaar'
-                            ? Icons.badge_outlined
-                            : Icons.how_to_vote_outlined,
-                        'Identity',
-                      ),
-                      // Aadhaar / Voter ID segmented toggle
-                      Container(
-                        padding: const EdgeInsets.all(4),
-                        decoration: BoxDecoration(
-                          color: NkColors.slate100,
-                          borderRadius: BorderRadius.circular(12),
+/* ═══════════════════════ Coordinator form ═══════════════════════ */
+
+class _CoordinatorLoginForm extends ConsumerStatefulWidget {
+  const _CoordinatorLoginForm({super.key});
+
+  @override
+  ConsumerState<_CoordinatorLoginForm> createState() =>
+      _CoordinatorLoginFormState();
+}
+
+class _CoordinatorLoginFormState extends ConsumerState<_CoordinatorLoginForm> {
+  final _username = TextEditingController();
+  final _password = TextEditingController();
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _username.addListener(() => setState(() {}));
+    _password.addListener(() => setState(() {}));
+  }
+
+  @override
+  void dispose() {
+    _username.dispose();
+    _password.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    setState(() => _error = null);
+    final c = await ref
+        .read(coordinatorAuthProvider.notifier)
+        .signIn(_username.text, _password.text);
+    if (c == null) {
+      setState(() => _error = 'Invalid username or password.');
+      return;
+    }
+    HapticFeedback.mediumImpact();
+    if (mounted) context.go('/coordinator');
+  }
+
+  void _quickPick(Coordinator c) {
+    HapticFeedback.selectionClick();
+    setState(() {
+      _username.text = c.username;
+      _password.text = c.password;
+      _error = null;
+    });
+  }
+
+  InputDecoration _dec(String hint) => InputDecoration(
+        hintText: hint,
+        hintStyle: const TextStyle(color: NkColors.slate400, fontSize: 14),
+        isDense: true,
+        filled: true,
+        fillColor: Colors.white,
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: NkColors.slate200),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: NkColors.brand, width: 1.6),
+        ),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    final canSubmit =
+        _username.text.isNotEmpty && _password.text.isNotEmpty;
+
+    return ListView(
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      children: [
+        // Clears the role toggle floating at the top corner.
+        const SizedBox(height: 56),
+        Center(
+          child: Column(
+            children: [
+              Stack(
+                clipBehavior: Clip.none,
+                children: const [
+                  Text(
+                    'நம்குரல்',
+                    style: TextStyle(
+                      fontSize: 34,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: -0.5,
+                      height: 1,
+                      color: Color(0xFFEADFBF),
+                    ),
+                  ),
+                  Positioned(
+                    right: -26,
+                    top: -8,
+                    child: WaveMark(size: 24),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'COORDINATOR CONSOLE',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 3.1,
+                  color: Colors.white.withValues(alpha: 0.5),
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Constituency staff portal',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: Colors.white.withValues(alpha: 0.35),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 28),
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.95),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.4)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.35),
+                blurRadius: 40,
+                offset: const Offset(0, 18),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text(
+                'Welcome back 👋',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                  color: NkColors.slate900,
+                ),
+              ),
+              const SizedBox(height: 2),
+              const Text(
+                'Sign in to manage grievances and community posts.',
+                style: TextStyle(fontSize: 13, color: NkColors.slate500),
+              ),
+              const SizedBox(height: 16),
+              const Padding(
+                padding: EdgeInsets.only(bottom: 6),
+                child: Text(
+                  'USERNAME',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.6,
+                    color: NkColors.slate500,
+                  ),
+                ),
+              ),
+              TextField(
+                controller: _username,
+                autocorrect: false,
+                decoration: _dec('e.g. raja'),
+              ),
+              const SizedBox(height: 14),
+              const Padding(
+                padding: EdgeInsets.only(bottom: 6),
+                child: Text(
+                  'PASSWORD',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.6,
+                    color: NkColors.slate500,
+                  ),
+                ),
+              ),
+              TextField(
+                controller: _password,
+                obscureText: true,
+                decoration: _dec('••••••••'),
+              ),
+              if (_error != null) ...[
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: NkColors.rose50,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    _error!,
+                    style: const TextStyle(
+                        fontSize: 12, color: NkColors.rose600),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 16),
+              GestureDetector(
+                onTap: canSubmit ? _submit : null,
+                child: AnimatedOpacity(
+                  duration: const Duration(milliseconds: 200),
+                  opacity: canSubmit ? 1 : 0.5,
+                  child: Container(
+                    height: 48,
+                    decoration: BoxDecoration(
+                      gradient: nkBrandGradient,
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: [
+                        BoxShadow(
+                          color: NkColors.brand.withValues(alpha: 0.3),
+                          blurRadius: 16,
+                          offset: const Offset(0, 8),
                         ),
-                        child: Row(
+                      ],
+                    ),
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.login, size: 16, color: Colors.white),
+                        SizedBox(width: 8),
+                        Text(
+                          'Sign In',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 20),
+        Padding(
+          padding: const EdgeInsets.only(left: 4, bottom: 8),
+          child: Text(
+            'DEMO COORDINATORS',
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 2,
+              color: Colors.white.withValues(alpha: 0.4),
+            ),
+          ),
+        ),
+        for (final c in kCoordinators)
+          GestureDetector(
+            onTap: () => _quickPick(c),
+            child: Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.10),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.15)),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    height: 40,
+                    width: 40,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      gradient: nkGoldGradient,
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.3),
+                          width: 2),
+                    ),
+                    child: Text(
+                      c.initials,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w900,
+                        color: NkColors.brandDark,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          c.name,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white,
+                          ),
+                        ),
+                        Text(
+                          '${c.role} · ${shortAC(c.constituency)} · Ward ${c.homeWard}',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: Colors.white.withValues(alpha: 0.6),
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Row(
                           children: [
-                            for (final (key, label, icon) in [
-                              ('aadhaar', 'Aadhaar', Icons.badge_outlined),
-                              ('voter', 'Voter ID', Icons.how_to_vote_outlined),
-                            ])
-                              Expanded(
-                                child: GestureDetector(
-                                  onTap: () {
-                                    HapticFeedback.selectionClick();
-                                    setState(() => _idType = key);
-                                  },
-                                  child: AnimatedContainer(
-                                    duration: const Duration(milliseconds: 250),
-                                    curve: NkMotion.settle,
-                                    padding: const EdgeInsets.symmetric(
-                                        vertical: 7),
-                                    decoration: BoxDecoration(
-                                      color: _idType == key
-                                          ? Colors.white
-                                          : Colors.transparent,
-                                      borderRadius: BorderRadius.circular(8),
-                                      boxShadow: _idType == key
-                                          ? [
-                                              BoxShadow(
-                                                color: Colors.black
-                                                    .withValues(alpha: 0.06),
-                                                blurRadius: 4,
-                                                offset: const Offset(0, 1),
-                                              ),
-                                            ]
-                                          : null,
-                                    ),
-                                    child: Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.center,
-                                      children: [
-                                        Icon(icon,
-                                            size: 13,
-                                            color: _idType == key
-                                                ? NkColors.brand
-                                                : NkColors.slate500),
-                                        const SizedBox(width: 6),
-                                        Text(
-                                          label,
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w700,
-                                            color: _idType == key
-                                                ? NkColors.brand
-                                                : NkColors.slate500,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
+                            for (final cred in [c.username, c.password])
+                              Container(
+                                margin: const EdgeInsets.only(right: 6),
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color:
+                                      Colors.white.withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  cred,
+                                  style: const TextStyle(
+                                    fontSize: 10,
+                                    fontFamily: 'monospace',
+                                    color: NkColors.gold200,
                                   ),
                                 ),
                               ),
                           ],
                         ),
-                      ),
-                      const SizedBox(height: 8),
-                      TextField(
-                        controller: _id,
-                        keyboardType: _idType == 'aadhaar'
-                            ? TextInputType.number
-                            : TextInputType.text,
-                        decoration: _dec(_idType == 'aadhaar'
-                            ? 'XXXX XXXX XXXX'
-                            : 'ABC1234567'),
-                      ),
-                      const SizedBox(height: 16),
-
-                      _label(Icons.smartphone, 'Aadhaar-linked mobile'),
-                      Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 10, vertical: 12),
-                            decoration: BoxDecoration(
-                              color: NkColors.slate50,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: NkColors.slate200),
-                            ),
-                            child: const Text(
-                              '+91',
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                                color: NkColors.slate500,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: TextField(
-                              controller: _mobile,
-                              keyboardType: TextInputType.phone,
-                              decoration: _dec('98xxx xxxxx'),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          SizedBox(
-                            height: 46,
-                            child: FilledButton(
-                              onPressed:
-                                  _mobileDigits.length >= 10 ? _sendOtp : null,
-                              style: FilledButton.styleFrom(
-                                backgroundColor: NkColors.brand,
-                                disabledBackgroundColor:
-                                    NkColors.brand.withValues(alpha: 0.4),
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 12),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                              ),
-                              child: Text(
-                                _otpSent ? 'Resend' : 'Send OTP',
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w700,
-                                  color: Colors.white,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-
-                      // OTP (revealed after send) — mock: any 6 digits verify
-                      AnimatedSize(
-                        duration: const Duration(milliseconds: 350),
-                        curve: NkMotion.settle,
-                        alignment: Alignment.topCenter,
-                        child: !_otpSent
-                            ? const SizedBox.shrink()
-                            : Padding(
-                                padding: const EdgeInsets.only(top: 16),
-                                child: Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.stretch,
-                                  children: [
-                                    _label(Icons.key, 'Enter OTP'),
-                                    Stack(
-                                      alignment: Alignment.centerRight,
-                                      children: [
-                                        TextField(
-                                          controller: _otp,
-                                          keyboardType: TextInputType.number,
-                                          maxLength: 6,
-                                          textAlign: TextAlign.center,
-                                          inputFormatters: [
-                                            FilteringTextInputFormatter
-                                                .digitsOnly,
-                                          ],
-                                          style: const TextStyle(
-                                            fontSize: 18,
-                                            fontWeight: FontWeight.w700,
-                                            letterSpacing: 8,
-                                          ),
-                                          decoration: _dec('••••••')
-                                              .copyWith(counterText: ''),
-                                        ),
-                                        if (_verified)
-                                          const Padding(
-                                            padding:
-                                                EdgeInsets.only(right: 12),
-                                            child: Icon(
-                                              Icons.check_circle,
-                                              size: 20,
-                                              color: NkColors.emerald500,
-                                            ),
-                                          ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 6),
-                                    Text(
-                                      'OTP sent to +91 ${_mobile.text.isEmpty ? '98xxx xxxxx' : _mobile.text} · demo code 246813',
-                                      style: const TextStyle(
-                                        fontSize: 11,
-                                        color: NkColors.slate500,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                      ),
-                      const SizedBox(height: 16),
-
-                      _label(Icons.lock_outline, 'Password'),
-                      TextField(
-                        controller: _password,
-                        obscureText: true,
-                        decoration: _dec('••••••••'),
-                      ),
-
-                      if (_error != null) ...[
-                        const SizedBox(height: 12),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 8),
-                          decoration: BoxDecoration(
-                            color: NkColors.rose50,
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Text(
-                            _error!,
-                            style: const TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w500,
-                              color: NkColors.rose600,
-                            ),
-                          ),
-                        ),
-                      ],
-
-                      const SizedBox(height: 16),
-                      // Login CTA
-                      GestureDetector(
-                        onTap: _submit,
-                        child: AnimatedOpacity(
-                          duration: const Duration(milliseconds: 200),
-                          opacity: _canLogin ? 1 : 0.45,
-                          child: Container(
-                            height: 48,
-                            decoration: BoxDecoration(
-                              gradient: nkBrandGradient,
-                              borderRadius: BorderRadius.circular(12),
-                              boxShadow: [
-                                BoxShadow(
-                                  color:
-                                      NkColors.brand.withValues(alpha: 0.3),
-                                  blurRadius: 16,
-                                  offset: const Offset(0, 8),
-                                ),
-                              ],
-                            ),
-                            child: const Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(Icons.login,
-                                    size: 16, color: Colors.white),
-                                SizedBox(width: 8),
-                                Text(
-                                  'Login',
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w700,
-                                    color: Colors.white,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      const Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.verified_user,
-                              size: 11, color: NkColors.emerald500),
-                          SizedBox(width: 6),
-                          Text(
-                            'Secured by Aadhaar e-KYC · Illustrative PoC',
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w500,
-                              color: NkColors.slate400,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 20),
-                // Demo pill — one-tap fill + sign in
-                GestureDetector(
-                  onTap: _demoLogin,
-                  child: Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.10),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.15)),
-                    ),
-                    child: Row(
-                      children: [
-                        Container(
-                          height: 44,
-                          width: 44,
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            gradient: nkGoldGradient,
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                                color: Colors.white.withValues(alpha: 0.3),
-                                width: 2),
-                          ),
-                          child: const Text(
-                            'RK',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w900,
-                              color: NkColors.brandDark,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                'Continue as Raj Kumar',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w700,
-                                  color: Colors.white,
-                                ),
-                              ),
-                              Text(
-                                'Demo citizen · autofills every field & signs in',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color:
-                                      Colors.white.withValues(alpha: 0.6),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const Icon(Icons.arrow_forward,
-                            size: 18, color: NkColors.gold200),
                       ],
                     ),
                   ),
-                ),
-
-                const SizedBox(height: 12),
-                Center(
-                  child: Text.rich(
-                    TextSpan(
-                      text: 'New to Namm Kural? ',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: Colors.white.withValues(alpha: 0.4),
-                      ),
-                      children: const [
-                        TextSpan(
-                          text: 'Register with Aadhaar',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w600,
-                            color: NkColors.gold200,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 32),
-              ],
+                  const Icon(Icons.arrow_forward,
+                      size: 16, color: NkColors.gold200),
+                ],
+              ),
+            ),
+          ),
+        Center(
+          child: Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(
+              'Tap a row to autofill · illustrative PoC auth',
+              style: TextStyle(
+                fontSize: 10,
+                fontStyle: FontStyle.italic,
+                color: Colors.white.withValues(alpha: 0.4),
+              ),
             ),
           ),
         ),
-      ),
+        const SizedBox(height: 32),
+      ],
     );
   }
 }

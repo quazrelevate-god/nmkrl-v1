@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'core/theme.dart';
+import 'features/coordinator/coordinator_home_screen.dart';
 import 'features/home/home_screen.dart';
 import 'features/login/login_screen.dart';
 import 'features/splash/splash_screen.dart';
@@ -24,20 +25,25 @@ class NammaKuralApp extends ConsumerWidget {
 }
 
 final _routerProvider = Provider<GoRouter>((ref) {
-  // Rebuild redirects when the auth flag flips.
-  final authed = ValueNotifier(ref.read(authProvider));
-  ref.listen(authProvider, (_, next) => authed.value = next);
-  ref.onDispose(authed.dispose);
+  // Rebuild redirects when either role's auth state flips.
+  final citizenAuthed = ValueNotifier(ref.read(authProvider));
+  final coordAuthed =
+      ValueNotifier(ref.read(coordinatorAuthProvider) != null);
+  ref.listen(authProvider, (_, next) => citizenAuthed.value = next);
+  ref.listen(coordinatorAuthProvider,
+      (_, next) => coordAuthed.value = next != null);
+  ref.onDispose(citizenAuthed.dispose);
+  ref.onDispose(coordAuthed.dispose);
 
   return GoRouter(
     initialLocation: '/splash',
-    refreshListenable: authed,
+    refreshListenable: Listenable.merge([citizenAuthed, coordAuthed]),
     redirect: (context, state) {
-      final isAuthed = authed.value;
       final loc = state.matchedLocation;
       if (loc == '/splash') return null; // splash decides for itself
-      if (!isAuthed && loc != '/login') return '/login';
-      if (isAuthed && loc == '/login') return '/home';
+      // /login always reachable — it hosts the citizen↔coordinator toggle.
+      if (loc == '/home' && !citizenAuthed.value) return '/login';
+      if (loc == '/coordinator' && !coordAuthed.value) return '/login';
       return null;
     },
     routes: [
@@ -62,6 +68,28 @@ final _routerProvider = Provider<GoRouter>((ref) {
         pageBuilder: (context, state) => CustomTransitionPage(
           key: state.pageKey,
           child: const HomeScreen(),
+          transitionDuration: const Duration(milliseconds: 450),
+          transitionsBuilder: (_, anim, __, child) {
+            final curved =
+                CurvedAnimation(parent: anim, curve: NkMotion.settle);
+            return FadeTransition(
+              opacity: curved,
+              child: SlideTransition(
+                position: Tween(
+                  begin: const Offset(0, 0.02),
+                  end: Offset.zero,
+                ).animate(curved),
+                child: child,
+              ),
+            );
+          },
+        ),
+      ),
+      GoRoute(
+        path: '/coordinator',
+        pageBuilder: (context, state) => CustomTransitionPage(
+          key: state.pageKey,
+          child: const CoordinatorHomeScreen(),
           transitionDuration: const Duration(milliseconds: 450),
           transitionsBuilder: (_, anim, __, child) {
             final curved =

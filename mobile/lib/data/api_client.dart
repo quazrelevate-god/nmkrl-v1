@@ -37,6 +37,26 @@ abstract class ApiClient {
   /// Reverse geocode via OSM Nominatim (suburb/neighbourhood/city fallback),
   /// mirroring lib/hooks.js. Returns '' on any failure.
   Future<String> reverseGeocode(double lat, double lng);
+
+  // ── Coordinator endpoints (routers/coordinator.py) ─────────────────────
+
+  /// Every grievance in the ward regardless of status (coordinators see
+  /// SUBMITTED, which is hidden from citizens).
+  Future<List<Issue>> fetchCoordinatorWardIssues(int wardNo);
+
+  /// Take ownership: any → ACTIVE (citizen sees "Assigned").
+  Future<Issue> coordinatorVerify(String issueId);
+
+  /// Dept. Transfer: → FORWARDED, routed to a chosen department.
+  Future<Issue> coordinatorTransfer(String issueId, String department,
+      {String notes = ''});
+
+  /// Close: → PENDING_VERIFICATION (citizen sees the verify prompt).
+  Future<Issue> coordinatorClose(String issueId, {String notes = ''});
+
+  /// Mark false: → FALSE with the coordinator's reason.
+  Future<Issue> coordinatorMarkFalse(String issueId, String reason,
+      {String details = ''});
 }
 
 /// Friendly error carrying the FastAPI `detail` message when present.

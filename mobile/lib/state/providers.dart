@@ -2,8 +2,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/api_client.dart';
+import '../data/coordinator_store.dart';
 import '../data/dio_api_client.dart';
 import '../data/prefs.dart';
+import '../domain/coordinator_data.dart';
 import '../domain/daily_limit.dart';
 
 /// Overridden with the real instance in main() before runApp.
@@ -42,3 +44,34 @@ class AuthNotifier extends Notifier<bool> {
 }
 
 final authProvider = NotifierProvider<AuthNotifier, bool>(AuthNotifier.new);
+
+// ── Coordinator side ─────────────────────────────────────────────────────
+
+final coordinatorStoreProvider = Provider<CoordinatorStore>(
+  (ref) => CoordinatorStore(ref.watch(sharedPreferencesProvider)),
+);
+
+/// The signed-in coordinator (null when signed out) as reactive state so the
+/// router redirect responds to sign-in/out.
+class CoordinatorAuthNotifier extends Notifier<Coordinator?> {
+  @override
+  Coordinator? build() =>
+      coordinatorByUsername(ref.read(coordinatorStoreProvider).sessionUsername);
+
+  Future<Coordinator?> signIn(String username, String password) async {
+    final c = authenticateCoordinator(username, password);
+    if (c == null) return null;
+    await ref.read(coordinatorStoreProvider).saveSession(c.username);
+    state = c;
+    return c;
+  }
+
+  Future<void> signOut() async {
+    await ref.read(coordinatorStoreProvider).clearSession();
+    state = null;
+  }
+}
+
+final coordinatorAuthProvider =
+    NotifierProvider<CoordinatorAuthNotifier, Coordinator?>(
+        CoordinatorAuthNotifier.new);

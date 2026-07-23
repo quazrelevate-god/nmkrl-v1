@@ -194,6 +194,48 @@ class DioApiClient implements ApiClient {
   }
 
   @override
+  Future<List<Issue>> fetchCoordinatorWardIssues(int wardNo) =>
+      _get('/api/coordinator/ward/$wardNo', parse: _issueList);
+
+  Future<Issue> _coordPost(String path, [Map<String, dynamic>? fields]) async {
+    try {
+      final res = await _dio.post<Map<String, dynamic>>(
+        path,
+        data: fields == null ? null : FormData.fromMap(fields),
+      );
+      return Issue.fromJson(res.data!);
+    } catch (e) {
+      _friendly(e);
+    }
+  }
+
+  @override
+  Future<Issue> coordinatorVerify(String issueId) =>
+      _coordPost('/api/coordinator/issues/$issueId/verify');
+
+  @override
+  Future<Issue> coordinatorTransfer(String issueId, String department,
+          {String notes = ''}) =>
+      _coordPost('/api/coordinator/issues/$issueId/transfer', {
+        'department': department,
+        if (notes.isNotEmpty) 'notes': notes,
+      });
+
+  @override
+  Future<Issue> coordinatorClose(String issueId, {String notes = ''}) =>
+      _coordPost('/api/coordinator/issues/$issueId/close', {
+        if (notes.isNotEmpty) 'notes': notes,
+      });
+
+  @override
+  Future<Issue> coordinatorMarkFalse(String issueId, String reason,
+          {String details = ''}) =>
+      _coordPost('/api/coordinator/issues/$issueId/mark_false', {
+        'reason': reason,
+        if (details.isNotEmpty) 'details': details,
+      });
+
+  @override
   Future<String> reverseGeocode(double lat, double lng) async {
     try {
       final res = await _dio.get<Map<String, dynamic>>(

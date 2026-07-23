@@ -28,11 +28,13 @@ class MapCard extends StatefulWidget {
     required this.onSelect,
     required this.boundaries,
     required this.currentWard,
-    required this.locate,
-    required this.locating,
-    required this.egmoreActive,
-    required this.onJumpEgmore,
-    required this.onUpvote,
+    this.locate,
+    this.locating = false,
+    this.showLocateChip = true,
+    this.egmoreActive = false,
+    this.onJumpEgmore,
+    this.onUpvote,
+    this.searchHint = 'Search ticket no. or grievance nearby',
   });
 
   final LatLng? center;
@@ -43,9 +45,17 @@ class MapCard extends StatefulWidget {
   final int? currentWard;
   final LocateResult? locate;
   final bool locating;
+
+  /// Coordinator map hides the citizen zone-detector chip.
+  final bool showLocateChip;
   final bool egmoreActive;
-  final VoidCallback onJumpEgmore;
-  final ValueChanged<Issue> onUpvote;
+
+  /// When null the demo Egmore-jump button is hidden (coordinator map).
+  final VoidCallback? onJumpEgmore;
+
+  /// When null the selected-issue sheet hides its Upvote button.
+  final ValueChanged<Issue>? onUpvote;
+  final String searchHint;
 
   @override
   State<MapCard> createState() => _MapCardState();
@@ -251,11 +261,11 @@ class _MapCardState extends State<MapCard> {
                         child: TextField(
                           controller: _query,
                           style: const TextStyle(fontSize: 12),
-                          decoration: const InputDecoration(
+                          decoration: InputDecoration(
                             isCollapsed: true,
                             border: InputBorder.none,
-                            hintText: 'Search ticket no. or grievance nearby',
-                            hintStyle: TextStyle(
+                            hintText: widget.searchHint,
+                            hintStyle: const TextStyle(
                                 fontSize: 12, color: NkColors.slate400),
                           ),
                         ),
@@ -341,7 +351,7 @@ class _MapCardState extends State<MapCard> {
           ),
 
           // ── Zone/ward detector chip (hidden while searching) ──
-          if (!hasQuery)
+          if (!hasQuery && widget.showLocateChip)
             Positioned(
               right: 12,
               top: 54,
@@ -420,14 +430,15 @@ class _MapCardState extends State<MapCard> {
             ),
           ),
 
-          // ── Egmore demo jump ──
+          // ── Egmore demo jump (citizen only) ──
+          if (widget.onJumpEgmore != null)
           Positioned(
             right: 8,
             bottom: 8,
             child: GestureDetector(
               onTap: () {
                 HapticFeedback.selectionClick();
-                widget.onJumpEgmore();
+                widget.onJumpEgmore!();
               },
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 300),
@@ -475,7 +486,9 @@ class _MapCardState extends State<MapCard> {
                   : _SelectedSheet(
                       issue: widget.selected!,
                       onClose: () => widget.onSelect(null),
-                      onUpvote: () => widget.onUpvote(widget.selected!),
+                      onUpvote: widget.onUpvote == null
+                          ? null
+                          : () => widget.onUpvote!(widget.selected!),
                     ),
             ),
           ),
@@ -681,12 +694,12 @@ class _SelectedSheet extends StatelessWidget {
   const _SelectedSheet({
     required this.issue,
     required this.onClose,
-    required this.onUpvote,
+    this.onUpvote,
   });
 
   final Issue issue;
   final VoidCallback onClose;
-  final VoidCallback onUpvote;
+  final VoidCallback? onUpvote;
 
   @override
   Widget build(BuildContext context) {
@@ -855,32 +868,33 @@ class _SelectedSheet extends StatelessWidget {
                   ],
                 ],
               ),
-              GestureDetector(
-                onTap: onUpvote,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 12, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: NkColors.brand,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Row(
-                    children: [
-                      Icon(Icons.thumb_up_outlined,
-                          size: 12, color: Colors.white),
-                      SizedBox(width: 4),
-                      Text(
-                        'Upvote',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.white,
+              if (onUpvote != null)
+                GestureDetector(
+                  onTap: onUpvote,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: NkColors.brand,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(Icons.thumb_up_outlined,
+                            size: 12, color: Colors.white),
+                        SizedBox(width: 4),
+                        Text(
+                          'Upvote',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white,
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
-              ),
             ],
           ),
         ],

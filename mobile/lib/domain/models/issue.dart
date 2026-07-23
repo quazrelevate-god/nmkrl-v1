@@ -15,6 +15,7 @@ class Issue {
     this.areaName,
     this.wardNo,
     this.zone,
+    this.department,
     this.coordinatorMessage,
     this.summaryHighlights = const [],
     this.distanceM,
@@ -33,6 +34,9 @@ class Issue {
   final String? areaName;
   final int? wardNo;
   final String? zone;
+
+  /// AI-routed municipal department (used by the coordinator transfer flow).
+  final String? department;
   final String? coordinatorMessage;
   final List<String> summaryHighlights;
 
@@ -65,6 +69,7 @@ class Issue {
           : (json['area_name'] as String).trim(),
       wardNo: _toInt(json['ward_no']),
       zone: json['zone']?.toString(),
+      department: json['department'] as String?,
       coordinatorMessage: json['coordinator_message'] as String?,
       summaryHighlights: rawHighlights is List
           ? rawHighlights.map((e) => '$e').toList()
