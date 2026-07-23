@@ -24,7 +24,7 @@ dependencies:
   # Device capabilities
   geolocator: ^13.0.2
   image_picker: ^1.1.2
-  record: ^5.2.0
+  record: ^7.1.1
   audioplayers: ^6.1.0
   path_provider: ^2.1.5
   # Persistence (auth flag, user id, daily fair-use quotas)
