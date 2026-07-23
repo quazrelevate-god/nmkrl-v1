@@ -45,7 +45,7 @@ export default function SuccessModal({ ticket, onClose }) {
             Done
           </button>
           <Link
-            href="/map"
+            href="/"
             onClick={onClose}
             className="flex flex-1 items-center justify-center gap-1.5 rounded-2xl bg-gradient-to-br from-brand to-brand-dark py-3 text-sm font-bold text-white shadow-lg shadow-brand/30"
           >

@@ -74,6 +74,7 @@ export default function MapView({
   onSelect,
   boundaries = null,
   currentWard = null,
+  scrollWheelZoom = true,
 }) {
   const centerArr = useMemo(
     () => (center ? [center.lat, center.lng] : [13.0827, 80.2081]),
@@ -84,7 +85,7 @@ export default function MapView({
     <MapContainer
       center={centerArr}
       zoom={15}
-      scrollWheelZoom
+      scrollWheelZoom={scrollWheelZoom}
       className="h-full w-full"
     >
       <TileLayer

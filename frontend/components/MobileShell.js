@@ -2,14 +2,13 @@
 
 import BottomNav from "./BottomNav";
 import ReportModal from "./ReportModal";
-import ServiceHubPullTab from "./ServiceHubPullTab";
 import { useReport } from "./ReportProvider";
 
 /**
  * MobileShell
  * -----------
  * Phone-frame wrapper with an iOS glass backdrop. Renders the shared Report
- * pop-up and the glass pill nav.
+ * pop-up and the floating "+" report button.
  *
  * Props
  *   noPad     – skip horizontal padding (full-bleed screens like map)
@@ -32,7 +31,6 @@ export default function MobileShell({ children, noPad = false, splitView = false
           <div className="bottom-blur" aria-hidden />
           <ReportModal open={open} onClose={closeReport} />
           <BottomNav />
-          <ServiceHubPullTab />
         </div>
       </div>
     );
@@ -69,7 +67,6 @@ export default function MobileShell({ children, noPad = false, splitView = false
         <div className="bottom-blur" aria-hidden />
         <ReportModal open={open} onClose={closeReport} />
         <BottomNav />
-        <ServiceHubPullTab />
       </div>
     </div>
   );
