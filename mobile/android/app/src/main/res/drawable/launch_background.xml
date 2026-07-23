@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Native launch screen: the brand navy gradient shown while the Flutter
+     engine boots; the animated splash takes over seamlessly. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <gradient
+        android:angle="290"
+        android:startColor="#1E3A5F"
+        android:endColor="#0F1F36"
+        android:type="linear" />
+</shape>
