@@ -92,13 +92,15 @@ class _SwipeToConfirmState extends State<SwipeToConfirm>
             clipBehavior: Clip.antiAlias,
             child: Stack(
               children: [
-                // Progress fill
+                // Progress fill — collapsed while the knob rests at the start
+                // so no colored halo peeks out around it; it sweeps in behind
+                // the knob only once the user actually drags.
                 AnimatedContainer(
                   duration: _dragging
                       ? Duration.zero
                       : const Duration(milliseconds: 320),
                   curve: NkMotion.settle,
-                  width: _x + _knob + _pad,
+                  width: _x <= 0 && !_confirmed ? 0 : _x + _knob + _pad,
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       colors: widget.emerald
