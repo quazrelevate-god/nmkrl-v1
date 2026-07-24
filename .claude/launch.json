@@ -8,7 +8,13 @@
       "port": 3000
     },
     {
-      "name": "backend",
+      "name": "backend-mac",
+      "runtimeExecutable": "backend/venv/bin/python",
+      "runtimeArgs": ["-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--app-dir", "backend"],
+      "port": 8000
+    },
+    {
+      "name": "backend-win",
       "runtimeExecutable": "backend/venv/Scripts/python.exe",
       "runtimeArgs": ["-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--app-dir", "backend"],
       "port": 8000
