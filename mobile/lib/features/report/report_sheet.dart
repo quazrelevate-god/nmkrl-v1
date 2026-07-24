@@ -757,6 +757,14 @@ class _DuplicateSheet extends StatelessWidget {
     return r ?? _DuplicateAction.cancel;
   }
 
+  static Widget _photoFallback() => Container(
+        height: 64,
+        width: 64,
+        color: NkColors.slate200,
+        alignment: Alignment.center,
+        child: const Text('🛣️', style: TextStyle(fontSize: 24)),
+      );
+
   @override
   Widget build(BuildContext context) {
     final image = mediaImage(issue.imageUrl);
@@ -829,15 +837,9 @@ class _DuplicateSheet extends StatelessWidget {
                           image: image,
                           height: 64,
                           width: 64,
-                          fit: BoxFit.cover)
-                      : Container(
-                          height: 64,
-                          width: 64,
-                          color: NkColors.slate200,
-                          alignment: Alignment.center,
-                          child: const Text('🛣️',
-                              style: TextStyle(fontSize: 24)),
-                        ),
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => _photoFallback())
+                      : _photoFallback(),
                 ),
                 const SizedBox(width: 12),
                 Expanded(

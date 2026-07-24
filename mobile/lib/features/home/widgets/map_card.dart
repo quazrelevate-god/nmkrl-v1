@@ -701,6 +701,14 @@ class _SelectedSheet extends StatelessWidget {
   final VoidCallback onClose;
   final VoidCallback? onUpvote;
 
+  static Widget _photoFallback() => Container(
+        height: 64,
+        width: 64,
+        color: NkColors.slate100,
+        alignment: Alignment.center,
+        child: const Text('🛣️', style: TextStyle(fontSize: 24)),
+      );
+
   @override
   Widget build(BuildContext context) {
     final image = mediaImage(issue.imageUrl);
@@ -731,15 +739,9 @@ class _SelectedSheet extends StatelessWidget {
                         height: 64,
                         width: 64,
                         fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => _photoFallback(),
                       )
-                    : Container(
-                        height: 64,
-                        width: 64,
-                        color: NkColors.slate100,
-                        alignment: Alignment.center,
-                        child: const Text('🛣️',
-                            style: TextStyle(fontSize: 24)),
-                      ),
+                    : _photoFallback(),
               ),
               const SizedBox(width: 12),
               Expanded(

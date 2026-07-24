@@ -38,6 +38,17 @@ class IssueCard extends StatelessWidget {
   /// Extra chip after the status chip (coordinator action-status badge).
   final Widget? badge;
 
+  /// Placeholder shown when the issue has no photo — and, via errorBuilder,
+  /// when the backend serves undecodable bytes (seed data has shipped
+  /// zero-length "stub" images before; decoding must never throw in the list).
+  static Widget _photoFallback(double size, double emojiSize) => Container(
+        height: size,
+        width: size,
+        color: NkColors.slate100,
+        alignment: Alignment.center,
+        child: Text('🛣️', style: TextStyle(fontSize: emojiSize)),
+      );
+
   @override
   Widget build(BuildContext context) {
     final image = mediaImage(issue.imageUrl);
@@ -76,15 +87,10 @@ class IssueCard extends StatelessWidget {
                               height: 40,
                               width: 40,
                               fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) =>
+                                  _photoFallback(40, 18),
                             )
-                          : Container(
-                              height: 40,
-                              width: 40,
-                              color: NkColors.slate100,
-                              alignment: Alignment.center,
-                              child: const Text('🛣️',
-                                  style: TextStyle(fontSize: 18)),
-                            ),
+                          : _photoFallback(40, 18),
                     ),
                     const SizedBox(width: 12),
                   ],
@@ -200,15 +206,10 @@ class IssueCard extends StatelessWidget {
                                       height: 96,
                                       width: 96,
                                       fit: BoxFit.cover,
+                                      errorBuilder: (_, __, ___) =>
+                                          _photoFallback(96, 30),
                                     )
-                                  : Container(
-                                      height: 96,
-                                      width: 96,
-                                      color: NkColors.slate100,
-                                      alignment: Alignment.center,
-                                      child: const Text('🛣️',
-                                          style: TextStyle(fontSize: 30)),
-                                    ),
+                                  : _photoFallback(96, 30),
                             ),
                             const SizedBox(width: 12),
                             Expanded(
