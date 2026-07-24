@@ -15,7 +15,6 @@ import '../../domain/models/issue.dart';
 import '../../domain/models/locate_result.dart';
 import '../../state/providers.dart';
 import '../report/report_sheet.dart';
-import '../story/story_viewer.dart';
 import '../upvote/upvote_sheet.dart';
 import 'widgets/issue_card.dart';
 import 'widgets/map_card.dart';
@@ -26,8 +25,8 @@ import 'widgets/profile_header.dart';
 const kDefaultLocation = LatLng(13.0827, 80.2081);
 
 /// Home — the citizen map screen (port of the phase-1 web home): profile
-/// header + constituency highlights, the grievance map card, and the
-/// In My Ward / My Reports lists, with the floating "+" report button.
+/// header, the grievance map card, and the In My Ward / My Reports lists,
+/// with the floating "+" report button.
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
 
@@ -56,7 +55,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   // UI state
   bool _profileOpen = false;
-  String _constituency = '16 - Egmore';
   int _tab = 0; // 0 = ward, 1 = mine
   String? _expandedId;
 
@@ -313,10 +311,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       profileOpen: _profileOpen,
                       onToggleProfile: () =>
                           setState(() => _profileOpen = !_profileOpen),
-                      onOpenStory: (s) => StoryViewer.open(context, s),
-                      constituency: _constituency,
-                      onConstituencyChanged: (v) =>
-                          setState(() => _constituency = v),
                       onSignOut: _signOut,
                     ),
 
