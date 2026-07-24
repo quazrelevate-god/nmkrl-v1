@@ -39,6 +39,13 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+        <!-- Impeller's GLES path stalls/janks on emulators (no first frame on
+             standalone launches; multi-second ANR frames when it does run).
+             Force the Skia renderer everywhere so icon launches behave like
+             the no-enable-impeller dev sessions. -->
+        <meta-data
+            android:name="io.flutter.embedding.android.EnableImpeller"
+            android:value="false" />
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

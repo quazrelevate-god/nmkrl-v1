@@ -44,26 +44,30 @@ class GlassContainer extends StatelessWidget {
   final EdgeInsetsGeometry? padding;
   final EdgeInsetsGeometry? margin;
 
+  // Tuned for a thinner pane than the web CSS: lower fill alpha (more of the
+  // content shows through) and a lighter blur (what shows through stays
+  // recognisable), with slightly stronger hairline borders so the edge of
+  // the glass reads crisply.
   ({Color fill, Color border, double blur}) get _spec => switch (variant) {
         Glass.regular => (
-            fill: Colors.white.withValues(alpha: 0.62),
-            border: Colors.white.withValues(alpha: 0.55),
-            blur: 20,
+            fill: Colors.white.withValues(alpha: 0.45),
+            border: Colors.white.withValues(alpha: 0.60),
+            blur: 12,
           ),
         Glass.strong => (
-            fill: Colors.white.withValues(alpha: 0.82),
-            border: Colors.white.withValues(alpha: 0.60),
-            blur: 24,
+            fill: Colors.white.withValues(alpha: 0.65),
+            border: Colors.white.withValues(alpha: 0.65),
+            blur: 14,
           ),
         Glass.clear => (
-            fill: Colors.white.withValues(alpha: 0.10),
-            border: Colors.white.withValues(alpha: 0.35),
-            blur: 24,
+            fill: Colors.white.withValues(alpha: 0.05),
+            border: Colors.white.withValues(alpha: 0.40),
+            blur: 10,
           ),
         Glass.dark => (
-            fill: const Color(0xFF0F172A).withValues(alpha: 0.55),
-            border: Colors.white.withValues(alpha: 0.12),
-            blur: 18,
+            fill: const Color(0xFF0F172A).withValues(alpha: 0.42),
+            border: Colors.white.withValues(alpha: 0.16),
+            blur: 10,
           ),
       };
 
