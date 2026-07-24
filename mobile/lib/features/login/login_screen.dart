@@ -13,9 +13,11 @@ import '../shared/wave_mark.dart';
 
 /// Combined sign-in — one screen, two roles, switched by the toggle at the
 /// top corner:
-///   • Citizen     (port of app/login/page.js — Aadhaar/Voter + MOCK OTP)
-///   • Coordinator (port of app/coordinator/login — username/password with
-///                  the 4 seeded staff accounts as tap-to-fill cards)
+///   • Citizen     — phase-1 protocol: name + OTP-verified mobile number
+///                   (static mock OTP). The backend users table authenticates
+///                   a known (phone, name) pair or auto-registers a new one.
+///   • Coordinator — username/password with the 4 seeded staff accounts as
+///                   tap-to-fill cards.
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
 
@@ -139,100 +141,91 @@ class _CitizenLoginForm extends ConsumerStatefulWidget {
 }
 
 class _CitizenLoginFormState extends ConsumerState<_CitizenLoginForm> {
-  static const _demo = (
-    name: 'Raj Kumar',
-    idType: 'aadhaar',
-    id: '4271 8890 1123',
-    mobile: '98840 12345',
-    password: 'raj@2026',
-    otp: '246813',
-  );
+  /// Phase-1 OTP is a static mock — the backend never sees it.
+  static const _mockOtp = '246813';
 
   final _name = TextEditingController();
-  final _id = TextEditingController();
   final _mobile = TextEditingController();
-  final _password = TextEditingController();
   final _otp = TextEditingController();
 
-  String _idType = 'aadhaar';
   bool _otpSent = false;
+  bool _busy = false;
   String? _error;
-  bool _leaving = false;
-  Timer? _demoTimer;
 
   @override
   void initState() {
     super.initState();
-    for (final c in [_name, _id, _mobile, _password, _otp]) {
+    // Prefill for returning users (kept across sign-out).
+    final prefs = ref.read(prefsProvider);
+    if (prefs.accountId != null) {
+      _name.text = prefs.citizenName == 'Citizen' ? '' : prefs.citizenName;
+      _mobile.text = prefs.citizenPhone;
+    }
+    for (final c in [_name, _mobile, _otp]) {
       c.addListener(() => setState(() {}));
     }
   }
 
   @override
   void dispose() {
-    _demoTimer?.cancel();
-    for (final c in [_name, _id, _mobile, _password, _otp]) {
-      c.dispose();
-    }
+    _name.dispose();
+    _mobile.dispose();
+    _otp.dispose();
     super.dispose();
   }
 
   String get _mobileDigits => _mobile.text.replaceAll(RegExp(r'\D'), '');
 
-  bool get _verified =>
-      _otpSent && _otp.text.replaceAll(RegExp(r'\D'), '').length == 6;
+  bool get _otpVerified => _otpSent && _otp.text == _mockOtp;
 
   bool get _canLogin =>
-      _name.text.trim().isNotEmpty &&
-      _id.text.trim().isNotEmpty &&
+      !_busy &&
+      _name.text.trim().length >= 2 &&
       _mobileDigits.length >= 10 &&
-      _password.text.isNotEmpty &&
-      _verified;
+      _otpVerified;
 
   void _sendOtp() {
     if (_mobileDigits.length < 10) {
-      setState(() => _error = 'Enter the Aadhaar-linked mobile number first.');
+      setState(() => _error = 'Enter a valid 10-digit mobile number first.');
       return;
     }
     HapticFeedback.selectionClick();
     setState(() {
       _error = null;
       _otpSent = true;
+      _otp.clear();
     });
   }
 
-  Future<void> _finishLogin() async {
-    if (_leaving) return;
-    _leaving = true;
-    await ref
-        .read(authProvider.notifier)
-        .signIn(_name.text.trim().isEmpty ? _demo.name : _name.text.trim());
-    if (mounted) context.go('/home');
-  }
-
-  void _submit() {
+  Future<void> _submit() async {
     if (!_canLogin) {
-      setState(
-          () => _error = 'Complete every field and verify the OTP to continue.');
+      setState(() {
+        if (_otpSent && _otp.text.length == 6 && !_otpVerified) {
+          _error = 'Incorrect OTP. The demo code is $_mockOtp.';
+        } else {
+          _error =
+              'Enter your name, verify your mobile number with the OTP, then log in.';
+        }
+      });
       return;
     }
-    HapticFeedback.mediumImpact();
-    _finishLogin();
-  }
-
-  void _demoLogin() {
-    HapticFeedback.mediumImpact();
     setState(() {
-      _name.text = _demo.name;
-      _idType = _demo.idType;
-      _id.text = _demo.id;
-      _mobile.text = _demo.mobile;
-      _password.text = _demo.password;
-      _otpSent = true;
-      _otp.text = _demo.otp;
+      _busy = true;
       _error = null;
     });
-    _demoTimer = Timer(const Duration(milliseconds: 400), _finishLogin);
+    try {
+      await ref
+          .read(authProvider.notifier)
+          .signIn(name: _name.text.trim(), phone: _mobileDigits);
+      HapticFeedback.mediumImpact();
+      if (mounted) context.go('/home');
+    } catch (e) {
+      // Backend rejections surface here — e.g. the phone number is already
+      // registered under a different name.
+      if (mounted) setState(() => _error = '$e');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   InputDecoration _dec(String hint) => InputDecoration(
@@ -312,6 +305,14 @@ class _CitizenLoginFormState extends ConsumerState<_CitizenLoginForm> {
                   color: Colors.white.withValues(alpha: 0.5),
                 ),
               ),
+              const SizedBox(height: 4),
+              Text(
+                'One account per mobile number',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: Colors.white.withValues(alpha: 0.35),
+                ),
+              ),
             ],
           ),
         ),
@@ -335,91 +336,12 @@ class _CitizenLoginFormState extends ConsumerState<_CitizenLoginForm> {
             children: [
               _label(Icons.person_outline, 'Full name'),
               TextField(
-                  controller: _name, decoration: _dec('As per your ID')),
-              const SizedBox(height: 16),
-              _label(
-                _idType == 'aadhaar'
-                    ? Icons.badge_outlined
-                    : Icons.how_to_vote_outlined,
-                'Identity',
-              ),
-              Container(
-                padding: const EdgeInsets.all(4),
-                decoration: BoxDecoration(
-                  color: NkColors.slate100,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Row(
-                  children: [
-                    for (final (key, label, icon) in [
-                      ('aadhaar', 'Aadhaar', Icons.badge_outlined),
-                      ('voter', 'Voter ID', Icons.how_to_vote_outlined),
-                    ])
-                      Expanded(
-                        child: GestureDetector(
-                          onTap: () {
-                            HapticFeedback.selectionClick();
-                            setState(() => _idType = key);
-                          },
-                          child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 250),
-                            curve: NkMotion.settle,
-                            padding:
-                                const EdgeInsets.symmetric(vertical: 7),
-                            decoration: BoxDecoration(
-                              color: _idType == key
-                                  ? Colors.white
-                                  : Colors.transparent,
-                              borderRadius: BorderRadius.circular(8),
-                              boxShadow: _idType == key
-                                  ? [
-                                      BoxShadow(
-                                        color: Colors.black
-                                            .withValues(alpha: 0.06),
-                                        blurRadius: 4,
-                                        offset: const Offset(0, 1),
-                                      ),
-                                    ]
-                                  : null,
-                            ),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(icon,
-                                    size: 13,
-                                    color: _idType == key
-                                        ? NkColors.brand
-                                        : NkColors.slate500),
-                                const SizedBox(width: 6),
-                                Text(
-                                  label,
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w700,
-                                    color: _idType == key
-                                        ? NkColors.brand
-                                        : NkColors.slate500,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _id,
-                keyboardType: _idType == 'aadhaar'
-                    ? TextInputType.number
-                    : TextInputType.text,
-                decoration: _dec(
-                    _idType == 'aadhaar' ? 'XXXX XXXX XXXX' : 'ABC1234567'),
+                controller: _name,
+                textCapitalization: TextCapitalization.words,
+                decoration: _dec('As per your records'),
               ),
               const SizedBox(height: 16),
-              _label(Icons.smartphone, 'Aadhaar-linked mobile'),
+              _label(Icons.smartphone, 'Mobile number'),
               Row(
                 children: [
                   Container(
@@ -506,7 +428,7 @@ class _CitizenLoginFormState extends ConsumerState<_CitizenLoginForm> {
                                   decoration:
                                       _dec('••••••').copyWith(counterText: ''),
                                 ),
-                                if (_verified)
+                                if (_otpVerified)
                                   const Padding(
                                     padding: EdgeInsets.only(right: 12),
                                     child: Icon(
@@ -519,7 +441,7 @@ class _CitizenLoginFormState extends ConsumerState<_CitizenLoginForm> {
                             ),
                             const SizedBox(height: 6),
                             Text(
-                              'OTP sent to +91 ${_mobile.text.isEmpty ? '98xxx xxxxx' : _mobile.text} · demo code 246813',
+                              'OTP sent to +91 ${_mobile.text.isEmpty ? '98xxx xxxxx' : _mobile.text} · demo code $_mockOtp',
                               style: const TextStyle(
                                 fontSize: 11,
                                 color: NkColors.slate500,
@@ -528,13 +450,6 @@ class _CitizenLoginFormState extends ConsumerState<_CitizenLoginForm> {
                           ],
                         ),
                       ),
-              ),
-              const SizedBox(height: 16),
-              _label(Icons.lock_outline, 'Password'),
-              TextField(
-                controller: _password,
-                obscureText: true,
-                decoration: _dec('••••••••'),
               ),
               if (_error != null) ...[
                 const SizedBox(height: 12),
@@ -574,21 +489,33 @@ class _CitizenLoginFormState extends ConsumerState<_CitizenLoginForm> {
                         ),
                       ],
                     ),
-                    child: const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.login, size: 16, color: Colors.white),
-                        SizedBox(width: 8),
-                        Text(
-                          'Login',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.white,
+                    child: _busy
+                        ? const Center(
+                            child: SizedBox(
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.4,
+                                color: Colors.white,
+                              ),
+                            ),
+                          )
+                        : const Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.login,
+                                  size: 16, color: Colors.white),
+                              SizedBox(width: 8),
+                              Text(
+                                'Login',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ],
                           ),
-                        ),
-                      ],
-                    ),
                   ),
                 ),
               ),
@@ -599,100 +526,19 @@ class _CitizenLoginFormState extends ConsumerState<_CitizenLoginForm> {
                   Icon(Icons.verified_user,
                       size: 11, color: NkColors.emerald500),
                   SizedBox(width: 6),
-                  Text(
-                    'Secured by Aadhaar e-KYC · Illustrative PoC',
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w500,
-                      color: NkColors.slate400,
+                  Flexible(
+                    child: Text(
+                      'New numbers are registered automatically on first login',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w500,
+                        color: NkColors.slate400,
+                      ),
                     ),
                   ),
                 ],
               ),
             ],
-          ),
-        ),
-        const SizedBox(height: 20),
-        GestureDetector(
-          onTap: _demoLogin,
-          child: Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.10),
-              borderRadius: BorderRadius.circular(16),
-              border:
-                  Border.all(color: Colors.white.withValues(alpha: 0.15)),
-            ),
-            child: Row(
-              children: [
-                Container(
-                  height: 44,
-                  width: 44,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    gradient: nkGoldGradient,
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.3),
-                        width: 2),
-                  ),
-                  child: const Text(
-                    'RK',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w900,
-                      color: NkColors.brandDark,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Continue as Raj Kumar',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white,
-                        ),
-                      ),
-                      Text(
-                        'Demo citizen · autofills every field & signs in',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: Colors.white.withValues(alpha: 0.6),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const Icon(Icons.arrow_forward,
-                    size: 18, color: NkColors.gold200),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 12),
-        Center(
-          child: Text.rich(
-            TextSpan(
-              text: 'New to Namm Kural? ',
-              style: TextStyle(
-                fontSize: 11,
-                color: Colors.white.withValues(alpha: 0.4),
-              ),
-              children: const [
-                TextSpan(
-                  text: 'Register with Aadhaar',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    color: NkColors.gold200,
-                  ),
-                ),
-              ],
-            ),
           ),
         ),
         const SizedBox(height: 32),

@@ -1,16 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/glass.dart';
 import '../../../core/theme.dart';
 import '../../../domain/profile_data.dart';
+import '../../../state/providers.dart';
 import '../../profile/edit_profile_screen.dart';
 import '../../shared/wave_mark.dart';
 
 /// Home header — port of components/citizen/CitizenProfileHeader.js.
 /// Frosted glass bar with rounded bottom: brand + avatar (tap → the gamified
-/// profile expands in place with a spring).
-class ProfileHeader extends StatelessWidget {
+/// profile expands in place with a spring). Name + initials come from the
+/// authenticated account (backend users table), not mock data.
+class ProfileHeader extends ConsumerWidget {
   const ProfileHeader({
     super.key,
     required this.profileOpen,
@@ -23,7 +26,8 @@ class ProfileHeader extends StatelessWidget {
   final VoidCallback onSignOut;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final accountName = ref.watch(prefsProvider).citizenName;
     return GlassContainer(
       variant: Glass.clear,
       borderRadius: const BorderRadius.only(
@@ -71,7 +75,7 @@ class ProfileHeader extends StatelessWidget {
                             border: Border.all(color: Colors.white, width: 2),
                           ),
                           child: Text(
-                            ProfileData.initials,
+                            ProfileData.initialsOf(accountName),
                             style: const TextStyle(
                               fontSize: 13,
                               fontWeight: FontWeight.w900,
@@ -107,7 +111,9 @@ class ProfileHeader extends StatelessWidget {
             alignment: Alignment.topCenter,
             child: profileOpen
                 ? _ProfilePanel(
-                    onCollapse: onToggleProfile, onSignOut: onSignOut)
+                    accountName: accountName,
+                    onCollapse: onToggleProfile,
+                    onSignOut: onSignOut)
                 : const SizedBox(width: double.infinity),
           ),
           // Breathing room above the rounded bottom edge.
@@ -119,8 +125,13 @@ class ProfileHeader extends StatelessWidget {
 }
 
 class _ProfilePanel extends StatelessWidget {
-  const _ProfilePanel({required this.onCollapse, required this.onSignOut});
+  const _ProfilePanel({
+    required this.accountName,
+    required this.onCollapse,
+    required this.onSignOut,
+  });
 
+  final String accountName;
   final VoidCallback onCollapse;
   final VoidCallback onSignOut;
 
@@ -156,7 +167,7 @@ class _ProfilePanel extends StatelessWidget {
                     border: Border.all(color: Colors.white, width: 2),
                   ),
                   child: Text(
-                    ProfileData.initials,
+                    ProfileData.initialsOf(accountName),
                     style: const TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.w900,
@@ -177,10 +188,10 @@ class _ProfilePanel extends StatelessWidget {
                             color: NkColors.slate400)),
                     Row(
                       children: [
-                        const Expanded(
+                        Expanded(
                           child: Text(
-                            '${ProfileData.name} 👋',
-                            style: TextStyle(
+                            '$accountName 👋',
+                            style: const TextStyle(
                               fontSize: 18,
                               fontWeight: FontWeight.w800,
                               color: NkColors.slate900,

@@ -7,6 +7,7 @@ import '../data/dio_api_client.dart';
 import '../data/prefs.dart';
 import '../domain/coordinator_data.dart';
 import '../domain/daily_limit.dart';
+import '../domain/models/citizen_user.dart';
 
 /// Overridden with the real instance in main() before runApp.
 final sharedPreferencesProvider = Provider<SharedPreferences>(
@@ -25,20 +26,31 @@ final apiClientProvider = Provider<ApiClient>((ref) => DioApiClient());
 
 final userIdProvider = Provider<String>((ref) => ref.watch(prefsProvider).userId);
 
-/// Auth flag as reactive state so router redirects respond to sign-in/out.
+/// Citizen auth as reactive state so router redirects respond to sign-in/out.
+/// A session only counts when a server-issued account id is present, so
+/// pre-auth-era installs are sent back through the new login.
 class AuthNotifier extends Notifier<bool> {
   @override
-  bool build() => ref.read(prefsProvider).authed;
-
-  Future<void> signIn(String name) async {
+  bool build() {
     final prefs = ref.read(prefsProvider);
-    await prefs.setAuthed(true);
-    await prefs.setCitizenName(name);
+    return prefs.authed && (prefs.accountId?.isNotEmpty ?? false);
+  }
+
+  /// Phase-1 login: check-or-create the (name, phone) account on the backend.
+  /// Throws [ApiException] with a friendly message on rejection (e.g. the
+  /// phone is registered under a different name).
+  Future<CitizenUser> signIn(
+      {required String name, required String phone}) async {
+    final user = await ref
+        .read(apiClientProvider)
+        .citizenLogin(name: name, phone: phone);
+    await ref.read(prefsProvider).saveAccount(user);
     state = true;
+    return user;
   }
 
   Future<void> signOut() async {
-    await ref.read(prefsProvider).setAuthed(false);
+    await ref.read(prefsProvider).clearSession();
     state = false;
   }
 }

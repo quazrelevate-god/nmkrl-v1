@@ -1,12 +1,18 @@
 import 'dart:io';
 
 import '../domain/models/boundary_data.dart';
+import '../domain/models/citizen_user.dart';
 import '../domain/models/issue.dart';
 import '../domain/models/locate_result.dart';
 
 /// Abstract seam over the FastAPI backend (mirrors frontend/lib/api.js
 /// 1:1). Widget/unit tests inject a fake; the app wires [DioApiClient].
 abstract class ApiClient {
+  /// Phase-1 citizen login (POST /api/auth/login): a known phone must present
+  /// its registered name; an unknown phone auto-registers. Throws
+  /// [ApiException] on a name mismatch (401) or invalid input (400).
+  Future<CitizenUser> citizenLogin({required String name, required String phone});
+
   Future<BoundaryData> fetchBoundaries();
 
   Future<LocateResult> locate(double lat, double lng);

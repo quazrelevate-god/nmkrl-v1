@@ -206,6 +206,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         final updated = await ref.read(apiClientProvider).upvoteIssue(
               issue.id,
               ref.read(userIdProvider),
+              name: ref.read(prefsProvider).citizenName,
             );
         if (!mounted) return;
         setState(() {
@@ -253,6 +254,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         await ref.read(apiClientProvider).upvoteIssue(
               existing.id,
               ref.read(userIdProvider),
+              name: ref.read(prefsProvider).citizenName,
             );
         final w = _currentWard;
         if (w != null) await _loadWard(w);

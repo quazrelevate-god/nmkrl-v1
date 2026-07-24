@@ -48,6 +48,16 @@ def get_db():
 
 
 SCHEMA = """
+-- Phase-1 citizen accounts: one row per phone number. Login checks the
+-- (phone, name) pair — a known phone must present its registered name; an
+-- unknown phone auto-registers. OTP is a static mock in phase 1.
+CREATE TABLE IF NOT EXISTS users (
+    id          TEXT PRIMARY KEY,
+    name        TEXT NOT NULL,
+    phone       TEXT NOT NULL UNIQUE,
+    created_at  TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS issues (
     id                  TEXT PRIMARY KEY,
     title               TEXT,
