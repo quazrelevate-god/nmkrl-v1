@@ -162,10 +162,10 @@ class _ReportSheetState extends ConsumerState<ReportSheet> {
       }
 
       final issue = outcome.issue!;
-      // Attach the citizen's saved name (OTP already done at login) —
-      // non-blocking, same as the web flow.
+      // Attach the authenticated account's contact details (phone was
+      // OTP-verified at login) — non-blocking, same as the web flow.
       try {
-        await api.confirmIssue(issue.id, '9999900000',
+        await api.confirmIssue(issue.id, prefs.citizenPhone,
             name: prefs.citizenName);
       } catch (_) {}
 

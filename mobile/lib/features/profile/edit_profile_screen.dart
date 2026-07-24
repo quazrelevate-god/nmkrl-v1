@@ -130,7 +130,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                                   Border.all(color: Colors.white, width: 2),
                             ),
                             child: Text(
-                              ProfileData.initials,
+                              ProfileData.initialsOf(_name.text),
                               style: const TextStyle(
                                 fontSize: 28,
                                 fontWeight: FontWeight.w900,

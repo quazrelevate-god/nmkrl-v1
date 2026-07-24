@@ -5,6 +5,7 @@ import 'package:http_parser/http_parser.dart';
 
 import '../core/env.dart';
 import '../domain/models/boundary_data.dart';
+import '../domain/models/citizen_user.dart';
 import '../domain/models/issue.dart';
 import '../domain/models/locate_result.dart';
 import 'api_client.dart';
@@ -68,6 +69,20 @@ class DioApiClient implements ApiClient {
       ((data as Map<String, dynamic>)['issues'] as List<dynamic>? ?? const [])
           .map((e) => Issue.fromJson(e as Map<String, dynamic>))
           .toList();
+
+  @override
+  Future<CitizenUser> citizenLogin(
+      {required String name, required String phone}) async {
+    try {
+      final res = await _dio.post<Map<String, dynamic>>(
+        '/api/auth/login',
+        data: FormData.fromMap({'name': name, 'phone': phone}),
+      );
+      return CitizenUser.fromJson(res.data!);
+    } catch (e) {
+      _friendly(e);
+    }
+  }
 
   @override
   Future<BoundaryData> fetchBoundaries() => _get(

@@ -2,9 +2,14 @@ import 'dart:math';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Device-local persistence: auth flag, citizen name and the stable per-device
-/// user id (ports of localStorage keys nk_citizen_authed / nk_citizen_name /
-/// fms_user_id).
+import '../domain/models/citizen_user.dart';
+
+/// Device-local session for the authenticated citizen account.
+///
+/// Phase-1 identity comes from the backend `users` table (one account per
+/// phone number): [saveAccount] persists the server-issued id + name + phone
+/// after POST /api/auth/login, and [userId] returns that id so every action
+/// (report / upvote / verify / history) belongs to the signed-in account.
 class Prefs {
   Prefs(this._prefs);
 
@@ -12,7 +17,9 @@ class Prefs {
 
   static const _authedKey = 'nk_citizen_authed';
   static const _nameKey = 'nk_citizen_name';
-  static const _userIdKey = 'fms_user_id';
+  static const _phoneKey = 'nk_citizen_phone';
+  static const _accountIdKey = 'nk_account_id';
+  static const _legacyUserIdKey = 'fms_user_id';
 
   bool get authed => _prefs.getBool(_authedKey) ?? false;
 
@@ -22,18 +29,37 @@ class Prefs {
 
   Future<void> setCitizenName(String name) => _prefs.setString(_nameKey, name);
 
-  /// Stable per-device user id (`user-<rand36><time36>`, same shape as web).
+  String get citizenPhone => _prefs.getString(_phoneKey) ?? '';
+
+  /// Server-issued account id, null until the first successful login.
+  String? get accountId => _prefs.getString(_accountIdKey);
+
+  /// Persist the authenticated account returned by the backend.
+  Future<void> saveAccount(CitizenUser user) async {
+    await _prefs.setString(_accountIdKey, user.id);
+    await _prefs.setString(_nameKey, user.name);
+    await _prefs.setString(_phoneKey, user.phone);
+    await _prefs.setBool(_authedKey, true);
+  }
+
+  /// Sign out: end the session but keep name/phone to prefill the next login.
+  Future<void> clearSession() => _prefs.setBool(_authedKey, false);
+
+  /// The id every backend action is stamped with — the authenticated
+  /// account's id. Falls back to the legacy per-device id only for the brief
+  /// unauthenticated window (auth-gated screens never see it).
   String get userId {
-    var id = _prefs.getString(_userIdKey);
+    final account = accountId;
+    if (account != null && account.isNotEmpty) return account;
+    var id = _prefs.getString(_legacyUserIdKey);
     if (id == null || id.isEmpty) {
       final rand = Random();
       String block() =>
           List.generate(6, (_) => '0123456789abcdefghijklmnopqrstuvwxyz'[rand.nextInt(36)])
               .join();
-      final time36 =
-          DateTime.now().millisecondsSinceEpoch.toRadixString(36);
+      final time36 = DateTime.now().millisecondsSinceEpoch.toRadixString(36);
       id = 'user-${block()}${time36.substring(time36.length - 4)}';
-      _prefs.setString(_userIdKey, id);
+      _prefs.setString(_legacyUserIdKey, id);
     }
     return id;
   }
