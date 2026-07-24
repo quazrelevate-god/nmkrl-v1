@@ -29,6 +29,8 @@ dependencies:
   path_provider: ^2.1.5
   # Persistence (auth flag, user id, daily fair-use quotas)
   shared_preferences: ^2.3.3
+  # Open the grievance location in the native maps app
+  url_launcher: ^6.3.1
 
 dev_dependencies:
   flutter_test:

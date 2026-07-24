@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/theme.dart';
 import '../../../data/media.dart';
@@ -48,6 +49,14 @@ class IssueCard extends StatelessWidget {
         alignment: Alignment.center,
         child: Text('🛣️', style: TextStyle(fontSize: emojiSize)),
       );
+
+  void _showPhoto(BuildContext context, ImageProvider image) {
+    showDialog<void>(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.78),
+      builder: (_) => _PhotoDialog(issue: issue, image: image),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -122,8 +131,7 @@ class IssueCard extends StatelessWidget {
                               decoration: BoxDecoration(
                                 color: NkColors.amber100,
                                 borderRadius: BorderRadius.circular(999),
-                                border:
-                                    Border.all(color: NkColors.amber200),
+                                border: Border.all(color: NkColors.amber200),
                               ),
                               child: Row(
                                 mainAxisSize: MainAxisSize.min,
@@ -152,8 +160,7 @@ class IssueCard extends StatelessWidget {
                                   Text(
                                     formatDistanceKm(distanceKm!),
                                     style: const TextStyle(
-                                        fontSize: 11,
-                                        color: NkColors.slate400),
+                                        fontSize: 11, color: NkColors.slate400),
                                   ),
                                 ],
                               ),
@@ -198,31 +205,37 @@ class IssueCard extends StatelessWidget {
                         Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(12),
-                              child: image != null
-                                  ? Image(
-                                      image: image,
-                                      height: 96,
-                                      width: 96,
-                                      fit: BoxFit.cover,
-                                      errorBuilder: (_, __, ___) =>
-                                          _photoFallback(96, 30),
-                                    )
-                                  : _photoFallback(96, 30),
+                            GestureDetector(
+                              onTap: image == null
+                                  ? null
+                                  : () {
+                                      HapticFeedback.selectionClick();
+                                      _showPhoto(context, image);
+                                    },
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(12),
+                                child: image != null
+                                    ? Image(
+                                        image: image,
+                                        height: 96,
+                                        width: 96,
+                                        fit: BoxFit.cover,
+                                        errorBuilder: (_, __, ___) =>
+                                            _photoFallback(96, 30),
+                                      )
+                                    : _photoFallback(96, 30),
+                              ),
                             ),
                             const SizedBox(width: 12),
                             Expanded(
                               child: Column(
-                                crossAxisAlignment:
-                                    CrossAxisAlignment.start,
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   if (issue.areaName != null) ...[
                                     Row(
                                       children: [
                                         const Icon(Icons.place,
-                                            size: 10,
-                                            color: NkColors.slate500),
+                                            size: 10, color: NkColors.slate500),
                                         const SizedBox(width: 3),
                                         Expanded(
                                           child: Text(
@@ -241,10 +254,8 @@ class IssueCard extends StatelessWidget {
                                     runSpacing: 4,
                                     children: [
                                       Container(
-                                        padding:
-                                            const EdgeInsets.symmetric(
-                                                horizontal: 6,
-                                                vertical: 2),
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 6, vertical: 2),
                                         decoration: BoxDecoration(
                                           color: NkColors.slate100,
                                           borderRadius:
@@ -257,15 +268,13 @@ class IssueCard extends StatelessWidget {
                                                 Icons
                                                     .confirmation_number_outlined,
                                                 size: 9,
-                                                color:
-                                                    NkColors.slate500),
+                                                color: NkColors.slate500),
                                             const SizedBox(width: 3),
                                             Text(
                                               ticketNumber(issue.id),
                                               style: const TextStyle(
                                                 fontSize: 10,
-                                                fontWeight:
-                                                    FontWeight.w600,
+                                                fontWeight: FontWeight.w600,
                                                 fontFamily: 'monospace',
                                                 color: NkColors.slate500,
                                               ),
@@ -275,17 +284,14 @@ class IssueCard extends StatelessWidget {
                                       ),
                                       if (issue.wardNo != null)
                                         Container(
-                                          padding:
-                                              const EdgeInsets.symmetric(
-                                                  horizontal: 6,
-                                                  vertical: 2),
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 6, vertical: 2),
                                           decoration: BoxDecoration(
                                             color: NkColors.violet50,
                                             borderRadius:
                                                 BorderRadius.circular(4),
                                             border: Border.all(
-                                                color:
-                                                    NkColors.violet200),
+                                                color: NkColors.violet200),
                                           ),
                                           child: Text(
                                             'Ward no: ${issue.wardNo}',
@@ -299,29 +305,13 @@ class IssueCard extends StatelessWidget {
                                     ],
                                   ),
                                   const SizedBox(height: 6),
-                                  Row(
-                                    children: [
-                                      const Icon(Icons.thumb_up_outlined,
-                                          size: 10,
+                                  if (issue.createdAt != null)
+                                    Text(
+                                      formatShortDate(issue.createdAt!),
+                                      style: const TextStyle(
+                                          fontSize: 11,
                                           color: NkColors.slate400),
-                                      const SizedBox(width: 3),
-                                      Text(
-                                        '${issue.upvotes}',
-                                        style: const TextStyle(
-                                            fontSize: 11,
-                                            color: NkColors.slate400),
-                                      ),
-                                      const SizedBox(width: 12),
-                                      if (issue.createdAt != null)
-                                        Text(
-                                          formatShortDate(
-                                              issue.createdAt!),
-                                          style: const TextStyle(
-                                              fontSize: 11,
-                                              color: NkColors.slate400),
-                                        ),
-                                    ],
-                                  ),
+                                    ),
                                 ],
                               ),
                             ),
@@ -337,12 +327,10 @@ class IssueCard extends StatelessWidget {
                             decoration: BoxDecoration(
                               color: NkColors.brand50,
                               borderRadius: BorderRadius.circular(12),
-                              border:
-                                  Border.all(color: NkColors.brand100),
+                              border: Border.all(color: NkColors.brand100),
                             ),
                             child: Column(
-                              crossAxisAlignment:
-                                  CrossAxisAlignment.start,
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 const Row(
                                   children: [
@@ -372,35 +360,28 @@ class IssueCard extends StatelessWidget {
                                     ),
                                   ),
                                 ],
-                                if (issue
-                                    .summaryHighlights.isNotEmpty) ...[
+                                if (issue.summaryHighlights.isNotEmpty) ...[
                                   const SizedBox(height: 6),
                                   Wrap(
                                     spacing: 4,
                                     runSpacing: 4,
                                     children: [
-                                      for (final h
-                                          in issue.summaryHighlights)
+                                      for (final h in issue.summaryHighlights)
                                         Container(
-                                          padding: const EdgeInsets
-                                              .symmetric(
-                                              horizontal: 8,
-                                              vertical: 2),
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 8, vertical: 2),
                                           decoration: BoxDecoration(
                                             color: Colors.white,
                                             borderRadius:
-                                                BorderRadius.circular(
-                                                    999),
+                                                BorderRadius.circular(999),
                                             border: Border.all(
-                                                color:
-                                                    NkColors.brand200),
+                                                color: NkColors.brand200),
                                           ),
                                           child: Text(
                                             h,
                                             style: const TextStyle(
                                               fontSize: 10,
-                                              fontWeight:
-                                                  FontWeight.w500,
+                                              fontWeight: FontWeight.w500,
                                               color: NkColors.brand,
                                             ),
                                           ),
@@ -454,8 +435,7 @@ class IssueCard extends StatelessWidget {
                         // Lifecycle tracker (citizen cards; hidden for FALSE)
                         if (actions == null && issue.status != 'FALSE') ...[
                           const SizedBox(height: 12),
-                          _LifecycleTracker(
-                              index: progressIndex(issue.status)),
+                          _LifecycleTracker(index: progressIndex(issue.status)),
                         ],
 
                         if (actions == null && onUpvote != null) ...[
@@ -469,8 +449,7 @@ class IssueCard extends StatelessWidget {
                                 borderRadius: BorderRadius.circular(12),
                               ),
                               child: const Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.center,
+                                mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
                                   Icon(Icons.thumb_up_outlined,
                                       size: 13, color: Colors.white),
@@ -493,6 +472,114 @@ class IssueCard extends StatelessWidget {
                   ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Floating viewer for the expanded card's photo: dimmed barrier, tap
+/// outside or the X to dismiss, and a pin button that opens the grievance
+/// location in the native maps app (geo: intent, web-maps fallback).
+class _PhotoDialog extends StatelessWidget {
+  const _PhotoDialog({required this.issue, required this.image});
+
+  final Issue issue;
+  final ImageProvider image;
+
+  Future<void> _openMaps() async {
+    final lat = issue.latitude, lng = issue.longitude;
+    final label = Uri.encodeComponent(issue.title);
+    final geo = Uri.parse('geo:$lat,$lng?q=$lat,$lng($label)');
+    try {
+      if (await launchUrl(geo, mode: LaunchMode.externalApplication)) return;
+    } catch (_) {}
+    final web =
+        Uri.parse('https://www.google.com/maps/search/?api=1&query=$lat,$lng');
+    try {
+      await launchUrl(web, mode: LaunchMode.externalApplication);
+    } catch (_) {}
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final size = MediaQuery.sizeOf(context);
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      insetPadding: const EdgeInsets.all(20),
+      child: Stack(
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(20),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxHeight: size.height * 0.7),
+              child: Image(
+                image: image,
+                fit: BoxFit.contain,
+                errorBuilder: (_, __, ___) => Container(
+                  height: 220,
+                  width: double.infinity,
+                  color: NkColors.slate100,
+                  alignment: Alignment.center,
+                  child: const Text('🛣️', style: TextStyle(fontSize: 40)),
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            top: 8,
+            right: 8,
+            child: _PhotoDialogButton(
+              icon: Icons.close,
+              tooltip: 'Close',
+              onTap: () => Navigator.of(context).pop(),
+            ),
+          ),
+          Positioned(
+            bottom: 8,
+            right: 8,
+            child: _PhotoDialogButton(
+              icon: Icons.place_outlined,
+              tooltip: 'Open in maps',
+              onTap: _openMaps,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PhotoDialogButton extends StatelessWidget {
+  const _PhotoDialogButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: GestureDetector(
+        onTap: () {
+          HapticFeedback.selectionClick();
+          onTap();
+        },
+        child: Container(
+          height: 44,
+          width: 44,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: NkColors.slate900.withValues(alpha: 0.55),
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white.withValues(alpha: 0.35)),
+          ),
+          child: Icon(icon, size: 18, color: Colors.white),
+        ),
       ),
     );
   }
@@ -558,14 +645,13 @@ class _LifecycleTrackerState extends State<_LifecycleTracker>
                                 : NkColors.slate200,
                             shape: BoxShape.circle,
                             border: active
-                                ? Border.all(
-                                    color: NkColors.brand200, width: 2)
+                                ? Border.all(color: NkColors.brand200, width: 2)
                                 : null,
                             boxShadow: active
                                 ? [
                                     BoxShadow(
-                                      color: NkColors.brand.withValues(
-                                          alpha: 0.5 * (1 - t)),
+                                      color: NkColors.brand
+                                          .withValues(alpha: 0.5 * (1 - t)),
                                       spreadRadius: 6 * t,
                                     ),
                                   ]
@@ -599,9 +685,8 @@ class _LifecycleTrackerState extends State<_LifecycleTracker>
                     style: TextStyle(
                       fontSize: 6,
                       height: 1.3,
-                      fontWeight: i == widget.index
-                          ? FontWeight.w700
-                          : FontWeight.w400,
+                      fontWeight:
+                          i == widget.index ? FontWeight.w700 : FontWeight.w400,
                       color: i == widget.index
                           ? NkColors.brand
                           : NkColors.slate400,
