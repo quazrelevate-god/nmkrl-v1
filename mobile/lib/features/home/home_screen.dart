@@ -137,9 +137,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     if (c == null) return;
     setState(() => _locating = true);
     try {
-      final r = await ref
-          .read(apiClientProvider)
-          .locate(c.latitude, c.longitude);
+      final r =
+          await ref.read(apiClientProvider).locate(c.latitude, c.longitude);
       if (!mounted) return;
       setState(() {
         _locate = r;
@@ -293,178 +292,173 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
             SafeArea(
               bottom: false,
-              child: RefreshIndicator(
-                color: NkColors.brand,
-                onRefresh: () async {
-                  await Future.wait([
-                    _loadHistory(),
-                    _loadBoundaries(),
-                    if (_currentWard != null) _loadWard(_currentWard!),
-                  ]);
-                },
-                child: ListView(
-                  physics: const AlwaysScrollableScrollPhysics(
-                      parent: BouncingScrollPhysics()),
-                  padding: const EdgeInsets.only(bottom: 120),
-                  children: [
-                    ProfileHeader(
-                      profileOpen: _profileOpen,
-                      onToggleProfile: () =>
-                          setState(() => _profileOpen = !_profileOpen),
-                      onSignOut: _signOut,
+              // Header pinned outside the scrollable: only the content below
+              // scrolls, and pull-to-refresh never drags the app bar.
+              child: Column(
+                children: [
+                  ProfileHeader(
+                    profileOpen: _profileOpen,
+                    onToggleProfile: () =>
+                        setState(() => _profileOpen = !_profileOpen),
+                    onSignOut: _signOut,
+                  ),
+                  // ── Map section (pinned) ──
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 16, 12, 0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 4),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                'Grievance map',
+                                style: TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: -0.3,
+                                  color: NkColors.slate900,
+                                ),
+                              ),
+                              Text(
+                                'Tap a pin for details',
+                                style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w500,
+                                    color: NkColors.slate400),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Container(
+                          height: 300,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(26),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.12),
+                                blurRadius: 24,
+                                offset: const Offset(0, 10),
+                              ),
+                            ],
+                          ),
+                          child: MapCard(
+                            center: _coords,
+                            issues: _wardIssues,
+                            selected: _selected,
+                            onSelect: (i) => setState(() => _selected = i),
+                            boundaries: _boundaries,
+                            currentWard: _currentWard,
+                            locate: _locate,
+                            locating: _locating,
+                            egmoreActive: _override != null,
+                            onJumpEgmore: _jumpToEgmore,
+                            onUpvote: _upvote,
+                          ),
+                        ),
+                      ],
                     ),
+                  ),
 
-                    // ── Map section ──
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(12, 16, 12, 0),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                  // ── Tab switcher (pinned) ──
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
+                    child: Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        color: NkColors.slate200.withValues(alpha: 0.7),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
                         children: [
-                          const Padding(
-                            padding: EdgeInsets.symmetric(horizontal: 4),
-                            child: Row(
-                              mainAxisAlignment:
-                                  MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text(
-                                  'Grievance map',
-                                  style: TextStyle(
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.w800,
-                                    letterSpacing: -0.3,
-                                    color: NkColors.slate900,
+                          for (final (idx, icon, label) in [
+                            (
+                              0,
+                              Icons.groups_outlined,
+                              'In My Ward${_currentWard != null ? ' (${_wardIssues.length})' : ''}'
+                            ),
+                            (
+                              1,
+                              Icons.description_outlined,
+                              'My Reports (${_history.length})'
+                            ),
+                          ])
+                            Expanded(
+                              child: GestureDetector(
+                                onTap: () {
+                                  HapticFeedback.selectionClick();
+                                  setState(() => _tab = idx);
+                                },
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 260),
+                                  curve: NkMotion.settle,
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 8),
+                                  decoration: BoxDecoration(
+                                    color: _tab == idx
+                                        ? Colors.white
+                                        : Colors.transparent,
+                                    borderRadius: BorderRadius.circular(8),
+                                    boxShadow: _tab == idx
+                                        ? [
+                                            BoxShadow(
+                                              color: Colors.black
+                                                  .withValues(alpha: 0.06),
+                                              blurRadius: 4,
+                                              offset: const Offset(0, 1),
+                                            ),
+                                          ]
+                                        : null,
+                                  ),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(icon,
+                                          size: 13,
+                                          color: _tab == idx
+                                              ? NkColors.slate900
+                                              : NkColors.slate500),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        label,
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w700,
+                                          color: _tab == idx
+                                              ? NkColors.slate900
+                                              : NkColors.slate500,
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
-                                Text(
-                                  'Tap a pin for details',
-                                  style: TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w500,
-                                      color: NkColors.slate400),
-                                ),
-                              ],
+                              ),
                             ),
-                          ),
-                          const SizedBox(height: 8),
-                          Container(
-                            height: 300,
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(26),
-                              boxShadow: [
-                                BoxShadow(
-                                  color:
-                                      Colors.black.withValues(alpha: 0.12),
-                                  blurRadius: 24,
-                                  offset: const Offset(0, 10),
-                                ),
-                              ],
-                            ),
-                            child: MapCard(
-                              center: _coords,
-                              issues: _wardIssues,
-                              selected: _selected,
-                              onSelect: (i) => setState(() => _selected = i),
-                              boundaries: _boundaries,
-                              currentWard: _currentWard,
-                              locate: _locate,
-                              locating: _locating,
-                              egmoreActive: _override != null,
-                              onJumpEgmore: _jumpToEgmore,
-                              onUpvote: _upvote,
-                            ),
-                          ),
                         ],
                       ),
                     ),
+                  ),
 
-                    // ── Lists section ──
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                  // Only the grievance list scrolls; pull-to-refresh is
+                  // scoped here so the map and tabs stay pinned.
+                  Expanded(
+                    child: RefreshIndicator(
+                      color: NkColors.brand,
+                      onRefresh: () async {
+                        await Future.wait([
+                          _loadHistory(),
+                          _loadBoundaries(),
+                          if (_currentWard != null) _loadWard(_currentWard!),
+                        ]);
+                      },
+                      child: ListView(
+                        physics: const AlwaysScrollableScrollPhysics(
+                            parent: BouncingScrollPhysics()),
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 120),
                         children: [
-                          // Tab switcher
-                          Container(
-                            padding: const EdgeInsets.all(4),
-                            decoration: BoxDecoration(
-                              color:
-                                  NkColors.slate200.withValues(alpha: 0.7),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Row(
-                              children: [
-                                for (final (idx, icon, label) in [
-                                  (
-                                    0,
-                                    Icons.groups_outlined,
-                                    'In My Ward${_currentWard != null ? ' (${_wardIssues.length})' : ''}'
-                                  ),
-                                  (
-                                    1,
-                                    Icons.description_outlined,
-                                    'My Reports (${_history.length})'
-                                  ),
-                                ])
-                                  Expanded(
-                                    child: GestureDetector(
-                                      onTap: () {
-                                        HapticFeedback.selectionClick();
-                                        setState(() => _tab = idx);
-                                      },
-                                      child: AnimatedContainer(
-                                        duration: const Duration(
-                                            milliseconds: 260),
-                                        curve: NkMotion.settle,
-                                        padding: const EdgeInsets.symmetric(
-                                            vertical: 8),
-                                        decoration: BoxDecoration(
-                                          color: _tab == idx
-                                              ? Colors.white
-                                              : Colors.transparent,
-                                          borderRadius:
-                                              BorderRadius.circular(8),
-                                          boxShadow: _tab == idx
-                                              ? [
-                                                  BoxShadow(
-                                                    color: Colors.black
-                                                        .withValues(
-                                                            alpha: 0.06),
-                                                    blurRadius: 4,
-                                                    offset:
-                                                        const Offset(0, 1),
-                                                  ),
-                                                ]
-                                              : null,
-                                        ),
-                                        child: Row(
-                                          mainAxisAlignment:
-                                              MainAxisAlignment.center,
-                                          children: [
-                                            Icon(icon,
-                                                size: 13,
-                                                color: _tab == idx
-                                                    ? NkColors.slate900
-                                                    : NkColors.slate500),
-                                            const SizedBox(width: 6),
-                                            Text(
-                                              label,
-                                              style: TextStyle(
-                                                fontSize: 12,
-                                                fontWeight: FontWeight.w700,
-                                                color: _tab == idx
-                                                    ? NkColors.slate900
-                                                    : NkColors.slate500,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ),
-
                           if (_error != null) ...[
                             const SizedBox(height: 12),
                             Container(
@@ -485,8 +479,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                     ),
                                   ),
                                   GestureDetector(
-                                    onTap: () =>
-                                        setState(() => _error = null),
+                                    onTap: () => setState(() => _error = null),
                                     child: const Icon(Icons.close,
                                         size: 14, color: NkColors.rose600),
                                   ),
@@ -494,7 +487,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                               ),
                             ),
                           ],
-
                           const SizedBox(height: 12),
                           AnimatedSwitcher(
                             duration: const Duration(milliseconds: 260),
@@ -506,8 +498,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         ],
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
 
@@ -607,8 +599,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 Text(
                   'No public grievances in Ward $_currentWard yet.',
                   textAlign: TextAlign.center,
-                  style: const TextStyle(
-                      fontSize: 14, color: NkColors.slate400),
+                  style:
+                      const TextStyle(fontSize: 14, color: NkColors.slate400),
                 ),
               ],
             ),
@@ -717,8 +709,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                             decoration: BoxDecoration(
                               color: Colors.white,
                               borderRadius: BorderRadius.circular(10),
-                              border:
-                                  Border.all(color: NkColors.slate300),
+                              border: Border.all(color: NkColors.slate300),
                             ),
                             child: const Row(
                               mainAxisAlignment: MainAxisAlignment.center,
@@ -794,8 +785,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             padding: EdgeInsets.symmetric(vertical: 40),
             child: Column(
               children: [
-                Icon(Icons.place_outlined,
-                    size: 32, color: NkColors.slate300),
+                Icon(Icons.place_outlined, size: 32, color: NkColors.slate300),
                 SizedBox(height: 8),
                 Text(
                   'No reports yet. Submit one from the "+" button.',
