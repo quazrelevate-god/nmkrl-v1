@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/glass.dart';
 import '../../core/theme.dart';
+import '../../core/i18n.dart';
 import '../../state/providers.dart';
 
 /// Foreground-poll pump for the notifications API. Drops in at the top of a
@@ -199,7 +200,7 @@ class NotificationBanner extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(kicker,
+                  Text(context.tr(kicker),
                       style: TextStyle(
                         fontSize: 9,
                         fontWeight: FontWeight.w800,

@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/glass.dart';
 import '../../core/theme.dart';
+import '../../core/i18n.dart';
 import '../../state/providers.dart';
 import 'notification_banner.dart' show NotificationBanner;
 
@@ -102,7 +103,7 @@ class _NotificationBellState extends ConsumerState<NotificationBell> {
     showGeneralDialog<void>(
       context: context,
       barrierDismissible: true,
-      barrierLabel: 'Notifications',
+      barrierLabel: context.tr('Notifications'),
       barrierColor: Colors.black.withValues(alpha: 0.25),
       transitionDuration: const Duration(milliseconds: 220),
       pageBuilder: (_, __, ___) => const SizedBox.shrink(),
@@ -216,8 +217,8 @@ class _NotificationPanel extends StatelessWidget {
                   const Icon(Icons.notifications_active_outlined,
                       size: 16, color: NkColors.brand),
                   const SizedBox(width: 8),
-                  const Expanded(
-                    child: Text('Notifications',
+                  Expanded(
+                    child: Text(context.tr('Notifications'),
                         style: TextStyle(
                           fontSize: 15,
                           fontWeight: FontWeight.w800,
@@ -234,7 +235,7 @@ class _NotificationPanel extends StatelessWidget {
                           color: NkColors.rose50,
                           borderRadius: BorderRadius.circular(999),
                         ),
-                        child: const Text('Clear all',
+                        child: Text(context.tr('Clear all'),
                             style: TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.w700,
@@ -248,14 +249,14 @@ class _NotificationPanel extends StatelessWidget {
             const Divider(height: 1, color: NkColors.slate200),
             Flexible(
               child: items.isEmpty
-                  ? const Padding(
+                  ? Padding(
                       padding: EdgeInsets.symmetric(vertical: 40),
                       child: Column(
                         children: [
                           Icon(Icons.notifications_off_outlined,
                               size: 30, color: NkColors.slate300),
                           SizedBox(height: 8),
-                          Text('No notifications',
+                          Text(context.tr('No notifications'),
                               style: TextStyle(
                                   fontSize: 13, color: NkColors.slate400)),
                         ],

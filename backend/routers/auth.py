@@ -22,6 +22,7 @@ import hashlib
 import os
 import random
 import re
+import sys
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -83,7 +84,14 @@ def request_otp(phone: str = Form(...), conn=Depends(get_db)):
     if len(clean_phone) != 10:
         raise HTTPException(status_code=400, detail="Enter a valid 10-digit mobile number.")
 
-    apm_otp = _send_otp_via_apm(clean_phone)
+    # Try the real SMS gateway; if the key is missing OR the gateway errors,
+    # fall back to a locally-generated dummy code so login never breaks.
+    apm_otp = None
+    try:
+        apm_otp = _send_otp_via_apm(clean_phone)
+    except HTTPException as e:
+        print(f"[auth] APM gateway failed ({e.detail}) — falling back to dummy OTP",
+              file=sys.stderr)
     dummy = apm_otp is None
     otp = apm_otp if apm_otp else f"{random.randint(0, 999999):06d}"
 

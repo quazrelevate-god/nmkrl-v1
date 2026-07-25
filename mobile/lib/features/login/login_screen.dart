@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/i18n.dart';
 import '../../core/theme.dart';
 import '../../state/providers.dart';
 import '../shared/wave_mark.dart';
@@ -54,6 +55,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       ? const _CoordinatorLoginForm(
                           key: ValueKey('coordinator'))
                       : const _CitizenLoginForm(key: ValueKey('citizen')),
+                ),
+
+                // ── Language toggle (top-left corner) ──
+                const Positioned(
+                  top: 8,
+                  left: 16,
+                  child: LangToggle(onDark: true),
                 ),
 
                 // ── Role toggle (top corner) ──
@@ -307,7 +315,7 @@ class _CitizenLoginFormState extends ConsumerState<_CitizenLoginForm> {
               ),
               const SizedBox(height: 12),
               Text(
-                'CITIZEN SIGN IN',
+                context.tr('CITIZEN SIGN IN'),
                 style: TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w600,
@@ -317,7 +325,7 @@ class _CitizenLoginFormState extends ConsumerState<_CitizenLoginForm> {
               ),
               const SizedBox(height: 4),
               Text(
-                'One account per mobile number',
+                context.tr('One account per mobile number'),
                 style: TextStyle(
                   fontSize: 11,
                   color: Colors.white.withValues(alpha: 0.35),
@@ -672,7 +680,7 @@ class _CoordinatorLoginFormState extends ConsumerState<_CoordinatorLoginForm> {
               ),
               const SizedBox(height: 12),
               Text(
-                'COORDINATOR CONSOLE',
+                context.tr('COORDINATOR CONSOLE'),
                 style: TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w600,
@@ -682,7 +690,7 @@ class _CoordinatorLoginFormState extends ConsumerState<_CoordinatorLoginForm> {
               ),
               const SizedBox(height: 4),
               Text(
-                'Constituency staff portal',
+                context.tr('Constituency staff portal'),
                 style: TextStyle(
                   fontSize: 11,
                   color: Colors.white.withValues(alpha: 0.35),
@@ -709,8 +717,7 @@ class _CoordinatorLoginFormState extends ConsumerState<_CoordinatorLoginForm> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text(
-                'Welcome back 👋',
+              Text(context.tr('Welcome back 👋'),
                 style: TextStyle(
                   fontSize: 20,
                   fontWeight: FontWeight.w800,
@@ -718,8 +725,7 @@ class _CoordinatorLoginFormState extends ConsumerState<_CoordinatorLoginForm> {
                 ),
               ),
               const SizedBox(height: 2),
-              const Text(
-                'Sign in to manage grievances and community posts.',
+              Text(context.tr('Sign in to manage grievances and community posts.'),
                 style: TextStyle(fontSize: 13, color: NkColors.slate500),
               ),
               const SizedBox(height: 16),
@@ -829,7 +835,7 @@ class _CoordinatorLoginFormState extends ConsumerState<_CoordinatorLoginForm> {
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 8),
           child: Text(
-            'Accounts are created in the /admin coordinators panel — no demo profiles are shipped in the app.',
+            context.tr('Accounts are created in the /admin coordinators panel — no demo profiles are shipped in the app.'),
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 11,

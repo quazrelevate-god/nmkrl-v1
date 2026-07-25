@@ -6,7 +6,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart' hide Path;
 
 import '../../../core/theme.dart';
-import '../../../data/media.dart';
+import '../../../core/i18n.dart';
 import '../../../domain/constituencies.dart';
 import '../../../domain/models/boundary_data.dart';
 import '../../../domain/models/issue.dart';
@@ -391,7 +391,7 @@ class _MapCardState extends State<MapCard> {
                             ),
                             const SizedBox(width: 4),
                             Text(
-                              entry.value.label,
+                              context.tr(entry.value.label),
                               style: const TextStyle(
                                   fontSize: 9, color: NkColors.slate700),
                             ),
@@ -556,7 +556,7 @@ class _LocateChip extends StatelessWidget {
     final loc = locate;
     Widget inner;
     if (loc == null || locating) {
-      inner = const Row(
+      inner = Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           SizedBox(
@@ -567,7 +567,7 @@ class _LocateChip extends StatelessWidget {
           ),
           SizedBox(width: 6),
           Text(
-            'Detecting zone…',
+            context.tr('Detecting zone…'),
             style: TextStyle(
               fontSize: 10,
               fontWeight: FontWeight.w600,
@@ -577,19 +577,19 @@ class _LocateChip extends StatelessWidget {
         ],
       );
     } else if (!loc.inside) {
-      inner = const Column(
+      inner = Column(
         crossAxisAlignment: CrossAxisAlignment.end,
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(
-            'Outside GCC limits',
+            context.tr('Outside GCC limits'),
             style: TextStyle(
                 fontSize: 10,
                 fontWeight: FontWeight.w700,
                 color: NkColors.slate600),
           ),
           Text(
-            'No ward boundary here',
+            context.tr('No ward boundary here'),
             style: TextStyle(fontSize: 9, color: NkColors.slate400),
           ),
         ],

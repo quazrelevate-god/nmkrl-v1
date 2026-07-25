@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'core/i18n.dart';
 import 'core/theme.dart';
 import 'features/coordinator/coordinator_home_screen.dart';
 import 'features/home/home_screen.dart';
@@ -15,11 +16,16 @@ class NammaKuralApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final router = ref.watch(_routerProvider);
+    final lang = ref.watch(langProvider);
     return MaterialApp.router(
       title: 'நம் குரல்',
       debugShowCheckedModeBanner: false,
       theme: buildNkTheme(),
       routerConfig: router,
+      // Carry the current language above every route so `context.tr(...)`
+      // works anywhere and re-translates the whole tree on toggle.
+      builder: (context, child) =>
+          AppL10n(lang: lang, child: child ?? const SizedBox.shrink()),
     );
   }
 }

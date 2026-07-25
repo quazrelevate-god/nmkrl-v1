@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/theme.dart';
+import '../../../core/i18n.dart';
 import '../../../data/media.dart';
 import '../../../domain/geo_utils.dart';
 import '../../../domain/models/issue.dart';
@@ -338,13 +339,13 @@ class IssueCard extends StatelessWidget {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const Row(
+                                Row(
                                   children: [
                                     Icon(Icons.auto_awesome,
                                         size: 12, color: NkColors.brand),
                                     SizedBox(width: 6),
                                     Text(
-                                      'AI SUMMARY',
+                                      context.tr('AI SUMMARY'),
                                       style: TextStyle(
                                         fontSize: 10,
                                         fontWeight: FontWeight.w700,
@@ -357,7 +358,9 @@ class IssueCard extends StatelessWidget {
                                 if (issue.transcript != null) ...[
                                   const SizedBox(height: 6),
                                   Text(
-                                    '"${issue.transcript}"',
+                                    // Tamil transcript in Tamil mode when the
+                                    // backend stored one; else the English.
+                                    '"${context.lang == AppLang.ta && (issue.transcriptTa?.isNotEmpty ?? false) ? issue.transcriptTa : issue.transcript}"',
                                     style: const TextStyle(
                                       fontSize: 12,
                                       fontStyle: FontStyle.italic,
@@ -457,14 +460,14 @@ class IssueCard extends StatelessWidget {
                                 color: NkColors.brand,
                                 borderRadius: BorderRadius.circular(12),
                               ),
-                              child: const Row(
+                              child: Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
                                   Icon(Icons.thumb_up_outlined,
                                       size: 13, color: Colors.white),
                                   SizedBox(width: 6),
                                   Text(
-                                    'Support this grievance',
+                                    context.tr('Support this grievance'),
                                     style: TextStyle(
                                       fontSize: 12,
                                       fontWeight: FontWeight.w700,

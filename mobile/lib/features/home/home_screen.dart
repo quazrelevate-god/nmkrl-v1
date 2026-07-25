@@ -8,6 +8,7 @@ import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../../core/theme.dart';
+import '../../core/i18n.dart';
 import '../../domain/constituencies.dart';
 import '../../domain/geo_utils.dart';
 import '../../domain/models/boundary_data.dart';
@@ -400,13 +401,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        const Padding(
+                        Padding(
                           padding: EdgeInsets.symmetric(horizontal: 4),
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
                               Text(
-                                'Grievance map',
+                                context.tr('Grievance map'),
                                 style: TextStyle(
                                   fontSize: 15,
                                   fontWeight: FontWeight.w800,
@@ -415,7 +416,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                 ),
                               ),
                               Text(
-                                'Tap a pin for details',
+                                context.tr('Tap a pin for details'),
                                 style: TextStyle(
                                     fontSize: 11,
                                     fontWeight: FontWeight.w500,
@@ -470,12 +471,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                             (
                               0,
                               Icons.groups_outlined,
-                              'In My Ward${_currentWard != null ? ' (${_wardIssues.length})' : ''}'
+                              '${context.tr('In My Ward')}${_currentWard != null ? ' (${_wardIssues.length})' : ''}'
                             ),
                             (
                               1,
                               Icons.description_outlined,
-                              'My Reports (${_history.length})'
+                              '${context.tr('My Reports')} (${_history.length})'
                             ),
                           ])
                             Expanded(
@@ -667,12 +668,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 final w = _currentWard;
                 if (w != null) _loadWard(w);
               },
-              child: const Row(
+              child: Row(
                 children: [
                   Icon(Icons.refresh, size: 12, color: NkColors.brand),
                   SizedBox(width: 4),
                   Text(
-                    'Refresh',
+                    context.tr('Refresh'),
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w500,
@@ -686,10 +687,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         ),
         const SizedBox(height: 8),
         if (_currentWard == null)
-          const Padding(
+          Padding(
             padding: EdgeInsets.symmetric(vertical: 32),
             child: Text(
-              'Locating your ward…',
+              context.tr('Locating your ward…'),
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 14, color: NkColors.slate400),
             ),
@@ -859,12 +860,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ),
             GestureDetector(
               onTap: _loadHistory,
-              child: const Row(
+              child: Row(
                 children: [
                   Icon(Icons.refresh, size: 12, color: NkColors.brand),
                   SizedBox(width: 4),
                   Text(
-                    'Refresh',
+                    context.tr('Refresh'),
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w500,

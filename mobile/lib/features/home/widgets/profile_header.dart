@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/glass.dart';
 import '../../../core/theme.dart';
+import '../../../core/i18n.dart';
 import '../../../domain/profile_data.dart';
 import '../../../state/providers.dart';
 import '../../shared/notification_bell.dart';
@@ -57,6 +58,8 @@ class ProfileHeader extends ConsumerWidget {
                 const BrandMark(),
                 Row(
                   children: [
+                    const LangToggle(),
+                    const SizedBox(width: 6),
                     NotificationBell(
                       recipientType: 'citizen',
                       recipientId: ref.watch(userIdProvider),
@@ -319,13 +322,13 @@ class _ProfilePanel extends StatelessWidget {
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(color: NkColors.slate200),
               ),
-              child: const Row(
+              child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Icon(Icons.logout, size: 13, color: NkColors.slate600),
                   SizedBox(width: 6),
                   Text(
-                    'Sign out',
+                    context.tr('Sign out'),
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w700,

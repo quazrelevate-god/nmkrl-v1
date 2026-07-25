@@ -8,6 +8,7 @@ import 'package:latlong2/latlong.dart';
 
 import '../../core/glass.dart';
 import '../../core/theme.dart';
+import '../../core/i18n.dart';
 import '../../data/media.dart';
 import '../../domain/daily_limit.dart';
 import '../../domain/models/issue.dart';
@@ -129,7 +130,7 @@ class _ReportSheetState extends ConsumerState<ReportSheet> {
     }
     if (_images.isEmpty && _recorder.file == null) {
       setState(() =>
-          _error = 'Add a photo or a voice note to describe the issue.');
+          _error = context.tr('Add a photo or a voice note to describe the issue.'));
       _bumpReset();
       return;
     }
@@ -177,7 +178,7 @@ class _ReportSheetState extends ConsumerState<ReportSheet> {
       Navigator.of(context).pop(); // close the sheet under the overlay
       await SuccessOverlay.show(
         context,
-        title: 'Grievance Submitted',
+        title: context.tr('Grievance Submitted'),
         message:
             'Your report is on its way to the ward coordinator. Track it anytime under My Reports.',
         ticket: issue.ticketNo ?? ticketNumber(issue.id),
@@ -234,9 +235,9 @@ class _ReportSheetState extends ConsumerState<ReportSheet> {
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
-                      children: const [
+                      children: [
                         Text(
-                          'Report Street Issue',
+                          context.tr('Report Street Issue'),
                           style: TextStyle(
                             fontSize: 20,
                             fontWeight: FontWeight.w800,
@@ -245,7 +246,7 @@ class _ReportSheetState extends ConsumerState<ReportSheet> {
                           ),
                         ),
                         Text(
-                          'Help us build better and safer streets',
+                          context.tr('Help us build better and safer streets'),
                           style: TextStyle(
                               fontSize: 12, color: NkColors.slate500),
                         ),
@@ -333,8 +334,7 @@ class _ReportSheetState extends ConsumerState<ReportSheet> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text(
-                                'Current Location',
+                              Text(context.tr('Current Location'),
                                 style: TextStyle(
                                   fontSize: 14,
                                   fontWeight: FontWeight.w600,
@@ -389,13 +389,13 @@ class _ReportSheetState extends ConsumerState<ReportSheet> {
                     const SizedBox(height: 6),
                     GestureDetector(
                       onTap: widget.onRefreshLocation,
-                      child: const Row(
+                      child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Icon(Icons.refresh, size: 12, color: NkColors.brand),
                           SizedBox(width: 4),
                           Text(
-                            'Refresh location',
+                            context.tr('Refresh location'),
                             style: TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.w500,
@@ -468,7 +468,7 @@ class _ReportSheetState extends ConsumerState<ReportSheet> {
                           icon: Icons.photo_camera_outlined,
                           label: _images.isNotEmpty
                               ? 'Add photo (${_images.length})'
-                              : 'Capture photo',
+                              : context.tr('Capture photo'),
                           onTap: _capturePhoto,
                         ),
                       ],
@@ -491,7 +491,7 @@ class _ReportSheetState extends ConsumerState<ReportSheet> {
                                 icon: Icons.mic_none,
                                 label: _recorder.file != null
                                     ? 'Re-record'
-                                    : 'Record voice',
+                                    : context.tr('Record voice'),
                                 onTap: () {
                                   HapticFeedback.selectionClick();
                                   _recorder.start();
@@ -532,7 +532,7 @@ class _ReportSheetState extends ConsumerState<ReportSheet> {
               // Swipe to submit
               const SizedBox(height: 16),
               SwipeToConfirm(
-                label: 'Swipe to submit grievance',
+                label: context.tr('Swipe to submit grievance'),
                 busyLabel: 'Submitting…',
                 busy: _submitting,
                 resetToken: _resetToken,

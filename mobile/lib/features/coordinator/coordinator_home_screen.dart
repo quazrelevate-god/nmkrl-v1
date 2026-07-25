@@ -6,6 +6,7 @@ import 'package:latlong2/latlong.dart';
 
 import '../../core/glass.dart';
 import '../../core/theme.dart';
+import '../../core/i18n.dart';
 import '../../domain/constituencies.dart';
 import '../../domain/coordinator_data.dart';
 import '../../domain/geo_utils.dart';
@@ -361,7 +362,7 @@ class _CoordinatorHomeScreenState
                               mainAxisAlignment:
                                   MainAxisAlignment.spaceBetween,
                               children: [
-                                const Text('Ward grievance map',
+                                Text(context.tr('Ward grievance map'),
                                     style: TextStyle(
                                       fontSize: 15,
                                       fontWeight: FontWeight.w800,
@@ -397,7 +398,7 @@ class _CoordinatorHomeScreenState
                               boundaries: _boundaries,
                               currentWard: int.tryParse(_ward),
                               showLocateChip: false,
-                              searchHint: 'Search grievances in this ward',
+                              searchHint: context.tr('Search grievances in this ward'),
                             ),
                           ),
                         ],
@@ -536,6 +537,8 @@ class _CoordinatorHomeScreenState
                 ),
                 Row(
                   children: [
+                    const LangToggle(),
+                    const SizedBox(width: 6),
                     NotificationBell(
                       recipientType: 'coordinator',
                       recipientId: me.username,
@@ -698,13 +701,13 @@ class _CoordinatorHomeScreenState
                               borderRadius: BorderRadius.circular(14),
                               border: Border.all(color: NkColors.slate200),
                             ),
-                            child: const Row(
+                            child: Row(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
                                 Icon(Icons.logout,
                                     size: 13, color: NkColors.slate600),
                                 SizedBox(width: 6),
-                                Text('Sign out',
+                                Text(context.tr('Sign out'),
                                     style: TextStyle(
                                       fontSize: 12,
                                       fontWeight: FontWeight.w700,
@@ -738,7 +741,7 @@ class _CoordinatorHomeScreenState
           const Icon(Icons.account_balance,
               size: 13, color: NkColors.slate500),
           const SizedBox(width: 6),
-          const Text('CONSTITUENCY',
+          Text(context.tr('CONSTITUENCY'),
               style: TextStyle(
                 fontSize: 11,
                 fontWeight: FontWeight.w700,
@@ -765,9 +768,9 @@ class _CoordinatorHomeScreenState
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Padding(
+        Padding(
           padding: EdgeInsets.only(bottom: 4, left: 2),
-          child: Text('WARD',
+          child: Text(context.tr('WARD'),
               style: TextStyle(
                 fontSize: 10,
                 fontWeight: FontWeight.w700,
@@ -849,15 +852,15 @@ class _CoordinatorHomeScreenState
         children: [
           for (final (tab, icon, label) in [
             (CoordinatorTab.ward,
-                Icons.groups_outlined, 'Open (${parts.ward.length})'),
+                Icons.groups_outlined, '${context.tr('Open')} (${parts.ward.length})'),
             (CoordinatorTab.mine,
-                Icons.description_outlined, 'Assigned (${parts.mine.length})'),
+                Icons.description_outlined, '${context.tr('Assigned')} (${parts.mine.length})'),
             (CoordinatorTab.escalated,
                 Icons.keyboard_double_arrow_up,
-                'Escalated (${parts.escalated.length})'),
+                '${context.tr('Escalated')} (${parts.escalated.length})'),
             (CoordinatorTab.previous,
                 Icons.assignment_outlined,
-                'Resolved (${parts.previous.length})'),
+                '${context.tr('Resolved')} (${parts.previous.length})'),
           ])
             Expanded(
               child: GestureDetector(
@@ -913,10 +916,10 @@ class _CoordinatorHomeScreenState
 
   Widget _buildList(List<Issue> current) {
     final headings = [
-      'Open grievances in Ward $_ward',
-      'Assigned to me',
-      'Escalated grievances',
-      'Resolved & closed',
+      '${context.tr('Open grievances in Ward')} $_ward',
+      context.tr('Assigned to me'),
+      context.tr('Escalated grievances'),
+      context.tr('Resolved & closed'),
     ];
     final empties = [
       'No unverified grievances in Ward $_ward.',
@@ -948,11 +951,11 @@ class _CoordinatorHomeScreenState
                 _loadWard();
                 _loadMine();
               },
-              child: const Row(
+              child: Row(
                 children: [
                   Icon(Icons.refresh, size: 12, color: NkColors.brand),
                   SizedBox(width: 4),
-                  Text('Refresh',
+                  Text(context.tr('Refresh'),
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w500,
@@ -1037,9 +1040,9 @@ class _CoordinatorHomeScreenState
             fontWeight: FontWeight.w700,
             color: NkColors.slate700,
           ),
-          items: const [
-            DropdownMenuItem(value: 'recent', child: Text('Recent')),
-            DropdownMenuItem(value: 'priority', child: Text('Priority')),
+          items: [
+            DropdownMenuItem(value: 'recent', child: Text(context.tr('Recent'))),
+            DropdownMenuItem(value: 'priority', child: Text(context.tr('Priority'))),
           ],
           onChanged: (v) {
             if (v == null || v == _sort) return;
@@ -1057,7 +1060,7 @@ class _CoordinatorHomeScreenState
       children: [
         Expanded(
           child: _actionButton(
-            label: busy ? 'Assigning…' : 'Assign Grievance',
+            label: busy ? 'Assigning…' : context.tr('Assign Grievance'),
             icon: Icons.verified_user_outlined,
             bg: NkColors.brand,
             fg: Colors.white,
@@ -1067,7 +1070,7 @@ class _CoordinatorHomeScreenState
         const SizedBox(width: 8),
         Expanded(
           child: _actionButton(
-            label: 'False Petition',
+            label: context.tr('False Petition'),
             icon: Icons.block,
             bg: Colors.white,
             fg: NkColors.rose600,
@@ -1097,13 +1100,13 @@ class _CoordinatorHomeScreenState
           borderRadius: BorderRadius.circular(10),
           border: Border.all(color: NkColors.amber200),
         ),
-        child: const Row(
+        child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.hourglass_top,
+            const Icon(Icons.hourglass_top,
                 size: 13, color: NkColors.amber700),
-            SizedBox(width: 6),
-            Text('Pending Verification',
+            const SizedBox(width: 6),
+            Text(context.tr('Pending Verification'),
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
@@ -1120,7 +1123,7 @@ class _CoordinatorHomeScreenState
           children: [
             Expanded(
               child: _actionButton(
-                label: transferred ? 'Transferred' : 'Dept. Transfer',
+                label: transferred ? context.tr('Transferred') : context.tr('Dept. Transfer'),
                 icon:
                     transferred ? Icons.check_circle_outline : Icons.send_outlined,
                 bg: transferred ? NkColors.slate200 : NkColors.brand,
@@ -1131,7 +1134,7 @@ class _CoordinatorHomeScreenState
             const SizedBox(width: 8),
             Expanded(
               child: _actionButton(
-                label: 'Escalate',
+                label: context.tr('Escalate'),
                 icon: Icons.keyboard_double_arrow_up,
                 bg: NkColors.slate800,
                 fg: Colors.white,
@@ -1142,7 +1145,7 @@ class _CoordinatorHomeScreenState
         ),
         const SizedBox(height: 8),
         _actionButton(
-          label: 'Close',
+          label: context.tr('Close'),
           icon: Icons.check_circle_outline,
           bg: NkColors.emerald600,
           fg: Colors.white,
@@ -1163,7 +1166,7 @@ class _CoordinatorHomeScreenState
           borderRadius: BorderRadius.circular(10),
           border: Border.all(color: NkColors.amber200),
         ),
-        child: const Text('Pending Verification',
+        child: Text(context.tr('Pending Verification'),
             style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w700,
@@ -1174,7 +1177,7 @@ class _CoordinatorHomeScreenState
     // Escalated tickets can still be closed; transfer stays open in case
     // the higher authority hands it back to a specific department.
     return _actionButton(
-      label: 'Close',
+      label: context.tr('Close'),
       icon: Icons.check_circle_outline,
       bg: NkColors.emerald600,
       fg: Colors.white,
@@ -1250,7 +1253,7 @@ class _ActionStatusBadge extends StatelessWidget {
     }
     final (label, bg, fg) = switch (status) {
       'CLOSED' => ('Citizen approved · Closed', NkColors.emerald50, NkColors.emerald700),
-      'FALSE' => ('False Petition', NkColors.rose50, NkColors.rose700),
+      'FALSE' => (context.tr('False Petition'), NkColors.rose50, NkColors.rose700),
       'FORWARDED' => ('Transferred · In Progress', NkColors.sky50, NkColors.sky700),
       'IN_PROGRESS' => ('In Progress', NkColors.sky50, NkColors.sky700),
       'PENDING_VERIFICATION' =>
