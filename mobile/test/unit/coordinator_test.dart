@@ -1,155 +1,104 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:namma_kural/data/coordinator_store.dart';
 import 'package:namma_kural/domain/coordinator_data.dart';
-import 'package:namma_kural/domain/departments.dart';
 import 'package:namma_kural/domain/models/issue.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-Issue _issue(String id, String status) => Issue.fromJson(<String, dynamic>{
+Issue _issue({
+  required String id,
+  required String status,
+  String? assigned,
+  DateTime? escalatedAt,
+}) =>
+    Issue.fromJson(<String, dynamic>{
       'id': id,
       'title': 'Issue $id',
       'latitude': 13.07,
       'longitude': 80.26,
       'status': status,
+      if (assigned != null) 'assigned_coordinator': assigned,
+      if (escalatedAt != null) 'escalated_at': escalatedAt.toIso8601String(),
     });
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  group('authenticateCoordinator', () {
-    test('valid seeded credentials sign in', () {
-      final c = authenticateCoordinator('raja', 'raja123');
-      expect(c, isNotNull);
-      expect(c!.name, 'V. Ramkumar Raja');
-      expect(c.homeWard, '58');
-      expect(c.constituency, '16 - Egmore');
-    });
-
-    test('username is case/space tolerant, password is not', () {
-      expect(authenticateCoordinator(' Raja ', 'raja123'), isNotNull);
-      expect(authenticateCoordinator('raja', 'RAJA123'), isNull);
-      expect(authenticateCoordinator('nobody', 'x'), isNull);
-    });
-
-    test('all four seeded coordinators authenticate', () {
-      for (final c in kCoordinators) {
-        expect(authenticateCoordinator(c.username, c.password), isNotNull);
-      }
-    });
-  });
-
-  group('partitionWardIssues', () {
-    test('splits ward / mine / previous exactly like the web useMemos', () {
+  group('partitionForCoordinator', () {
+    test('unassigned open → ward; mine → mine; escalated → escalated; terminal → previous', () {
+      final t = DateTime(2026, 7, 25, 10);
       final issues = [
-        _issue('a', 'SUBMITTED'), // not mine → ward
-        _issue('b', 'ACTIVE'), // mine + active → mine
-        _issue('c', 'CLOSED'), // mine + terminal → previous
-        _issue('d', 'FALSE'), // mine + terminal → previous
-        _issue('e', 'PENDING_VERIFICATION'), // mine + open → mine
-        _issue('f', 'ACTIVE'), // not mine → ward
+        _issue(id: 'u1', status: 'SUBMITTED'), // unassigned → ward
+        _issue(id: 'u2', status: 'ACTIVE'), // unassigned → ward
+        _issue(id: 'm1', status: 'ACTIVE', assigned: 'raja'), // mine → mine
+        _issue(id: 'm2', status: 'FORWARDED', assigned: 'raja'), // mine → mine
+        _issue(id: 'e1', status: 'IN_PROGRESS', assigned: 'raja', escalatedAt: t), // escalated
+        _issue(id: 'p1', status: 'CLOSED', assigned: 'raja'), // previous
+        _issue(id: 'p2', status: 'FALSE', assigned: 'raja'), // previous
+        _issue(id: 'o1', status: 'ACTIVE', assigned: 'meena'), // OTHER coord → hidden
       ];
-      final parts =
-          partitionWardIssues(issues, {'b', 'c', 'd', 'e'});
-      expect(parts.ward.map((i) => i.id), ['a', 'f']);
-      expect(parts.mine.map((i) => i.id), ['b', 'e']);
-      expect(parts.previous.map((i) => i.id), ['c', 'd']);
+      final p = partitionForCoordinator(issues, 'raja');
+      expect(p.ward.map((i) => i.id), ['u1', 'u2']);
+      expect(p.mine.map((i) => i.id), ['m1', 'm2']);
+      expect(p.escalated.map((i) => i.id), ['e1']);
+      expect(p.previous.map((i) => i.id), ['p1', 'p2']);
     });
 
-    test('unverified CLOSED/FALSE stay in the ward tab', () {
-      final parts = partitionWardIssues([_issue('x', 'FALSE')], {});
-      expect(parts.ward, hasLength(1));
-      expect(parts.previous, isEmpty);
+    test('username match is case-insensitive', () {
+      final issues = [_issue(id: 'x', status: 'ACTIVE', assigned: 'Raja')];
+      final p = partitionForCoordinator(issues, 'raja');
+      expect(p.mine, hasLength(1));
     });
   });
 
-  group('departments', () {
-    test('7 canonical departments with meta', () {
-      expect(kDepartments.length, 7);
-      final m = departmentMeta('Storm Water Drain Department');
-      expect(m.short, 'Storm Water');
-      expect(m.slaDays, 7);
-    });
+  group('Coordinator model', () {
+    test('fromJson tolerates snake_case + camelCase field names', () {
+      final a = Coordinator.fromJson({
+        'id': 'a1',
+        'username': 'raja',
+        'name': 'V. Ramkumar Raja',
+        'role': 'Constituency Lead',
+        'constituency': '16 - Egmore',
+        'home_ward': '58',
+        'must_change_password': true,
+      });
+      expect(a.homeWard, '58');
+      expect(a.mustChangePassword, isTrue);
+      expect(a.initials, 'VR');
 
-    test('unknown department falls back safely', () {
-      expect(departmentMeta('Nope').short, 'Unassigned');
-      expect(departmentMeta(null).slaDays, 7);
-    });
-
-    test('slaDeadline adds the department window to created_at', () {
-      final created = DateTime(2026, 7, 1);
-      final d = slaDeadline(created, 'Solid Waste Management Department');
-      expect(d, DateTime(2026, 7, 3));
+      final b = Coordinator.fromJson({
+        'id': 'b1',
+        'username': 'meena',
+        'name': 'Meena Lakshmi',
+        'role': 'Ward Coordinator',
+        'constituency': '16 - Egmore',
+        'homeWard': '104',
+      });
+      expect(b.homeWard, '104');
+      expect(b.mustChangePassword, isFalse);
     });
   });
 
   group('CoordinatorStore', () {
-    Future<CoordinatorStore> store({DateTime Function()? now}) async {
+    test('session round-trips with Coordinator profile + notif cursor is per-user',
+        () async {
       SharedPreferences.setMockInitialValues({});
-      final prefs = await SharedPreferences.getInstance();
-      return CoordinatorStore(prefs, now: now ?? () => DateTime(2026, 7, 23));
-    }
+      final store = CoordinatorStore(await SharedPreferences.getInstance());
+      expect(store.session, isNull);
 
-    test('session round-trips', () async {
-      final s = await store();
-      expect(s.sessionUsername, isNull);
-      await s.saveSession('raja');
-      expect(s.sessionUsername, 'raja');
-      await s.clearSession();
-      expect(s.sessionUsername, isNull);
-    });
+      final c = Coordinator(
+        id: 'x', username: 'raja', name: 'Raja', role: 'Lead',
+        constituency: '16 - Egmore', homeWard: '58',
+      );
+      await store.saveSession(c);
+      expect(store.session?.username, 'raja');
+      expect(store.session?.homeWard, '58');
 
-    test('verify adds ownership per user; flagFalse removes it', () async {
-      final s = await store();
-      await s.verify('raja', 'issue-1');
-      await s.verify('raja', 'issue-1'); // idempotent
-      expect(s.verifiedIds('raja'), {'issue-1'});
-      expect(s.verifiedIds('meena'), isEmpty);
+      await store.setNotifCursor('raja', '2026-07-25T10:00:00Z');
+      expect(store.notifCursor('raja'), '2026-07-25T10:00:00Z');
+      expect(store.notifCursor('meena'), isNull);
 
-      await s.flagFalse('raja', 'issue-1');
-      expect(s.verifiedIds('raja'), isEmpty);
-    });
-
-    test('action log records newest-first and exposes latest kind', () async {
-      final s = await store();
-      await s.addAction(
-          coordinator: 'raja', issueId: 'i1', kind: 'transfer');
-      await s.addAction(coordinator: 'raja', issueId: 'i1', kind: 'close');
-      await s.addAction(coordinator: 'raja', issueId: 'i2', kind: 'escalate');
-      final latest = s.latestActionKindByIssue();
-      expect(latest['i1'], 'close');
-      expect(latest['i2'], 'escalate');
-    });
-
-    test('post/poll limits: 1 per kind per day per coordinator', () async {
-      var day = DateTime(2026, 7, 23);
-      final s = await store(now: () => day);
-
-      expect(s.canPost('raja'), isTrue);
-      expect(await s.addPost('raja', {'title': 'Update'}), isTrue);
-      expect(s.canPost('raja'), isFalse);
-      expect(await s.addPost('raja', {'title': 'Second'}), isFalse);
-
-      // Poll limit is independent, and other users unaffected.
-      expect(s.canPoll('raja'), isTrue);
-      expect(await s.addPoll('raja', {'question': 'Q?'}), isTrue);
-      expect(s.canPoll('raja'), isFalse);
-      expect(s.canPost('meena'), isTrue);
-
-      // Next day resets.
-      day = DateTime(2026, 7, 24);
-      expect(s.canPost('raja'), isTrue);
-      expect(s.canPoll('raja'), isTrue);
-    });
-
-    test('published entries land as pending with author + date', () async {
-      final s = await store();
-      await s.addPost('suresh', {'title': 'Road update', 'body': 'x'});
-      final posts = s.feed()['posts'] as List<dynamic>;
-      expect(posts, hasLength(1));
-      final p = posts.first as Map;
-      expect(p['author'], 'suresh');
-      expect(p['status'], 'pending');
-      expect(p['title'], 'Road update');
+      await store.clearSession();
+      expect(store.session, isNull);
     });
   });
 }

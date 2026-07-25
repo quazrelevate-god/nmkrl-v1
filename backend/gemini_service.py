@@ -19,11 +19,15 @@ spoken in a native Indian language (Tamil, Hindi, Telugu, Bengali, etc.).
 Do the following:
 1. Transcribe the speech.
 2. Translate the transcription into clear English.
-3. Extract 2-4 short highlight tags describing the issue (e.g. "Broken road",
+3. Compose a short, specific title for the grievance in Title Case (4-8 words,
+   no trailing punctuation). Describe the actual problem, e.g.
+   "Large pothole on the main road", "Streetlight broken near bus stop",
+   "Overflowing garbage bin at market", "Stormwater drain blocked".
+4. Extract 2-4 short highlight tags describing the issue (e.g. "Broken road",
    "Large pothole", "Water logging", "Traffic hazard").
 
 Respond with STRICT, minified JSON ONLY, no markdown fences, in exactly this shape:
-{"transcript": "<english transcript>", "highlights": ["tag1", "tag2"]}
+{"title": "<short title>", "transcript": "<english transcript>", "highlights": ["tag1", "tag2"]}
 """
 
 # Gemini-supported audio MIME types.
@@ -55,6 +59,7 @@ def _normalise_mime(mime: str) -> str:
 def _mock_result(reason: str) -> dict:
     print(f"[gemini_service] MOCK returned — reason: {reason}", file=sys.stderr)
     return {
+        "title": "Large Pothole with Water Logging",
         "transcript": (
             "[Mock transcript - Gemini unavailable] A citizen reports a large "
             "pothole on the road causing water logging; vehicles and pedestrians "
@@ -302,6 +307,7 @@ def process_audio(audio_bytes: bytes, mime_type: str = "audio/webm") -> dict:
 
         parsed = json.loads(text)
         transcript = str(parsed.get("transcript", "")).strip()
+        title = str(parsed.get("title", "")).strip().rstrip(".!?")
         highlights = parsed.get("highlights", [])
         if not isinstance(highlights, list):
             highlights = [str(highlights)]
@@ -310,14 +316,21 @@ def process_audio(audio_bytes: bytes, mime_type: str = "audio/webm") -> dict:
         if not transcript:
             return _mock_result("Empty transcript in Gemini response")
 
-        print(f"[gemini_service] OK — transcript: {transcript[:80]}…", file=sys.stderr)
-        return {"transcript": transcript, "highlights": highlights, "mock": False}
+        print(f"[gemini_service] OK — title: {title!r}, transcript: {transcript[:80]}…",
+              file=sys.stderr)
+        return {
+            "title": title,
+            "transcript": transcript,
+            "highlights": highlights,
+            "mock": False,
+        }
 
     except json.JSONDecodeError as exc:
         # Model returned prose instead of JSON — salvage the raw text.
         print(f"[gemini_service] JSON parse error: {exc}", file=sys.stderr)
         raw = text if "text" in dir() else ""
         return {
+            "title": "",
             "transcript": raw,
             "highlights": [],
             "mock": False,

@@ -6,8 +6,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/theme.dart';
-import '../../domain/constituencies.dart';
-import '../../domain/coordinator_data.dart';
 import '../../state/providers.dart';
 import '../shared/wave_mark.dart';
 
@@ -561,6 +559,7 @@ class _CoordinatorLoginFormState extends ConsumerState<_CoordinatorLoginForm> {
   final _username = TextEditingController();
   final _password = TextEditingController();
   String? _error;
+  bool _busy = false;
 
   @override
   void initState() {
@@ -577,25 +576,22 @@ class _CoordinatorLoginFormState extends ConsumerState<_CoordinatorLoginForm> {
   }
 
   Future<void> _submit() async {
-    setState(() => _error = null);
-    final c = await ref
-        .read(coordinatorAuthProvider.notifier)
-        .signIn(_username.text, _password.text);
-    if (c == null) {
-      setState(() => _error = 'Invalid username or password.');
-      return;
-    }
-    HapticFeedback.mediumImpact();
-    if (mounted) context.go('/coordinator');
-  }
-
-  void _quickPick(Coordinator c) {
-    HapticFeedback.selectionClick();
     setState(() {
-      _username.text = c.username;
-      _password.text = c.password;
+      _busy = true;
       _error = null;
     });
+    try {
+      await ref
+          .read(coordinatorAuthProvider.notifier)
+          .signIn(_username.text.trim(), _password.text);
+      HapticFeedback.mediumImpact();
+      if (mounted) context.go('/coordinator');
+    } catch (e) {
+      // Backend rejections surface here (invalid creds → ApiException).
+      if (mounted) setState(() => _error = '$e');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   InputDecoration _dec(String hint) => InputDecoration(
@@ -755,10 +751,10 @@ class _CoordinatorLoginFormState extends ConsumerState<_CoordinatorLoginForm> {
               ],
               const SizedBox(height: 16),
               GestureDetector(
-                onTap: canSubmit ? _submit : null,
+                onTap: canSubmit && !_busy ? _submit : null,
                 child: AnimatedOpacity(
                   duration: const Duration(milliseconds: 200),
-                  opacity: canSubmit ? 1 : 0.5,
+                  opacity: canSubmit && !_busy ? 1 : 0.5,
                   child: Container(
                     height: 48,
                     decoration: BoxDecoration(
@@ -772,21 +768,32 @@ class _CoordinatorLoginFormState extends ConsumerState<_CoordinatorLoginForm> {
                         ),
                       ],
                     ),
-                    child: const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.login, size: 16, color: Colors.white),
-                        SizedBox(width: 8),
-                        Text(
-                          'Sign In',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.white,
+                    child: _busy
+                        ? const Center(
+                            child: SizedBox(
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.4,
+                                color: Colors.white,
+                              ),
+                            ),
+                          )
+                        : const Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.login, size: 16, color: Colors.white),
+                              SizedBox(width: 8),
+                              Text(
+                                'Sign In',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ],
                           ),
-                        ),
-                      ],
-                    ),
                   ),
                 ),
               ),
@@ -795,114 +802,14 @@ class _CoordinatorLoginFormState extends ConsumerState<_CoordinatorLoginForm> {
         ),
         const SizedBox(height: 20),
         Padding(
-          padding: const EdgeInsets.only(left: 4, bottom: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 8),
           child: Text(
-            'DEMO COORDINATORS',
+            'Accounts are created in the /admin coordinators panel — no demo profiles are shipped in the app.',
+            textAlign: TextAlign.center,
             style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 2,
-              color: Colors.white.withValues(alpha: 0.4),
-            ),
-          ),
-        ),
-        for (final c in kCoordinators)
-          GestureDetector(
-            onTap: () => _quickPick(c),
-            child: Container(
-              margin: const EdgeInsets.only(bottom: 8),
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.10),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.15)),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    height: 40,
-                    width: 40,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      gradient: nkGoldGradient,
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.3),
-                          width: 2),
-                    ),
-                    child: Text(
-                      c.initials,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w900,
-                        color: NkColors.brandDark,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          c.name,
-                          style: const TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.white,
-                          ),
-                        ),
-                        Text(
-                          '${c.role} · ${shortAC(c.constituency)} · Ward ${c.homeWard}',
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: Colors.white.withValues(alpha: 0.6),
-                          ),
-                        ),
-                        const SizedBox(height: 3),
-                        Row(
-                          children: [
-                            for (final cred in [c.username, c.password])
-                              Container(
-                                margin: const EdgeInsets.only(right: 6),
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 6, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color:
-                                      Colors.white.withValues(alpha: 0.12),
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                                child: Text(
-                                  cred,
-                                  style: const TextStyle(
-                                    fontSize: 10,
-                                    fontFamily: 'monospace',
-                                    color: NkColors.gold200,
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                  const Icon(Icons.arrow_forward,
-                      size: 16, color: NkColors.gold200),
-                ],
-              ),
-            ),
-          ),
-        Center(
-          child: Padding(
-            padding: const EdgeInsets.only(top: 4),
-            child: Text(
-              'Tap a row to autofill · illustrative PoC auth',
-              style: TextStyle(
-                fontSize: 10,
-                fontStyle: FontStyle.italic,
-                color: Colors.white.withValues(alpha: 0.4),
-              ),
+              fontSize: 11,
+              color: Colors.white.withValues(alpha: 0.45),
+              fontStyle: FontStyle.italic,
             ),
           ),
         ),

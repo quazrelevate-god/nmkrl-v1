@@ -64,16 +64,19 @@ final coordinatorStoreProvider = Provider<CoordinatorStore>(
 );
 
 /// The signed-in coordinator (null when signed out) as reactive state so the
-/// router redirect responds to sign-in/out.
+/// router redirect responds to sign-in/out. Auth hits the admin-managed
+/// backend `coordinators` table — the mobile side no longer ships demo seeds.
 class CoordinatorAuthNotifier extends Notifier<Coordinator?> {
   @override
-  Coordinator? build() =>
-      coordinatorByUsername(ref.read(coordinatorStoreProvider).sessionUsername);
+  Coordinator? build() => ref.read(coordinatorStoreProvider).session;
 
-  Future<Coordinator?> signIn(String username, String password) async {
-    final c = authenticateCoordinator(username, password);
-    if (c == null) return null;
-    await ref.read(coordinatorStoreProvider).saveSession(c.username);
+  /// Throws [ApiException] on wrong credentials (message is user-friendly).
+  Future<Coordinator> signIn(String username, String password) async {
+    final c = await ref.read(apiClientProvider).coordinatorLogin(
+          username: username,
+          password: password,
+        );
+    await ref.read(coordinatorStoreProvider).saveSession(c);
     state = c;
     return c;
   }

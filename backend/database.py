@@ -93,6 +93,40 @@ CREATE TABLE IF NOT EXISTS verifications (
     FOREIGN KEY (issue_id) REFERENCES issues (id) ON DELETE CASCADE
 );
 
+-- Constituency-staff accounts, created from the admin console. Auth is
+-- POC-grade plain-text (documented). One coordinator per (username).
+-- constituency is a fixed assignment; home_ward is the default ward that
+-- opens on sign-in (the coordinator can switch wards WITHIN their AC).
+CREATE TABLE IF NOT EXISTS coordinators (
+    id                    TEXT PRIMARY KEY,
+    username              TEXT NOT NULL UNIQUE,
+    password              TEXT NOT NULL,
+    name                  TEXT NOT NULL,
+    role                  TEXT NOT NULL,
+    constituency          TEXT NOT NULL,
+    home_ward             TEXT NOT NULL,
+    must_change_password  INTEGER NOT NULL DEFAULT 1,
+    created_at            TEXT NOT NULL
+);
+
+-- Real-time-ish push queue polled by the citizen + coordinator apps.
+--   recipient_type: 'citizen' | 'coordinator'
+--   recipient_id:   citizen user_id, or coordinator username
+--   kind: 'status_change' | 'new_grievance' | 'assigned' | 'closed' | 'transfer'
+CREATE TABLE IF NOT EXISTS notifications (
+    id             TEXT PRIMARY KEY,
+    recipient_type TEXT NOT NULL,
+    recipient_id   TEXT NOT NULL,
+    kind           TEXT NOT NULL,
+    issue_id       TEXT NOT NULL,
+    title          TEXT DEFAULT '',
+    message        TEXT DEFAULT '',
+    data           TEXT DEFAULT '{}',
+    created_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_notif_recipient
+    ON notifications (recipient_type, recipient_id, created_at DESC);
+
 -- Every /api/locate lookup is logged with the real GCC zone/ward the
 -- coordinate resolved to (via point-in-polygon over the KML boundaries).
 CREATE TABLE IF NOT EXISTS location_logs (
@@ -123,6 +157,13 @@ def init_db() -> None:
             # 'redirect' the citizen sees a delay-apology; after 'transfer' the
             # citizen sees the department the ticket was routed to).
             ("coordinator_message", "TEXT DEFAULT ''"),
+            # Coordinator who took ownership (username) — set by
+            # POST /api/coordinator/issues/{id}/verify. When non-null, the
+            # ticket disappears from every OTHER coordinator's ward tab.
+            ("assigned_coordinator", "TEXT DEFAULT ''"),
+            # Non-null when a coordinator escalated the ticket; the mobile app
+            # groups these into a dedicated "Escalated" tab.
+            ("escalated_at", "TEXT"),
         ]:
             try:
                 conn.execute(f"ALTER TABLE issues ADD COLUMN {col} {defn}")

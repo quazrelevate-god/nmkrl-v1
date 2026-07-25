@@ -20,6 +20,13 @@ class Prefs {
   static const _phoneKey = 'nk_citizen_phone';
   static const _accountIdKey = 'nk_account_id';
   static const _legacyUserIdKey = 'fms_user_id';
+  static const _citizenNotifCursorKey = 'nk_citizen_notif_cursor';
+
+  String get citizenNotifCursor =>
+      _prefs.getString(_citizenNotifCursorKey) ?? '';
+
+  Future<void> setCitizenNotifCursor(String isoTs) =>
+      _prefs.setString(_citizenNotifCursorKey, isoTs);
 
   bool get authed => _prefs.getBool(_authedKey) ?? false;
 

@@ -17,6 +17,8 @@ class Issue {
     this.zone,
     this.department,
     this.coordinatorMessage,
+    this.assignedCoordinator,
+    this.escalatedAt,
     this.summaryHighlights = const [],
     this.distanceM,
   });
@@ -38,6 +40,13 @@ class Issue {
   /// AI-routed municipal department (used by the coordinator transfer flow).
   final String? department;
   final String? coordinatorMessage;
+
+  /// Username of the coordinator who took ownership (empty/null = unassigned).
+  final String? assignedCoordinator;
+
+  /// Non-null when a coordinator escalated the issue — mobile groups these
+  /// under a dedicated Escalated tab.
+  final DateTime? escalatedAt;
   final List<String> summaryHighlights;
 
   /// Present only on /nearby responses.
@@ -71,6 +80,12 @@ class Issue {
       zone: json['zone']?.toString(),
       department: json['department'] as String?,
       coordinatorMessage: json['coordinator_message'] as String?,
+      assignedCoordinator: json['assigned_coordinator'] as String?,
+      escalatedAt: () {
+        final raw = json['escalated_at'];
+        if (raw == null || raw == '') return null;
+        return DateTime.tryParse('$raw');
+      }(),
       summaryHighlights: rawHighlights is List
           ? rawHighlights.map((e) => '$e').toList()
           : const [],

@@ -15,6 +15,7 @@ import '../../domain/models/issue.dart';
 import '../../domain/models/locate_result.dart';
 import '../../state/providers.dart';
 import '../report/report_sheet.dart';
+import '../shared/notification_banner.dart';
 import '../upvote/upvote_sheet.dart';
 import 'widgets/issue_card.dart';
 import 'widgets/map_card.dart';
@@ -183,18 +184,30 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   // ── Actions ────────────────────────────────────────────────────────────
 
   /// Demo shortcut: our GPS may be outside GCC, so jump the detected location
-  /// to an Egmore ward so ward-level data can be visualised.
+  /// to Egmore Ward 108 so ward-level data can be visualised. Once toggled on
+  /// the override propagates to every consumer of [_coords] — including the
+  /// report sheet's "Current Location" — until the user pulls to refresh.
   void _jumpToEgmore() {
     final feats = _boundaries?.wards ?? const <BoundaryFeature>[];
     BoundaryFeature? f;
+    // Prefer Ward 108 (the canonical demo target); fall back to any Egmore
+    // ward if 108's boundary isn't loaded yet.
     for (final ft in feats) {
-      if (ft.ward != null && kEgmoreWards.contains(ft.ward)) {
-        f = ft;
-        break;
+      if (ft.ward == '108') { f = ft; break; }
+    }
+    if (f == null) {
+      for (final ft in feats) {
+        if (ft.ward != null && kEgmoreWards.contains(ft.ward)) { f = ft; break; }
       }
     }
     if (f == null) return;
-    setState(() => _override = f!.centroid());
+    setState(() {
+      _override = f!.centroid();
+      // Reset the reverse-geocoded label so the report sheet doesn't show a
+      // stale real-GPS neighbourhood; _resolveWard will replace it with the
+      // ward-derived zone once /api/locate returns.
+      _areaName = 'Egmore · Ward 108';
+    });
     _afterLocationChanged();
   }
 
@@ -244,7 +257,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       areaName: _areaName,
       geoStatus: _override != null ? 'ready' : _geoStatus,
       accuracy: _accuracy,
-      onRefreshLocation: _locateDevice,
+      onRefreshLocation: () {
+        // Refresh clears any Egmore-jump override so the sheet's location
+        // returns to real-device GPS detection.
+        setState(() => _override = null);
+        _locateDevice();
+      },
       onSubmitted: () {
         _loadHistory();
         final w = _currentWard;
@@ -502,6 +520,20 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     ),
                   ),
                 ],
+              ),
+            ),
+
+            // ── Floating notification banner for status updates ──
+            Positioned(
+              top: 0, left: 0, right: 0,
+              child: NotificationPoller(
+                recipientType: 'citizen',
+                recipientId: ref.watch(userIdProvider),
+                onStatusChange: (_) {
+                  _loadHistory();
+                  final w = _currentWard;
+                  if (w != null) _loadWard(w);
+                },
               ),
             ),
 

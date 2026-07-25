@@ -70,3 +70,33 @@ def citizen_login(
     )
     row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
     return {**_serialize_user(row), "created": True}
+
+
+@router.post("/coordinator/login")
+def coordinator_login(
+    username: str = Form(...),
+    password: str = Form(...),
+    conn=Depends(get_db),
+):
+    """
+    Sign in against the admin-managed coordinators table. Returns the full
+    profile (minus password) so the mobile app can pin the constituency and
+    default the ward switcher to home_ward.
+    """
+    clean_user = (username or "").strip().lower()
+    if not clean_user or not password:
+        raise HTTPException(status_code=400, detail="Enter username and password.")
+    row = conn.execute(
+        "SELECT * FROM coordinators WHERE username = ?", (clean_user,)
+    ).fetchone()
+    if row is None or row["password"] != password:
+        raise HTTPException(status_code=401, detail="Invalid username or password.")
+    return {
+        "id": row["id"],
+        "username": row["username"],
+        "name": row["name"],
+        "role": row["role"],
+        "constituency": row["constituency"],
+        "home_ward": row["home_ward"],
+        "must_change_password": bool(row["must_change_password"]),
+    }

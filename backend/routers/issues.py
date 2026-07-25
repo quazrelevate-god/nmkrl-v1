@@ -27,7 +27,10 @@ from utils import (
 
 router = APIRouter(prefix="/api/issues", tags=["issues"])
 
-DUPLICATE_RADIUS_M = 200.0
+DUPLICATE_RADIUS_M = 100.0
+# Client sends this literal when the user hasn't typed a title — we replace
+# it with the Gemini-generated title (or fall back if Gemini gave nothing).
+_DEFAULT_TITLE_SENTINEL = "Street Issue"
 
 
 def _nearby_open_issues(conn, lat: float, lng: float, radius_m: float) -> list[dict]:
@@ -75,9 +78,19 @@ async def report_issue(
     if audio_bytes:
         ai = process_audio(audio_bytes, mime_type=audio_mime)
     else:
-        ai = {"transcript": "", "highlights": []}
+        ai = {"title": "", "transcript": "", "highlights": []}
 
-    # --- Gemini-powered duplicate check (skip if force=true) ----------------
+    # --- Title resolution ---------------------------------------------------
+    # Prefer a user-typed title; otherwise use Gemini's summarised title; last
+    # resort, keep the sentinel so the issue still has something.
+    user_provided_title = title and title.strip() != _DEFAULT_TITLE_SENTINEL
+    gemini_title = (ai.get("title") or "").strip()
+    if not user_provided_title and gemini_title:
+        title = gemini_title
+
+    # --- Gemini-powered duplicate check within 100m (skip if force=true) ---
+    # Similarity is decided by Gemini over the summary/transcript/highlights;
+    # proximity is only the initial filter.
     if not force:
         nearby = _nearby_open_issues(conn, latitude, longitude, DUPLICATE_RADIUS_M)
         if nearby:
@@ -135,6 +148,14 @@ async def report_issue(
     )
 
     row = conn.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
+    # Push a floating banner to every coordinator whose home_ward matches
+    # this grievance — the mobile coordinator app polls /api/notifications
+    # every ~15s and pops a banner for each new entry.
+    try:
+        from routers.notifications import emit_new_grievance
+        emit_new_grievance(conn, row)
+    except Exception:
+        pass  # notifications are best-effort; never block the report
     result = serialize_issue(row)
     result["duplicate_exists"] = False
     result["ai_meta"] = {"mock": ai.get("mock", False), "reason": ai.get("reason")}

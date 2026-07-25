@@ -150,7 +150,10 @@ export function updateCoordinator(username, patch) {
   return getCoordinator(username);
 }
 
-/** Add a brand-new coordinator (admin-created). Rejects duplicate usernames. */
+/** Add a brand-new coordinator (admin-created). Rejects duplicate usernames.
+ *  Also fires the record at the backend so the mobile coordinator app can
+ *  authenticate this account (fire-and-forget — the web UI stays local).
+ */
 export function createCoordinator(coord) {
   const bag = readDirectoryBag();
   const username = (coord.username || "").trim().toLowerCase();
@@ -173,6 +176,22 @@ export function createCoordinator(coord) {
   };
   bag.extras = [...bag.extras, record];
   writeDirectoryBag(bag);
+  // Sync to backend so mobile can log in — non-blocking.
+  try {
+    fetch("/fms/api/admin/coordinators", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: record.name,
+        username: record.username,
+        password: record.password || "changeme",
+        role: record.role,
+        constituency: record.constituency,
+        home_ward: String(record.homeWard || ""),
+        must_change_password: !!record.mustChangePassword,
+      }),
+    }).catch(() => {});
+  } catch { /* ignore */ }
   return record;
 }
 
