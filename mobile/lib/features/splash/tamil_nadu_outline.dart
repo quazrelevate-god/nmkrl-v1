@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'dart:ui';
 
 /// Height/width aspect ratio of the outline's bounding box — multiply a
@@ -127,6 +128,44 @@ List<Offset> sampleAlongPolyline(List<Offset> path, int count) {
     final s = segments[seg];
     final t = s.length == 0 ? 0.0 : ((d - segStart) / s.length).clamp(0.0, 1.0);
     out.add(Offset.lerp(s.a, s.b, t)!);
+  }
+  return out;
+}
+
+/// Like [sampleAlongPolyline] but each of the [count] points sits at a
+/// RANDOM arc-length position along the closed polygon — so the scatter shows
+/// no evenly-spaced/grid-like pattern. Pass an unseeded [rng] to re-randomize
+/// on every launch.
+List<Offset> randomAlongPolyline(List<Offset> path, int count, Random rng) {
+  assert(path.length >= 2 && count > 0);
+  // Prefix arc lengths for a binary search per random draw.
+  final prefix = <double>[0];
+  for (var i = 0; i < path.length; i++) {
+    final a = path[i];
+    final b = path[(i + 1) % path.length];
+    prefix.add(prefix.last + (b - a).distance);
+  }
+  final total = prefix.last;
+  if (total == 0) return List.filled(count, path.first);
+
+  final out = <Offset>[];
+  for (var i = 0; i < count; i++) {
+    final d = rng.nextDouble() * total;
+    // Binary search for the segment whose span contains d.
+    var lo = 0, hi = path.length - 1;
+    while (lo < hi) {
+      final mid = (lo + hi) >> 1;
+      if (prefix[mid + 1] < d) {
+        lo = mid + 1;
+      } else {
+        hi = mid;
+      }
+    }
+    final a = path[lo];
+    final b = path[(lo + 1) % path.length];
+    final segLen = prefix[lo + 1] - prefix[lo];
+    final t = segLen == 0 ? 0.0 : ((d - prefix[lo]) / segLen).clamp(0.0, 1.0);
+    out.add(Offset.lerp(a, b, t)!);
   }
   return out;
 }
