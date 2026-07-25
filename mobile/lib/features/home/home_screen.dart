@@ -49,8 +49,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   bool _locating = false;
   List<Issue> _wardIssues = [];
   List<Issue> _history = [];
+
+  /// Real per-account profile counters (null until first load → shows dashes).
+  ({int reports, int upvotes, int resolved, int open})? _stats;
   bool _histLoading = true;
   Issue? _selected;
+  final Map<String, GlobalKey> _cardKeys = {};
   String? _error;
   String? _busyId;
 
@@ -179,6 +183,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         });
       }
     }
+    _loadStats();
+  }
+
+  /// Real profile counters for the signed-in account (reports / upvotes cast /
+  /// resolved / open-unassigned). Refreshed whenever history reloads.
+  Future<void> _loadStats() async {
+    try {
+      final s = await ref
+          .read(apiClientProvider)
+          .fetchUserStats(ref.read(userIdProvider));
+      if (mounted) setState(() => _stats = s);
+    } catch (_) {/* leave previous values */}
   }
 
   // ── Actions ────────────────────────────────────────────────────────────
@@ -295,6 +311,61 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   void _toggleExpand(String id) =>
       setState(() => _expandedId = _expandedId == id ? null : id);
 
+  /// A tapped map pin highlights + brings forward the matching grievance
+  /// ribbon in the list (#6) — no separate sheet. Expands it, scrolls it into
+  /// view, and switches to the ward tab if the issue is a ward grievance.
+  void _onMapSelect(Issue? i) {
+    setState(() {
+      _selected = i;
+      if (i != null) {
+        _expandedId = i.id;
+        if (_wardIssues.any((w) => w.id == i.id)) _tab = 0;
+      }
+    });
+    if (i == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final ctx = _cardKeys[i.id]?.currentContext;
+      if (ctx != null) {
+        Scrollable.ensureVisible(ctx,
+            duration: const Duration(milliseconds: 420),
+            curve: NkMotion.settle,
+            alignment: 0.1);
+      }
+    });
+  }
+
+  /// Wraps a card with the selection highlight (elevated + scaled + gold ring)
+  /// and a stable key so [_onMapSelect] can scroll to it.
+  Widget _selectableCard(Issue issue, Widget card) {
+    final selected = _selected?.id == issue.id;
+    return AnimatedScale(
+      key: _cardKeys.putIfAbsent(issue.id, () => GlobalKey()),
+      scale: selected ? 1.025 : 1,
+      duration: const Duration(milliseconds: 260),
+      curve: NkMotion.settle,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 260),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(18),
+          border: selected
+              ? Border.all(color: NkColors.gold300, width: 2)
+              : Border.all(color: Colors.transparent, width: 2),
+          boxShadow: selected
+              ? [
+                  BoxShadow(
+                    color: NkColors.gold300.withValues(alpha: 0.35),
+                    blurRadius: 22,
+                    offset: const Offset(0, 8),
+                    spreadRadius: -2,
+                  ),
+                ]
+              : null,
+        ),
+        child: card,
+      ),
+    );
+  }
+
   // ── Build ──────────────────────────────────────────────────────────────
 
   @override
@@ -321,6 +392,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     onToggleProfile: () =>
                         setState(() => _profileOpen = !_profileOpen),
                     onSignOut: _signOut,
+                    stats: _stats,
                   ),
                   // ── Map section (pinned) ──
                   Padding(
@@ -369,7 +441,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                             center: _coords,
                             issues: _wardIssues,
                             selected: _selected,
-                            onSelect: (i) => setState(() => _selected = i),
+                            onSelect: _onMapSelect,
                             boundaries: _boundaries,
                             currentWard: _currentWard,
                             locate: _locate,
@@ -643,12 +715,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           for (final issue in _wardIssues)
             Padding(
               padding: const EdgeInsets.only(bottom: 8),
-              child: IssueCard(
-                issue: issue,
-                expanded: _expandedId == issue.id,
-                onToggle: () => _toggleExpand(issue.id),
-                distanceKm: _distanceKm(issue),
-                onUpvote: _upvote,
+              child: _selectableCard(
+                issue,
+                IssueCard(
+                  issue: issue,
+                  expanded: _expandedId == issue.id,
+                  onToggle: () => _toggleExpand(issue.id),
+                  distanceKm: _distanceKm(issue),
+                  onUpvote: _upvote,
+                ),
               ),
             ),
       ],
@@ -833,11 +908,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           for (final issue in _history)
             Padding(
               padding: const EdgeInsets.only(bottom: 8),
-              child: IssueCard(
-                issue: issue,
-                expanded: _expandedId == issue.id,
-                onToggle: () => _toggleExpand(issue.id),
-                distanceKm: _distanceKm(issue),
+              child: _selectableCard(
+                issue,
+                IssueCard(
+                  issue: issue,
+                  expanded: _expandedId == issue.id,
+                  onToggle: () => _toggleExpand(issue.id),
+                  distanceKm: _distanceKm(issue),
+                ),
               ),
             ),
       ],

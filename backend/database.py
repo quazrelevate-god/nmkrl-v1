@@ -109,6 +109,16 @@ CREATE TABLE IF NOT EXISTS coordinators (
     created_at            TEXT NOT NULL
 );
 
+-- Phone-number OTP challenge store for citizen login (one row per phone;
+-- the latest request replaces the previous). OTP is stored HASHED.
+CREATE TABLE IF NOT EXISTS otp_codes (
+    phone       TEXT PRIMARY KEY,
+    otp_hash    TEXT NOT NULL,
+    expires_at  TEXT NOT NULL,
+    attempts    INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT NOT NULL
+);
+
 -- Real-time-ish push queue polled by the citizen + coordinator apps.
 --   recipient_type: 'citizen' | 'coordinator'
 --   recipient_id:   citizen user_id, or coordinator username
@@ -164,6 +174,15 @@ def init_db() -> None:
             # Non-null when a coordinator escalated the ticket; the mobile app
             # groups these into a dedicated "Escalated" tab.
             ("escalated_at", "TEXT"),
+            # Human-friendly tracking id (FMS-XXXXXXXX), assigned at insert and
+            # stored so every surface fetches the SAME value from the DB.
+            ("ticket_number", "TEXT DEFAULT ''"),
+            # Tamil translation of the transcript (Gemini returns both at
+            # report time); shown when the app is in Tamil mode.
+            ("transcript_ta", "TEXT DEFAULT ''"),
+            # Non-null when the citizen REJECTED a coordinator's closure — the
+            # coordinator app surfaces an alert and moves it back to Assigned.
+            ("rejected_at", "TEXT"),
         ]:
             try:
                 conn.execute(f"ALTER TABLE issues ADD COLUMN {col} {defn}")

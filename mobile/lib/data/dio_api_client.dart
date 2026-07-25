@@ -72,12 +72,29 @@ class DioApiClient implements ApiClient {
           .toList();
 
   @override
-  Future<CitizenUser> citizenLogin(
-      {required String name, required String phone}) async {
+  Future<String?> requestCitizenOtp(String phone) async {
+    try {
+      final res = await _dio.post<Map<String, dynamic>>(
+        '/api/auth/request-otp',
+        data: FormData.fromMap({'phone': phone}),
+      );
+      final d = res.data ?? const {};
+      return d['dev_otp'] as String?; // non-null only in dummy mode
+    } catch (e) {
+      _friendly(e);
+    }
+  }
+
+  @override
+  Future<CitizenUser> citizenLogin({
+    required String name,
+    required String phone,
+    required String otp,
+  }) async {
     try {
       final res = await _dio.post<Map<String, dynamic>>(
         '/api/auth/login',
-        data: FormData.fromMap({'name': name, 'phone': phone}),
+        data: FormData.fromMap({'name': name, 'phone': phone, 'otp': otp}),
       );
       return CitizenUser.fromJson(res.data!);
     } catch (e) {
@@ -120,6 +137,20 @@ class DioApiClient implements ApiClient {
   @override
   Future<List<Issue>> fetchHistory(String userId) =>
       _get('/api/issues/history/$userId', parse: _issueList);
+
+  @override
+  Future<({int reports, int upvotes, int resolved, int open})> fetchUserStats(
+          String userId) =>
+      _get('/api/issues/stats/$userId', parse: (d) {
+        final m = d as Map<String, dynamic>;
+        int n(String k) => (m[k] as num?)?.toInt() ?? 0;
+        return (
+          reports: n('reports'),
+          upvotes: n('upvotes'),
+          resolved: n('resolved'),
+          open: n('open'),
+        );
+      });
 
   @override
   Future<ReportOutcome> reportIssue({

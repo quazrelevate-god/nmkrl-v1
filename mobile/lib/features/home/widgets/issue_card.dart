@@ -164,8 +164,13 @@ class IssueCard extends StatelessWidget {
                                   ),
                                 ],
                               ),
-                            StatusChip(status: issue.status),
-                            if (badge != null) badge!,
+                            // Exactly ONE status pill: the coordinator badge
+                            // (richer label) when provided, else the default
+                            // status chip. Never both.
+                            if (badge != null)
+                              badge!
+                            else
+                              StatusChip(status: issue.status),
                           ],
                         ),
                       ],
@@ -271,7 +276,8 @@ class IssueCard extends StatelessWidget {
                                                 color: NkColors.slate500),
                                             const SizedBox(width: 3),
                                             Text(
-                                              ticketNumber(issue.id),
+                                              issue.ticketNo ??
+                                                  ticketNumber(issue.id),
                                               style: const TextStyle(
                                                 fontSize: 10,
                                                 fontWeight: FontWeight.w600,
@@ -438,7 +444,10 @@ class IssueCard extends StatelessWidget {
                           _LifecycleTracker(index: progressIndex(issue.status)),
                         ],
 
-                        if (actions == null && onUpvote != null) ...[
+                        // Support button — hidden on false petitions (#4).
+                        if (actions == null &&
+                            onUpvote != null &&
+                            issue.status != 'FALSE') ...[
                           const SizedBox(height: 12),
                           GestureDetector(
                             onTap: () => onUpvote!(issue),

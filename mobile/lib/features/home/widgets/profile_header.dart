@@ -6,7 +6,7 @@ import '../../../core/glass.dart';
 import '../../../core/theme.dart';
 import '../../../domain/profile_data.dart';
 import '../../../state/providers.dart';
-import '../../profile/edit_profile_screen.dart';
+import '../../shared/notification_bell.dart';
 import '../../shared/wave_mark.dart';
 
 /// Home header — port of components/citizen/CitizenProfileHeader.js.
@@ -19,11 +19,15 @@ class ProfileHeader extends ConsumerWidget {
     required this.profileOpen,
     required this.onToggleProfile,
     required this.onSignOut,
+    this.stats,
   });
 
   final bool profileOpen;
   final VoidCallback onToggleProfile;
   final VoidCallback onSignOut;
+
+  /// Real per-account counters (null → shows "—" until loaded).
+  final ({int reports, int upvotes, int resolved, int open})? stats;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -51,7 +55,14 @@ class ProfileHeader extends ConsumerWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 const BrandMark(),
-                GestureDetector(
+                Row(
+                  children: [
+                    NotificationBell(
+                      recipientType: 'citizen',
+                      recipientId: ref.watch(userIdProvider),
+                    ),
+                    const SizedBox(width: 4),
+                    GestureDetector(
                   onTap: () {
                     HapticFeedback.selectionClick();
                     onToggleProfile();
@@ -100,6 +111,8 @@ class ProfileHeader extends ConsumerWidget {
                     ],
                   ),
                 ),
+                  ],
+                ),
               ],
             ),
           ),
@@ -112,6 +125,7 @@ class ProfileHeader extends ConsumerWidget {
             child: profileOpen
                 ? _ProfilePanel(
                     accountName: accountName,
+                    stats: stats,
                     onCollapse: onToggleProfile,
                     onSignOut: onSignOut)
                 : const SizedBox(width: double.infinity),
@@ -127,11 +141,13 @@ class ProfileHeader extends ConsumerWidget {
 class _ProfilePanel extends StatelessWidget {
   const _ProfilePanel({
     required this.accountName,
+    required this.stats,
     required this.onCollapse,
     required this.onSignOut,
   });
 
   final String accountName;
+  final ({int reports, int upvotes, int resolved, int open})? stats;
   final VoidCallback onCollapse;
   final VoidCallback onSignOut;
 
@@ -186,37 +202,15 @@ class _ProfilePanel extends StatelessWidget {
                             fontSize: 11,
                             fontWeight: FontWeight.w500,
                             color: NkColors.slate400)),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            '$accountName 👋',
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w800,
-                              color: NkColors.slate900,
-                              height: 1.2,
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        // IconButton keeps the 48dp material tap target even
-                        // though the glyph itself is small.
-                        IconButton(
-                          onPressed: () {
-                            HapticFeedback.selectionClick();
-                            Navigator.of(context).push(
-                              MaterialPageRoute<void>(
-                                builder: (_) => const EditProfileScreen(),
-                              ),
-                            );
-                          },
-                          padding: EdgeInsets.zero,
-                          tooltip: 'Edit profile',
-                          icon: const Icon(Icons.edit_outlined,
-                              size: 16, color: NkColors.slate500),
-                        ),
-                      ],
+                    Text(
+                      '$accountName 👋',
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        color: NkColors.slate900,
+                        height: 1.2,
+                      ),
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ],
                 ),
@@ -236,28 +230,28 @@ class _ProfilePanel extends StatelessWidget {
               for (final (icon, value, label, fg, bg) in [
                 (
                   Icons.assignment_outlined,
-                  '${ProfileData.reports}',
+                  stats == null ? '—' : '${stats!.reports}',
                   'Reports',
                   NkColors.brand,
                   NkColors.brand50
                 ),
                 (
                   Icons.thumb_up_outlined,
-                  '${ProfileData.upvotes}',
+                  stats == null ? '—' : '${stats!.upvotes}',
                   'Upvotes',
                   NkColors.teal700,
                   NkColors.teal50
                 ),
                 (
                   Icons.check_circle_outline,
-                  '${ProfileData.resolved}',
+                  stats == null ? '—' : '${stats!.resolved}',
                   'Resolved',
                   NkColors.emerald700,
                   NkColors.emerald50
                 ),
                 (
                   Icons.schedule,
-                  '${ProfileData.open}',
+                  stats == null ? '—' : '${stats!.open}',
                   'Open',
                   NkColors.amber700,
                   NkColors.amber50

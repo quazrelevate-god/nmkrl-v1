@@ -139,16 +139,18 @@ class _CitizenLoginForm extends ConsumerStatefulWidget {
 }
 
 class _CitizenLoginFormState extends ConsumerState<_CitizenLoginForm> {
-  /// Phase-1 OTP is a static mock — the backend never sees it.
-  static const _mockOtp = '246813';
-
   final _name = TextEditingController();
   final _mobile = TextEditingController();
   final _otp = TextEditingController();
 
   bool _otpSent = false;
+  bool _sendingOtp = false;
   bool _busy = false;
   String? _error;
+
+  /// In dummy mode (no live SMS gateway) the backend returns the code so the
+  /// demo flow works; we surface it as a hint. Null once a real gateway sends.
+  String? _devOtp;
 
   @override
   void initState() {
@@ -174,15 +176,14 @@ class _CitizenLoginFormState extends ConsumerState<_CitizenLoginForm> {
 
   String get _mobileDigits => _mobile.text.replaceAll(RegExp(r'\D'), '');
 
-  bool get _otpVerified => _otpSent && _otp.text == _mockOtp;
-
   bool get _canLogin =>
       !_busy &&
       _name.text.trim().length >= 2 &&
       _mobileDigits.length >= 10 &&
-      _otpVerified;
+      _otpSent &&
+      _otp.text.replaceAll(RegExp(r'\D'), '').length == 6;
 
-  void _sendOtp() {
+  Future<void> _sendOtp() async {
     if (_mobileDigits.length < 10) {
       setState(() => _error = 'Enter a valid 10-digit mobile number first.');
       return;
@@ -190,21 +191,29 @@ class _CitizenLoginFormState extends ConsumerState<_CitizenLoginForm> {
     HapticFeedback.selectionClick();
     setState(() {
       _error = null;
-      _otpSent = true;
-      _otp.clear();
+      _sendingOtp = true;
     });
+    try {
+      final dev = await ref
+          .read(apiClientProvider)
+          .requestCitizenOtp(_mobileDigits);
+      setState(() {
+        _otpSent = true;
+        _devOtp = dev;
+        _otp.clear();
+      });
+    } catch (e) {
+      setState(() => _error = '$e');
+    } finally {
+      if (mounted) setState(() => _sendingOtp = false);
+    }
   }
 
   Future<void> _submit() async {
     if (!_canLogin) {
-      setState(() {
-        if (_otpSent && _otp.text.length == 6 && !_otpVerified) {
-          _error = 'Incorrect OTP. The demo code is $_mockOtp.';
-        } else {
-          _error =
-              'Enter your name, verify your mobile number with the OTP, then log in.';
-        }
-      });
+      setState(() => _error = _otpSent
+          ? 'Enter the 6-digit OTP sent to your mobile.'
+          : 'Enter your name and mobile number, then tap Send OTP.');
       return;
     }
     setState(() {
@@ -212,14 +221,17 @@ class _CitizenLoginFormState extends ConsumerState<_CitizenLoginForm> {
       _error = null;
     });
     try {
-      await ref
-          .read(authProvider.notifier)
-          .signIn(name: _name.text.trim(), phone: _mobileDigits);
+      // OTP is verified server-side inside signIn (login gates on it).
+      await ref.read(authProvider.notifier).signIn(
+            name: _name.text.trim(),
+            phone: _mobileDigits,
+            otp: _otp.text.replaceAll(RegExp(r'\D'), ''),
+          );
       HapticFeedback.mediumImpact();
       if (mounted) context.go('/home');
     } catch (e) {
-      // Backend rejections surface here — e.g. the phone number is already
-      // registered under a different name.
+      // Backend rejections surface here — wrong OTP, or the phone number is
+      // already registered under a different name.
       if (mounted) setState(() => _error = '$e');
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -371,8 +383,9 @@ class _CitizenLoginFormState extends ConsumerState<_CitizenLoginForm> {
                   SizedBox(
                     height: 46,
                     child: FilledButton(
-                      onPressed:
-                          _mobileDigits.length >= 10 ? _sendOtp : null,
+                      onPressed: (_mobileDigits.length >= 10 && !_sendingOtp)
+                          ? _sendOtp
+                          : null,
                       style: FilledButton.styleFrom(
                         backgroundColor: NkColors.brand,
                         disabledBackgroundColor:
@@ -383,14 +396,21 @@ class _CitizenLoginFormState extends ConsumerState<_CitizenLoginForm> {
                           borderRadius: BorderRadius.circular(12),
                         ),
                       ),
-                      child: Text(
-                        _otpSent ? 'Resend' : 'Send OTP',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white,
-                        ),
-                      ),
+                      child: _sendingOtp
+                          ? const SizedBox(
+                              height: 16,
+                              width: 16,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2, color: Colors.white),
+                            )
+                          : Text(
+                              _otpSent ? 'Resend' : 'Send OTP',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.white,
+                              ),
+                            ),
                     ),
                   ),
                 ],
@@ -426,7 +446,10 @@ class _CitizenLoginFormState extends ConsumerState<_CitizenLoginForm> {
                                   decoration:
                                       _dec('••••••').copyWith(counterText: ''),
                                 ),
-                                if (_otpVerified)
+                                if (_otp.text
+                                        .replaceAll(RegExp(r'\D'), '')
+                                        .length ==
+                                    6)
                                   const Padding(
                                     padding: EdgeInsets.only(right: 12),
                                     child: Icon(
@@ -439,7 +462,9 @@ class _CitizenLoginFormState extends ConsumerState<_CitizenLoginForm> {
                             ),
                             const SizedBox(height: 6),
                             Text(
-                              'OTP sent to +91 ${_mobile.text.isEmpty ? '98xxx xxxxx' : _mobile.text} · demo code $_mockOtp',
+                              _devOtp != null
+                                  ? 'OTP sent to +91 ${_mobile.text} · demo code $_devOtp'
+                                  : 'OTP sent to +91 ${_mobile.text}',
                               style: const TextStyle(
                                 fontSize: 11,
                                 color: NkColors.slate500,

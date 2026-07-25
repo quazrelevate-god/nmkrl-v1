@@ -9,10 +9,20 @@ import '../domain/models/locate_result.dart';
 /// Abstract seam over the FastAPI backend (mirrors frontend/lib/api.js
 /// 1:1). Widget/unit tests inject a fake; the app wires [DioApiClient].
 abstract class ApiClient {
-  /// Phase-1 citizen login (POST /api/auth/login): a known phone must present
-  /// its registered name; an unknown phone auto-registers. Throws
-  /// [ApiException] on a name mismatch (401) or invalid input (400).
-  Future<CitizenUser> citizenLogin({required String name, required String phone});
+  /// Request an SMS OTP for [phone] (POST /api/auth/request-otp). Returns the
+  /// dev OTP string when the backend is in dummy mode (no live SMS key), else
+  /// null. Throws [ApiException] on a bad number / gateway error.
+  Future<String?> requestCitizenOtp(String phone);
+
+  /// Phase-1 citizen login (POST /api/auth/login): verifies [otp], then a
+  /// known phone must present its registered name; an unknown phone
+  /// auto-registers. Throws [ApiException] on wrong OTP (401), name mismatch
+  /// (401) or invalid input (400/422).
+  Future<CitizenUser> citizenLogin({
+    required String name,
+    required String phone,
+    required String otp,
+  });
 
   Future<BoundaryData> fetchBoundaries();
 
@@ -23,6 +33,11 @@ abstract class ApiClient {
   Future<List<Issue>> fetchNearby(double lat, double lng, {int radius = 1500});
 
   Future<List<Issue>> fetchHistory(String userId);
+
+  /// Real per-account profile counters (reports / upvotes cast / resolved /
+  /// open-unassigned) from GET /api/issues/stats/{userId}.
+  Future<({int reports, int upvotes, int resolved, int open})> fetchUserStats(
+      String userId);
 
   Future<ReportOutcome> reportIssue({
     required double latitude,

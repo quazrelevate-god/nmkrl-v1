@@ -23,6 +23,7 @@ from utils import (
     reverse_geocode,
     save_upload,
     serialize_issue,
+    ticket_number,
 )
 
 router = APIRouter(prefix="/api/issues", tags=["issues"])
@@ -123,10 +124,11 @@ async def report_issue(
     conn.execute(
         """
         INSERT INTO issues (
-            id, title, image_url, audio_url, transcript, summary_highlights,
-            latitude, longitude, area_name, ward_no, zone, zone_name, department,
+            id, title, image_url, audio_url, transcript, transcript_ta,
+            summary_highlights, latitude, longitude, area_name, ward_no, zone,
+            zone_name, department, ticket_number,
             status, upvotes, notify_reporter, created_at, created_by
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SUBMITTED', 0, 0, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SUBMITTED', 0, 0, ?, ?)
         """,
         (
             issue_id,
@@ -134,6 +136,7 @@ async def report_issue(
             image_url,
             audio_url,
             ai.get("transcript", ""),
+            ai.get("transcript_ta", ""),
             json.dumps(ai.get("highlights", [])),
             latitude,
             longitude,
@@ -142,6 +145,7 @@ async def report_issue(
             zone,
             zone_name,
             department,
+            ticket_number(issue_id),
             created_at,
             user_id,
         ),
@@ -242,6 +246,40 @@ def user_history(user_id: str, conn=Depends(get_db)):
     return {"count": len(rows), "issues": [serialize_issue(r) for r in rows]}
 
 
+@router.get("/stats/{user_id}")
+def user_stats(user_id: str, conn=Depends(get_db)):
+    """Real per-account profile counters shown on the citizen profile:
+       reports  — grievances this user submitted
+       upvotes  — upvotes this user has cast (their own actions)
+       resolved — their submitted grievances now CLOSED
+       open     — their submitted grievances not yet assigned to any
+                  coordinator (and not terminal)
+    """
+    reports = conn.execute(
+        "SELECT COUNT(*) AS n FROM issues WHERE created_by = ?", (user_id,)
+    ).fetchone()["n"]
+    resolved = conn.execute(
+        "SELECT COUNT(*) AS n FROM issues WHERE created_by = ? AND status = 'CLOSED'",
+        (user_id,),
+    ).fetchone()["n"]
+    open_count = conn.execute(
+        """SELECT COUNT(*) AS n FROM issues
+           WHERE created_by = ?
+             AND (assigned_coordinator IS NULL OR assigned_coordinator = '')
+             AND status NOT IN ('CLOSED', 'FALSE')""",
+        (user_id,),
+    ).fetchone()["n"]
+    upvotes = conn.execute(
+        "SELECT COUNT(*) AS n FROM upvotes WHERE user_id = ?", (user_id,)
+    ).fetchone()["n"]
+    return {
+        "reports": reports,
+        "upvotes": upvotes,
+        "resolved": resolved,
+        "open": open_count,
+    }
+
+
 @router.post("/{issue_id}/confirm")
 def confirm_issue(
     issue_id: str,
@@ -289,15 +327,44 @@ def verify_issue(
             detail=f"Issue is not pending verification (status={issue['status']})",
         )
 
-    new_status = "CLOSED" if response == "APPROVED" else "IN_PROGRESS"
-    conn.execute(
-        "UPDATE issues SET status = ?, notify_reporter = 0 WHERE id = ?",
-        (new_status, issue_id),
-    )
+    if response == "APPROVED":
+        conn.execute(
+            "UPDATE issues SET status = 'CLOSED', notify_reporter = 0 WHERE id = ?",
+            (issue_id,),
+        )
+    else:
+        # REJECTED — roll back to ACTIVE (the coordinator's "Assigned" bucket),
+        # stamp rejected_at, and clear escalated_at so it lands in the
+        # coordinator's Assigned tab (not Escalated). The coordinator app
+        # renders an alert card off rejected_at.
+        conn.execute(
+            """UPDATE issues
+                  SET status = 'ACTIVE', notify_reporter = 0,
+                      rejected_at = ?, escalated_at = NULL,
+                      coordinator_message = 'Citizen rejected the resolution — please review.'
+                WHERE id = ?""",
+            (now_iso(), issue_id),
+        )
     conn.execute(
         """INSERT INTO verifications (id, issue_id, user_id, response, timestamp)
            VALUES (?, ?, ?, ?, ?)""",
         (new_id(), issue_id, user_id, response, now_iso()),
     )
     row = conn.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
+    # Notify the owning coordinator that the citizen rejected the closure.
+    if response == "REJECTED" and row["assigned_coordinator"]:
+        try:
+            from routers.notifications import _insert
+            _insert(
+                conn,
+                recipient_type="coordinator",
+                recipient_id=row["assigned_coordinator"],
+                kind="rejected",
+                issue_id=issue_id,
+                title=row["title"] or "Grievance rejected",
+                message="Citizen rejected the resolution — review ASAP.",
+                data={"ward_no": row["ward_no"]},
+            )
+        except Exception:
+            pass
     return serialize_issue(row)

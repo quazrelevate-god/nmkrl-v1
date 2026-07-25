@@ -15,6 +15,7 @@ import '../../state/providers.dart';
 import '../home/widgets/issue_card.dart';
 import '../home/widgets/map_card.dart';
 import '../shared/notification_banner.dart';
+import '../shared/notification_bell.dart';
 import '../shared/wave_mark.dart';
 import 'widgets/action_sheets.dart';
 
@@ -37,6 +38,7 @@ class _CoordinatorHomeScreenState
   List<Issue> _wardIssues = [];
   List<Issue> _mineAllWards = [];
   Issue? _selected;
+  final Map<String, GlobalKey> _cardKeys = {};
   LatLng? _center;
   String? _error;
   String? _busyId;
@@ -149,6 +151,67 @@ class _CoordinatorHomeScreenState
     if (c == null) return null;
     return haversineKm(
         c.latitude, c.longitude, issue.latitude, issue.longitude);
+  }
+
+  /// Map pin tap → highlight + bring forward the matching ribbon in the list
+  /// (#6); switches to whichever tab currently holds the issue.
+  void _onMapSelect(Issue? i) {
+    setState(() {
+      _selected = i;
+      if (i != null) {
+        _expandedId = i.id;
+        final parts = partitionForCoordinator(_wardIssues, _me.username);
+        if (parts.ward.any((x) => x.id == i.id)) {
+          _tab = CoordinatorTab.ward;
+        } else if (parts.mine.any((x) => x.id == i.id)) {
+          _tab = CoordinatorTab.mine;
+        } else if (parts.escalated.any((x) => x.id == i.id)) {
+          _tab = CoordinatorTab.escalated;
+        } else if (parts.previous.any((x) => x.id == i.id)) {
+          _tab = CoordinatorTab.previous;
+        }
+      }
+    });
+    if (i == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final ctx = _cardKeys[i.id]?.currentContext;
+      if (ctx != null) {
+        Scrollable.ensureVisible(ctx,
+            duration: const Duration(milliseconds: 420),
+            curve: NkMotion.settle,
+            alignment: 0.1);
+      }
+    });
+  }
+
+  Widget _selectableCard(Issue issue, Widget card) {
+    final selected = _selected?.id == issue.id;
+    return AnimatedScale(
+      key: _cardKeys.putIfAbsent(issue.id, () => GlobalKey()),
+      scale: selected ? 1.025 : 1,
+      duration: const Duration(milliseconds: 260),
+      curve: NkMotion.settle,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 260),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+              color: selected ? NkColors.gold300 : Colors.transparent,
+              width: 2),
+          boxShadow: selected
+              ? [
+                  BoxShadow(
+                    color: NkColors.gold300.withValues(alpha: 0.35),
+                    blurRadius: 22,
+                    offset: const Offset(0, 8),
+                    spreadRadius: -2,
+                  ),
+                ]
+              : null,
+        ),
+        child: card,
+      ),
+    );
   }
 
   // ── Actions (all backend-persistent now) ────────────────────────────────
@@ -330,8 +393,7 @@ class _CoordinatorHomeScreenState
                               center: _center,
                               issues: current,
                               selected: _selected,
-                              onSelect: (i) =>
-                                  setState(() => _selected = i),
+                              onSelect: _onMapSelect,
                               boundaries: _boundaries,
                               currentWard: int.tryParse(_ward),
                               showLocateChip: false,
@@ -472,33 +534,42 @@ class _CoordinatorHomeScreenState
                     ),
                   ],
                 ),
-                GestureDetector(
-                  onTap: () {
-                    HapticFeedback.selectionClick();
-                    setState(() => _profileOpen = !_profileOpen);
-                  },
-                  child: Container(
-                    padding: const EdgeInsets.all(2),
-                    decoration: const BoxDecoration(
-                      gradient: nkGoldGradient,
-                      shape: BoxShape.circle,
+                Row(
+                  children: [
+                    NotificationBell(
+                      recipientType: 'coordinator',
+                      recipientId: me.username,
                     ),
-                    child: Container(
-                      height: 36, width: 36,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: NkColors.brandDark,
-                        shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white, width: 2),
+                    const SizedBox(width: 4),
+                    GestureDetector(
+                      onTap: () {
+                        HapticFeedback.selectionClick();
+                        setState(() => _profileOpen = !_profileOpen);
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.all(2),
+                        decoration: const BoxDecoration(
+                          gradient: nkGoldGradient,
+                          shape: BoxShape.circle,
+                        ),
+                        child: Container(
+                          height: 36, width: 36,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: NkColors.brandDark,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white, width: 2),
+                          ),
+                          child: Text(me.initials,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w900,
+                                color: NkColors.gold200,
+                              )),
+                        ),
                       ),
-                      child: Text(me.initials,
-                          style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w900,
-                            color: NkColors.gold200,
-                          )),
                     ),
-                  ),
+                  ],
                 ),
               ],
             ),
@@ -778,15 +849,15 @@ class _CoordinatorHomeScreenState
         children: [
           for (final (tab, icon, label) in [
             (CoordinatorTab.ward,
-                Icons.groups_outlined, 'Ward (${parts.ward.length})'),
+                Icons.groups_outlined, 'Open (${parts.ward.length})'),
             (CoordinatorTab.mine,
-                Icons.description_outlined, 'Mine (${parts.mine.length})'),
+                Icons.description_outlined, 'Assigned (${parts.mine.length})'),
             (CoordinatorTab.escalated,
                 Icons.keyboard_double_arrow_up,
                 'Escalated (${parts.escalated.length})'),
             (CoordinatorTab.previous,
                 Icons.assignment_outlined,
-                'Previous (${parts.previous.length})'),
+                'Resolved (${parts.previous.length})'),
           ])
             Expanded(
               child: GestureDetector(
@@ -842,10 +913,10 @@ class _CoordinatorHomeScreenState
 
   Widget _buildList(List<Issue> current) {
     final headings = [
-      'Public grievances in Ward $_ward',
-      'Verified by me',
+      'Open grievances in Ward $_ward',
+      'Assigned to me',
       'Escalated grievances',
-      'Previous reports',
+      'Resolved & closed',
     ];
     final empties = [
       'No unverified grievances in Ward $_ward.',
@@ -920,21 +991,26 @@ class _CoordinatorHomeScreenState
           for (final issue in current)
             Padding(
               padding: const EdgeInsets.only(bottom: 8),
-              child: IssueCard(
-                issue: issue,
-                expanded: _expandedId == issue.id,
-                onToggle: () => setState(
-                    () => _expandedId = _expandedId == issue.id ? null : issue.id),
-                distanceKm: _distanceKm(issue),
-                badge: _tab != CoordinatorTab.ward
-                    ? _ActionStatusBadge(status: issue.status)
-                    : null,
-                actions: switch (_tab) {
-                  CoordinatorTab.ward => _wardActions(issue),
-                  CoordinatorTab.mine => _mineActions(issue),
-                  CoordinatorTab.escalated => _escalatedActions(issue),
-                  CoordinatorTab.previous => const SizedBox.shrink(),
-                },
+              child: _selectableCard(
+                issue,
+                IssueCard(
+                  issue: issue,
+                  expanded: _expandedId == issue.id,
+                  onToggle: () => setState(() =>
+                      _expandedId = _expandedId == issue.id ? null : issue.id),
+                  distanceKm: _distanceKm(issue),
+                  badge: _tab != CoordinatorTab.ward
+                      ? _ActionStatusBadge(
+                          status: issue.status,
+                          rejected: issue.rejectedAt != null)
+                      : null,
+                  actions: switch (_tab) {
+                    CoordinatorTab.ward => _wardActions(issue),
+                    CoordinatorTab.mine => _mineActions(issue),
+                    CoordinatorTab.escalated => _escalatedActions(issue),
+                    CoordinatorTab.previous => const SizedBox.shrink(),
+                  },
+                ),
               ),
             ),
       ],
@@ -1143,10 +1219,35 @@ class _CoordinatorHomeScreenState
 }
 
 class _ActionStatusBadge extends StatelessWidget {
-  const _ActionStatusBadge({required this.status});
+  const _ActionStatusBadge({required this.status, this.rejected = false});
   final String status;
+  final bool rejected;
   @override
   Widget build(BuildContext context) {
+    // Citizen-rejected closure takes visual priority — the coordinator needs
+    // to act on it fast.
+    if (rejected) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        decoration: BoxDecoration(
+          color: NkColors.rose50,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: NkColors.rose600.withValues(alpha: 0.4)),
+        ),
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.warning_amber_rounded, size: 10, color: NkColors.rose600),
+            SizedBox(width: 3),
+            Text('Rejected — review ASAP',
+                style: TextStyle(
+                    fontSize: 9,
+                    fontWeight: FontWeight.w800,
+                    color: NkColors.rose600)),
+          ],
+        ),
+      );
+    }
     final (label, bg, fg) = switch (status) {
       'CLOSED' => ('Citizen approved · Closed', NkColors.emerald50, NkColors.emerald700),
       'FALSE' => ('False Petition', NkColors.rose50, NkColors.rose700),

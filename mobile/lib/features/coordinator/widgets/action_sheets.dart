@@ -516,7 +516,7 @@ class _TransferSheetState extends ConsumerState<TransferSheet> {
         ? ''
         : '\n\n*Coordinator note:* ${_notes.text.trim()}';
     return '🏛️ *நம் குரல் · Grievance Dispatch*\n\n'
-        '*Ticket:* ${ticketNumber(i.id)}\n'
+        '*Ticket:* ${i.ticketNo ?? ticketNumber(i.id)}\n'
         '*Ward No:* ${i.wardNo ?? '—'}\n'
         '*Issue:* ${i.title}\n'
         '*Details:* ${i.transcript ?? (highlights.isEmpty ? '—' : highlights)}\n'

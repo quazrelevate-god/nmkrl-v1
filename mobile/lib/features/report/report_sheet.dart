@@ -180,7 +180,7 @@ class _ReportSheetState extends ConsumerState<ReportSheet> {
         title: 'Grievance Submitted',
         message:
             'Your report is on its way to the ward coordinator. Track it anytime under My Reports.',
-        ticket: ticketNumber(issue.id),
+        ticket: issue.ticketNo ?? ticketNumber(issue.id),
       );
       widget.onSubmitted();
     } catch (e) {

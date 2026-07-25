@@ -36,14 +36,17 @@ class AuthNotifier extends Notifier<bool> {
     return prefs.authed && (prefs.accountId?.isNotEmpty ?? false);
   }
 
-  /// Phase-1 login: check-or-create the (name, phone) account on the backend.
-  /// Throws [ApiException] with a friendly message on rejection (e.g. the
-  /// phone is registered under a different name).
-  Future<CitizenUser> signIn(
-      {required String name, required String phone}) async {
+  /// Phase-1 login: verify [otp], then check-or-create the (name, phone)
+  /// account on the backend. Throws [ApiException] with a friendly message on
+  /// rejection (wrong OTP, or phone registered under a different name).
+  Future<CitizenUser> signIn({
+    required String name,
+    required String phone,
+    required String otp,
+  }) async {
     final user = await ref
         .read(apiClientProvider)
-        .citizenLogin(name: name, phone: phone);
+        .citizenLogin(name: name, phone: phone, otp: otp);
     await ref.read(prefsProvider).saveAccount(user);
     state = true;
     return user;

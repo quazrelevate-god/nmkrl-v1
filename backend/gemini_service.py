@@ -19,15 +19,16 @@ spoken in a native Indian language (Tamil, Hindi, Telugu, Bengali, etc.).
 Do the following:
 1. Transcribe the speech.
 2. Translate the transcription into clear English.
-3. Compose a short, specific title for the grievance in Title Case (4-8 words,
+3. Also provide the same transcript in clear Tamil (தமிழ்).
+4. Compose a short, specific title for the grievance in Title Case (4-8 words,
    no trailing punctuation). Describe the actual problem, e.g.
    "Large pothole on the main road", "Streetlight broken near bus stop",
    "Overflowing garbage bin at market", "Stormwater drain blocked".
-4. Extract 2-4 short highlight tags describing the issue (e.g. "Broken road",
+5. Extract 2-4 short highlight tags describing the issue (e.g. "Broken road",
    "Large pothole", "Water logging", "Traffic hazard").
 
 Respond with STRICT, minified JSON ONLY, no markdown fences, in exactly this shape:
-{"title": "<short title>", "transcript": "<english transcript>", "highlights": ["tag1", "tag2"]}
+{"title": "<short title>", "transcript": "<english transcript>", "transcript_ta": "<tamil transcript>", "highlights": ["tag1", "tag2"]}
 """
 
 # Gemini-supported audio MIME types.
@@ -64,6 +65,10 @@ def _mock_result(reason: str) -> dict:
             "[Mock transcript - Gemini unavailable] A citizen reports a large "
             "pothole on the road causing water logging; vehicles and pedestrians "
             "are facing difficulty."
+        ),
+        "transcript_ta": (
+            "[மாதிரி வாக்கு - Gemini கிடைக்கவில்லை] சாலையில் பெரிய பள்ளம் "
+            "காரணமாக தண்ணீர் தேங்குகிறது; வாகனங்களும் பாதசாரிகளும் சிரமப்படுகின்றனர்."
         ),
         "highlights": ["Broken road", "Large pothole", "Water logging"],
         "mock": True,
@@ -307,6 +312,7 @@ def process_audio(audio_bytes: bytes, mime_type: str = "audio/webm") -> dict:
 
         parsed = json.loads(text)
         transcript = str(parsed.get("transcript", "")).strip()
+        transcript_ta = str(parsed.get("transcript_ta", "")).strip()
         title = str(parsed.get("title", "")).strip().rstrip(".!?")
         highlights = parsed.get("highlights", [])
         if not isinstance(highlights, list):
@@ -321,6 +327,7 @@ def process_audio(audio_bytes: bytes, mime_type: str = "audio/webm") -> dict:
         return {
             "title": title,
             "transcript": transcript,
+            "transcript_ta": transcript_ta,
             "highlights": highlights,
             "mock": False,
         }
@@ -332,6 +339,7 @@ def process_audio(audio_bytes: bytes, mime_type: str = "audio/webm") -> dict:
         return {
             "title": "",
             "transcript": raw,
+            "transcript_ta": "",
             "highlights": [],
             "mock": False,
             "reason": "Non-JSON Gemini response salvaged as transcript",

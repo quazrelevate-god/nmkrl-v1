@@ -52,6 +52,17 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def ticket_number(issue_id: str) -> str:
+    """Human-friendly tracking id derived from the issue UUID — FMS-XXXXXXXX
+    (first 8 hex chars, upper-cased). Matches lib/ticket.js + ticket.dart so
+    the derived and stored values are identical. Generated once at insert and
+    persisted so every surface fetches the SAME value from the DB."""
+    if not issue_id:
+        return "FMS-UNKNOWN"
+    hex8 = issue_id.replace("-", "")[:8].upper()
+    return f"FMS-{hex8}"
+
+
 def ensure_upload_dirs() -> None:
     """Create upload folders if missing."""
     os.makedirs(IMAGE_DIR, exist_ok=True)
@@ -160,4 +171,8 @@ def serialize_issue(row) -> dict:
     except (TypeError, ValueError):
         data["summary_highlights"] = []
     data["notify_reporter"] = bool(data.get("notify_reporter", 0))
+    # Always surface a ticket number — use the stored one, else derive (keeps
+    # legacy rows consistent with the deterministic FMS-XXXXXXXX scheme).
+    if not data.get("ticket_number"):
+        data["ticket_number"] = ticket_number(data.get("id", ""))
     return data
