@@ -20,8 +20,8 @@ import {
   CheckCircle2, AlertCircle,
 } from "lucide-react";
 import {
-  listCoordinators, createCoordinator, updateCoordinator,
-  resetPassword, setStatus, initialsFrom,
+  listCoordinators, listCoordinatorsRemote, ensureSeedCoordinators,
+  createCoordinatorRemote, updateCoordinatorRemote, initialsFrom,
 } from "@/lib/coordinators";
 import { CONSTITUENCIES, CHENNAI_AC_MAP } from "@/lib/constituencies";
 
@@ -52,10 +52,19 @@ export default function CoordinatorsPage() {
   const [statusTarget, setStatusTarget] = useState(null); // coordinator | null
   const [toast, setToast] = useState(null);
 
-  function refresh() { setRows(listCoordinators()); }
+  // Source of truth is the backend so every browser + the mobile app agree.
+  // Falls back to the local seed only if the backend is unreachable.
+  async function refresh() {
+    try {
+      setRows(await listCoordinatorsRemote());
+    } catch {
+      setRows(listCoordinators());
+    }
+  }
 
   useEffect(() => {
-    refresh();
+    // Make sure the 4 demo accounts exist in the backend, then load the list.
+    ensureSeedCoordinators().finally(refresh);
     const sync = () => refresh();
     window.addEventListener("fms:coordinator-directory-changed", sync);
     return () => window.removeEventListener("fms:coordinator-directory-changed", sync);
@@ -203,9 +212,11 @@ export default function CoordinatorsPage() {
         <CoordinatorFormDrawer
           mode={editingUser === "new" ? "create" : "edit"}
           username={editingUser === "new" ? null : editingUser}
+          existingRow={rows.find((r) => r.username === editingUser) || null}
           onClose={() => setEditingUser(null)}
           onSaved={(msg) => setToast({ kind: "ok", msg })}
           onError={(msg) => setToast({ kind: "err", msg })}
+          onDone={refresh}
         />
       )}
       {resetTarget && (
@@ -213,6 +224,7 @@ export default function CoordinatorsPage() {
           coord={resetTarget}
           onClose={() => setResetTarget(null)}
           onDone={(msg) => setToast({ kind: "ok", msg })}
+          onRefresh={refresh}
         />
       )}
       {statusTarget && (
@@ -220,6 +232,7 @@ export default function CoordinatorsPage() {
           coord={statusTarget}
           onClose={() => setStatusTarget(null)}
           onDone={(msg) => setToast({ kind: "ok", msg })}
+          onRefresh={refresh}
         />
       )}
 
@@ -342,9 +355,10 @@ function Toast({ toast }) {
 }
 
 /* ── Create / Edit drawer ────────────────────────────────────────────────── */
-function CoordinatorFormDrawer({ mode, username, onClose, onSaved, onError }) {
+function CoordinatorFormDrawer({ mode, username, existingRow, onClose, onSaved, onError, onDone }) {
   const editing = mode === "edit";
-  const existing = editing ? listCoordinators().find((c) => c.username === username) : null;
+  const existing = editing ? existingRow : null;
+  const [saving, setSaving] = useState(false);
 
   const [name, setName] = useState(existing?.name || "");
   const [usernameField, setUsernameField] = useState(existing?.username || "");
@@ -391,24 +405,27 @@ function CoordinatorFormDrawer({ mode, username, onClose, onSaved, onError }) {
     } catch { /* noop */ }
   }
 
-  function submit(e) {
+  async function submit(e) {
     e.preventDefault();
     if (!name.trim()) return onError("Name is required");
     if (!editing && !usernameField.trim()) return onError("Username is required");
     if (!editing && password.length < 4) return onError("Password must be at least 4 characters");
+    if (saving) return;
 
+    setSaving(true);
     try {
       if (editing) {
-        updateCoordinator(username, {
+        await updateCoordinatorRemote(username, {
           name: name.trim(),
           role,
           constituency,
           homeWard,
-          initials: initialsFrom(name),
+          // Only change the password if the admin typed a new one.
+          ...(password ? { password, mustChangePassword: mustChange } : {}),
         });
         onSaved(`Updated ${name.trim()}`);
       } else {
-        createCoordinator({
+        await createCoordinatorRemote({
           name: name.trim(),
           username: usernameField.trim().toLowerCase(),
           password,
@@ -419,9 +436,12 @@ function CoordinatorFormDrawer({ mode, username, onClose, onSaved, onError }) {
         });
         onSaved(`Created ${name.trim()} · @${usernameField.trim().toLowerCase()}`);
       }
+      onDone?.();
       onClose();
     } catch (err) {
       onError(err.message || "Could not save coordinator");
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -548,8 +568,12 @@ function CoordinatorFormDrawer({ mode, username, onClose, onSaved, onError }) {
           <button type="button" onClick={onClose} className="rounded-xl px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-100">
             Cancel
           </button>
-          <button type="submit" className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-brand to-brand-dark px-4 py-2 text-sm font-bold text-white shadow-lg shadow-brand/30">
-            {editing ? <><Pencil size={14} className="text-amber-300" /> Save changes</> : <><Plus size={14} className="text-amber-300" /> Create coordinator</>}
+          <button type="submit" disabled={saving} className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-brand to-brand-dark px-4 py-2 text-sm font-bold text-white shadow-lg shadow-brand/30 disabled:opacity-60">
+            {saving
+              ? "Saving…"
+              : editing
+                ? <><Pencil size={14} className="text-amber-300" /> Save changes</>
+                : <><Plus size={14} className="text-amber-300" /> Create coordinator</>}
           </button>
         </div>
       </form>
@@ -570,10 +594,11 @@ function Field({ label, hint, children }) {
 }
 
 /* ── Reset password dialog ────────────────────────────────────────────────── */
-function ResetPasswordDialog({ coord, onClose, onDone }) {
+function ResetPasswordDialog({ coord, onClose, onDone, onRefresh }) {
   const [password, setPassword] = useState(generatePassword());
   const [mustChange, setMustChange] = useState(true);
   const [copied, setCopied] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   async function copy() {
     try {
@@ -582,10 +607,21 @@ function ResetPasswordDialog({ coord, onClose, onDone }) {
       setTimeout(() => setCopied(false), 1500);
     } catch { /* noop */ }
   }
-  function confirm() {
-    resetPassword(coord.username, password, { mustChange });
-    onDone(`Password reset for @${coord.username}`);
-    onClose();
+  async function confirm() {
+    if (saving) return;
+    setSaving(true);
+    try {
+      await updateCoordinatorRemote(coord.username, {
+        password,
+        mustChangePassword: mustChange,
+      });
+      onDone(`Password reset for @${coord.username}`);
+      onRefresh?.();
+      onClose();
+    } catch (err) {
+      onDone(err.message || "Could not reset password");
+      setSaving(false);
+    }
   }
 
   return (
@@ -660,11 +696,14 @@ function ResetPasswordDialog({ coord, onClose, onDone }) {
 }
 
 /* ── Toggle status dialog ─────────────────────────────────────────────────── */
-function ToggleStatusDialog({ coord, onClose, onDone }) {
+function ToggleStatusDialog({ coord, onClose, onDone, onRefresh }) {
   const disabling = coord.status !== "disabled";
-  function confirm() {
-    setStatus(coord.username, disabling ? "disabled" : "active");
+  async function confirm() {
+    await updateCoordinatorRemote(coord.username, {
+      status: disabling ? "disabled" : "active",
+    });
     onDone(`${disabling ? "Disabled" : "Re-enabled"} @${coord.username}`);
+    onRefresh?.();
     onClose();
   }
   return (

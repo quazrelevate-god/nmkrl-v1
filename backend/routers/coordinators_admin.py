@@ -44,6 +44,7 @@ class CoordinatorUpdate(BaseModel):
     role: str | None = None
     constituency: str | None = None
     home_ward: str | None = None
+    password: str | None = None
     must_change_password: bool | None = None
 
 
@@ -102,6 +103,7 @@ def update_coordinator(username: str, body: CoordinatorUpdate, conn=Depends(get_
         ("role", body.role),
         ("constituency", body.constituency),
         ("home_ward", body.home_ward),
+        ("password", body.password),
     ]:
         if val is not None:
             updates.append(f"{col} = ?")
