@@ -35,6 +35,8 @@ class MapCard extends StatefulWidget {
     this.onJumpEgmore,
     this.onUpvote,
     this.searchHint = 'Search ticket no. or grievance nearby',
+    this.showSearch = true,
+    this.borderRadius = 26,
   });
 
   final LatLng? center;
@@ -56,6 +58,8 @@ class MapCard extends StatefulWidget {
   /// When null the selected-issue sheet hides its Upvote button.
   final ValueChanged<Issue>? onUpvote;
   final String searchHint;
+  final bool showSearch;
+  final double borderRadius;
 
   @override
   State<MapCard> createState() => _MapCardState();
@@ -168,7 +172,7 @@ class _MapCardState extends State<MapCard> {
     final hasQuery = _query.text.trim().isNotEmpty;
 
     return ClipRRect(
-      borderRadius: BorderRadius.circular(26),
+      borderRadius: BorderRadius.circular(widget.borderRadius),
       child: Stack(
         children: [
           Positioned.fill(
@@ -230,7 +234,7 @@ class _MapCardState extends State<MapCard> {
           ),
 
           // ── Search bar + results dropdown ──
-          Positioned(
+          if (widget.showSearch) Positioned(
             left: 12,
             right: 12,
             top: 8,
@@ -354,21 +358,20 @@ class _MapCardState extends State<MapCard> {
           if (!hasQuery && widget.showLocateChip)
             Positioned(
               right: 12,
-              top: 54,
+              top: widget.showSearch ? 54 : 8,
               child: _LocateChip(
                   locate: widget.locate, locating: widget.locating),
             ),
 
-          // ── Status legend ──
+          // ── Status legend (compact HUD) ──
           Positioned(
-            left: 8,
-            bottom: 8,
+            left: 6,
+            bottom: 6,
             child: Container(
-              padding: const EdgeInsets.all(6),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
               decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.9),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: NkColors.slate200),
+                color: Colors.white.withValues(alpha: 0.82),
+                borderRadius: BorderRadius.circular(6),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -377,23 +380,24 @@ class _MapCardState extends State<MapCard> {
                   for (final entry in kStatusMeta.entries)
                     if (entry.key != 'SUBMITTED' && entry.key != 'FORWARDED')
                       Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 1),
+                        padding: const EdgeInsets.symmetric(vertical: 0.5),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Container(
-                              height: 8,
-                              width: 8,
+                              height: 6,
+                              width: 6,
                               decoration: BoxDecoration(
                                 color: entry.value.pin,
                                 shape: BoxShape.circle,
                               ),
                             ),
-                            const SizedBox(width: 4),
+                            const SizedBox(width: 3),
                             Text(
                               entry.value.label,
-                              style: const TextStyle(
-                                  fontSize: 9, color: NkColors.slate700),
+                              style: TextStyle(
+                                  fontSize: 7.5,
+                                  color: NkColors.slate700.withValues(alpha: 0.85)),
                             ),
                           ],
                         ),

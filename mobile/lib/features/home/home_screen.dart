@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../../core/theme.dart';
@@ -13,6 +12,7 @@ import '../../domain/geo_utils.dart';
 import '../../domain/models/boundary_data.dart';
 import '../../domain/models/issue.dart';
 import '../../domain/models/locate_result.dart';
+import '../../domain/profile_data.dart';
 import '../../state/providers.dart';
 import '../report/report_sheet.dart';
 import '../upvote/upvote_sheet.dart';
@@ -23,6 +23,11 @@ import 'widgets/profile_header.dart';
 /// Fallback location (Anna Nagar, Chennai) when GPS is denied/unavailable —
 /// mirrors DEFAULT_LOCATION in lib/hooks.js so the app stays usable.
 const kDefaultLocation = LatLng(13.0827, 80.2081);
+
+// ── Reskin palette ──────────────────────────────────────────────────────────
+const _kBlue = Color(0xFF1A3A8F);
+const _kDarkNavy = Color(0xFF1A2A4A);
+const _kMuted = Color(0xFF7A8799);
 
 /// Home — the citizen map screen (port of the phase-1 web home): profile
 /// header, the grievance map card, and the In My Ward / My Reports lists,
@@ -54,7 +59,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   String? _busyId;
 
   // UI state
-  bool _profileOpen = false;
   int _tab = 0; // 0 = ward, 1 = mine
   String? _expandedId;
 
@@ -262,11 +266,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
-  Future<void> _signOut() async {
-    await ref.read(authProvider.notifier).signOut();
-    if (mounted) context.go('/login');
-  }
-
   double? _distanceKm(Issue issue) {
     final c = _coords;
     if (c == null) return null;
@@ -283,172 +282,94 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   Widget build(BuildContext context) {
     final pendingVerify =
         _history.where((i) => i.status == 'PENDING_VERIFICATION').toList();
+    final screenHeight = MediaQuery.sizeOf(context).height;
+
+    final topInset = MediaQuery.of(context).padding.top;
+    // App bar region: status bar + profile header (~78dp) + gap (8)
+    // + ward pill (~34dp) + gap (6) = ~126dp total above the map.
+    const _kAppBarBody = 78.0 + 8.0 + 34.0 + 6.0;
+    final gradientHeight = topInset + _kAppBarBody;
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: SystemUiOverlayStyle.dark,
+      value: SystemUiOverlayStyle.light,
       child: Scaffold(
+        backgroundColor: const Color(0xFFF0F3FA),
         body: Stack(
           children: [
-            // Soft app background (port of .app-bg)
-            const Positioned.fill(child: _AppBackground()),
+            // Gradient covers only the app bar region (ends at map top)
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              height: gradientHeight,
+              child: Container(
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Color(0xFF1A3A8F),
+                      Color(0x001A3A8F),
+                    ],
+                  ),
+                ),
+              ),
+            ),
 
             SafeArea(
               bottom: false,
-              // Header pinned outside the scrollable: only the content below
-              // scrolls, and pull-to-refresh never drags the app bar.
               child: Column(
                 children: [
-                  ProfileHeader(
-                    profileOpen: _profileOpen,
-                    onToggleProfile: () =>
-                        setState(() => _profileOpen = !_profileOpen),
-                    onSignOut: _signOut,
-                  ),
-                  // ── Map section (pinned) ──
+                  const ProfileHeader(),
+
+                  // ── Ward info pill ──
+                  _WardPill(locate: _locate, locating: _locating),
+
+                  // ── Map section (floating card with margins) ──
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 16, 12, 0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        const Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 4),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(
-                                'Grievance map',
-                                style: TextStyle(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w800,
-                                  letterSpacing: -0.3,
-                                  color: NkColors.slate900,
-                                ),
-                              ),
-                              Text(
-                                'Tap a pin for details',
-                                style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w500,
-                                    color: NkColors.slate400),
-                              ),
-                            ],
+                    padding: const EdgeInsets.fromLTRB(14, 6, 14, 0),
+                    child: Container(
+                      height: (screenHeight * 0.36).clamp(220.0, 360.0),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(16),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.10),
+                            blurRadius: 10,
+                            offset: const Offset(0, 4),
                           ),
-                        ),
-                        const SizedBox(height: 8),
-                        Container(
-                          height: 300,
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(26),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.12),
-                                blurRadius: 24,
-                                offset: const Offset(0, 10),
-                              ),
-                            ],
-                          ),
-                          child: MapCard(
-                            center: _coords,
-                            issues: _wardIssues,
-                            selected: _selected,
-                            onSelect: (i) => setState(() => _selected = i),
-                            boundaries: _boundaries,
-                            currentWard: _currentWard,
-                            locate: _locate,
-                            locating: _locating,
-                            egmoreActive: _override != null,
-                            onJumpEgmore: _jumpToEgmore,
-                            onUpvote: _upvote,
-                          ),
-                        ),
-                      ],
+                        ],
+                      ),
+                      child: MapCard(
+                        center: _coords,
+                        issues: _wardIssues,
+                        selected: _selected,
+                        onSelect: (i) => setState(() => _selected = i),
+                        boundaries: _boundaries,
+                        currentWard: _currentWard,
+                        locate: _locate,
+                        locating: _locating,
+                        egmoreActive: _override != null,
+                        onJumpEgmore: _jumpToEgmore,
+                        onUpvote: _upvote,
+                        showSearch: false,
+                        showLocateChip: false,
+                        borderRadius: 16,
+                      ),
                     ),
                   ),
 
-                  // ── Tab switcher (pinned) ──
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
-                    child: Container(
-                      padding: const EdgeInsets.all(4),
-                      decoration: BoxDecoration(
-                        color: NkColors.slate200.withValues(alpha: 0.7),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Row(
-                        children: [
-                          for (final (idx, icon, label) in [
-                            (
-                              0,
-                              Icons.groups_outlined,
-                              'In My Ward${_currentWard != null ? ' (${_wardIssues.length})' : ''}'
-                            ),
-                            (
-                              1,
-                              Icons.description_outlined,
-                              'My Reports (${_history.length})'
-                            ),
-                          ])
-                            Expanded(
-                              child: GestureDetector(
-                                onTap: () {
-                                  HapticFeedback.selectionClick();
-                                  setState(() => _tab = idx);
-                                },
-                                child: AnimatedContainer(
-                                  duration: const Duration(milliseconds: 260),
-                                  curve: NkMotion.settle,
-                                  padding:
-                                      const EdgeInsets.symmetric(vertical: 8),
-                                  decoration: BoxDecoration(
-                                    color: _tab == idx
-                                        ? Colors.white
-                                        : Colors.transparent,
-                                    borderRadius: BorderRadius.circular(8),
-                                    boxShadow: _tab == idx
-                                        ? [
-                                            BoxShadow(
-                                              color: Colors.black
-                                                  .withValues(alpha: 0.06),
-                                              blurRadius: 4,
-                                              offset: const Offset(0, 1),
-                                            ),
-                                          ]
-                                        : null,
-                                  ),
-                                  child: Row(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      Icon(icon,
-                                          size: 13,
-                                          color: _tab == idx
-                                              ? NkColors.slate900
-                                              : NkColors.slate500),
-                                      const SizedBox(width: 6),
-                                      Text(
-                                        label,
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w700,
-                                          color: _tab == idx
-                                              ? NkColors.slate900
-                                              : NkColors.slate500,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ),
+                  // ── Stats row ──
+                  const _StatsRow(),
+
+                  // ── Tab switcher (underline style) ──
+                  _buildTabs(),
 
                   // Only the grievance list scrolls; pull-to-refresh is
                   // scoped here so the map and tabs stay pinned.
                   Expanded(
                     child: RefreshIndicator(
-                      color: NkColors.brand,
+                      color: _kBlue,
                       onRefresh: () async {
                         await Future.wait([
                           _loadHistory(),
@@ -489,7 +410,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                               ),
                             ),
                           ],
-                          const SizedBox(height: 12),
+                          const SizedBox(height: 8),
                           AnimatedSwitcher(
                             duration: const Duration(milliseconds: 260),
                             switchInCurve: NkMotion.settle,
@@ -540,6 +461,57 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
+  Widget _buildTabs() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+      child: Row(
+        children: [
+          for (final (idx, icon, label) in [
+            (0, Icons.groups_outlined, 'My Ward'),
+            (1, Icons.description_outlined, 'My Reports'),
+          ])
+            Expanded(
+              child: GestureDetector(
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  setState(() => _tab = idx);
+                },
+                child: Container(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  decoration: BoxDecoration(
+                    border: Border(
+                      bottom: BorderSide(
+                        color: _tab == idx ? _kBlue : Colors.transparent,
+                        width: 2.5,
+                      ),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(icon,
+                          size: 16,
+                          color: _tab == idx ? _kBlue : _kMuted),
+                      const SizedBox(width: 6),
+                      Text(
+                        label,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight:
+                              _tab == idx ? FontWeight.w700 : FontWeight.w500,
+                          color: _tab == idx ? _kBlue : _kMuted,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildWardList() {
     return Column(
       key: const ValueKey('ward'),
@@ -548,13 +520,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Expanded(
+            const Expanded(
               child: Text(
-                'Public grievances ${_currentWard != null ? 'in Ward $_currentWard' : 'in your ward'}',
-                style: const TextStyle(
+                'Public complaints in your ward',
+                style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w800,
-                  color: NkColors.slate900,
+                  color: _kDarkNavy,
                 ),
               ),
             ),
@@ -565,14 +537,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               },
               child: const Row(
                 children: [
-                  Icon(Icons.refresh, size: 12, color: NkColors.brand),
+                  Icon(Icons.refresh, size: 14, color: _kBlue),
                   SizedBox(width: 4),
                   Text(
                     'Refresh',
                     style: TextStyle(
                       fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                      color: NkColors.brand,
+                      fontWeight: FontWeight.w600,
+                      color: _kBlue,
                     ),
                   ),
                 ],
@@ -580,14 +552,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ),
           ],
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 10),
         if (_currentWard == null)
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 32),
             child: Text(
               'Locating your ward…',
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 14, color: NkColors.slate400),
+              style: TextStyle(fontSize: 14, color: _kMuted),
             ),
           )
         else if (_wardIssues.isEmpty)
@@ -601,8 +573,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 Text(
                   'No public grievances in Ward $_currentWard yet.',
                   textAlign: TextAlign.center,
-                  style:
-                      const TextStyle(fontSize: 14, color: NkColors.slate400),
+                  style: const TextStyle(fontSize: 14, color: _kMuted),
                 ),
               ],
             ),
@@ -610,13 +581,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         else
           for (final issue in _wardIssues)
             Padding(
-              padding: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.only(bottom: 10),
               child: IssueCard(
                 issue: issue,
                 expanded: _expandedId == issue.id,
                 onToggle: () => _toggleExpand(issue.id),
                 distanceKm: _distanceKm(issue),
                 onUpvote: _upvote,
+                citizenHome: true,
               ),
             ),
       ],
@@ -643,7 +615,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               children: [
                 Row(
                   children: [
-                    const Icon(Icons.tune, size: 14, color: NkColors.brand),
+                    const Icon(Icons.tune, size: 14, color: _kBlue),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
@@ -747,21 +719,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w800,
-                color: NkColors.slate900,
+                color: _kDarkNavy,
               ),
             ),
             GestureDetector(
               onTap: _loadHistory,
               child: const Row(
                 children: [
-                  Icon(Icons.refresh, size: 12, color: NkColors.brand),
+                  Icon(Icons.refresh, size: 14, color: _kBlue),
                   SizedBox(width: 4),
                   Text(
                     'Refresh',
                     style: TextStyle(
                       fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                      color: NkColors.brand,
+                      fontWeight: FontWeight.w600,
+                      color: _kBlue,
                     ),
                   ),
                 ],
@@ -769,7 +741,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ),
           ],
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 10),
         if (_histLoading)
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 32),
@@ -778,7 +750,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 height: 22,
                 width: 22,
                 child: CircularProgressIndicator(
-                    strokeWidth: 2.4, color: NkColors.brand),
+                    strokeWidth: 2.4, color: _kBlue),
               ),
             ),
           )
@@ -792,7 +764,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 Text(
                   'No reports yet. Submit one from the "+" button.',
                   textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 14, color: NkColors.slate400),
+                  style: TextStyle(fontSize: 14, color: _kMuted),
                 ),
               ],
             ),
@@ -800,12 +772,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         else
           for (final issue in _history)
             Padding(
-              padding: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.only(bottom: 10),
               child: IssueCard(
                 issue: issue,
                 expanded: _expandedId == issue.id,
                 onToggle: () => _toggleExpand(issue.id),
                 distanceKm: _distanceKm(issue),
+                citizenHome: true,
               ),
             ),
       ],
@@ -813,44 +786,141 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 }
 
-/// Soft radial-tinted background (port of .app-bg).
-class _AppBackground extends StatelessWidget {
-  const _AppBackground();
+/// Horizontal stats row below the map: Reports, Upvotes, Resolved, Open.
+class _StatsRow extends StatelessWidget {
+  const _StatsRow();
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: const BoxDecoration(color: Color(0xFFFBFCFD)),
-      child: Stack(
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 0),
+      child: Row(
         children: [
-          Positioned(
-            top: -120,
-            left: -80,
-            child: _blob(NkColors.brand.withValues(alpha: 0.06), 420),
-          ),
-          Positioned(
-            top: 40,
-            right: -140,
-            child: _blob(NkColors.gold300.withValues(alpha: 0.06), 360),
-          ),
-          Positioned(
-            bottom: -160,
-            left: 60,
-            child: _blob(NkColors.brand.withValues(alpha: 0.045), 380),
-          ),
+          for (final (icon, value, label, iconColor, isLast) in [
+            (Icons.assignment_outlined, '${ProfileData.reports}', 'Reports',
+                const Color(0xFF3FA8A0), false),
+            (Icons.thumb_up_outlined, '${ProfileData.upvotes}', 'Upvotes',
+                const Color(0xFF2F9E6E), false),
+            (Icons.check_circle_outline, '${ProfileData.resolved}', 'Resolved',
+                const Color(0xFF2F9E6E), false),
+            (Icons.schedule, '${ProfileData.open}', 'Open',
+                const Color(0xFFFF9500), true),
+          ]) ...[
+            Expanded(
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.08),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  children: [
+                    Container(
+                      height: 30,
+                      width: 30,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: iconColor.withValues(alpha: 0.12),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(icon, size: 16, color: iconColor),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      value,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        color: _kDarkNavy,
+                      ),
+                    ),
+                    Text(
+                      label,
+                      style: const TextStyle(fontSize: 11, color: _kMuted),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            if (!isLast) const SizedBox(width: 10),
+          ],
         ],
       ),
     );
   }
+}
 
-  Widget _blob(Color color, double size) => Container(
-        height: size,
-        width: size,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          gradient: RadialGradient(
-            colors: [color, color.withValues(alpha: 0)],
+/// Compact pill above the map showing zone/ward info on one line.
+class _WardPill extends StatelessWidget {
+  const _WardPill({required this.locate, required this.locating});
+
+  final LocateResult? locate;
+  final bool locating;
+
+  @override
+  Widget build(BuildContext context) {
+    final loc = locate;
+    if (loc == null || locating || !loc.inside) {
+      return const SizedBox(height: 8);
+    }
+
+    final zoneName = loc.zoneName != null ? titleCase(loc.zoneName!) : null;
+    final ac = loc.constituencies.isEmpty ? null : shortAC(loc.constituencies.first);
+
+    final parts = <String>[
+      'Zone ${loc.zone}',
+      if (zoneName != null) zoneName,
+      'Ward ${loc.ward}',
+      if (ac != null) ac,
+    ];
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 8, 14, 0),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Container(
+          height: 34,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF7F5F0),
+            borderRadius: BorderRadius.circular(17),
+            border: Border.all(color: const Color(0x1F1A2B46)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.08),
+                blurRadius: 6,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.place, size: 14, color: _kBlue),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  parts.join('  ·  '),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                    color: Color(0xFF1A2A3A),
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
-      );
+      ),
+    );
+  }
 }

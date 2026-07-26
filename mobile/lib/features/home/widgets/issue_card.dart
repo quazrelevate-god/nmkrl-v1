@@ -24,6 +24,7 @@ class IssueCard extends StatelessWidget {
     this.onUpvote,
     this.actions,
     this.badge,
+    this.citizenHome = false,
   });
 
   final Issue issue;
@@ -38,6 +39,9 @@ class IssueCard extends StatelessWidget {
 
   /// Extra chip after the status chip (coordinator action-status badge).
   final Widget? badge;
+
+  /// Citizen home reskin — larger thumb, right-aligned status chip, chevron.
+  final bool citizenHome;
 
   /// Placeholder shown when the issue has no photo — and, via errorBuilder,
   /// when the backend serves undecodable bytes (seed data has shipped
@@ -58,18 +62,159 @@ class IssueCard extends StatelessWidget {
     );
   }
 
+  static Color _citizenChipColor(String status) => switch (status) {
+        'SUBMITTED' => const Color(0xFF94A3B8),
+        'ACTIVE' => const Color(0xFF1A3A8F),
+        'FORWARDED' || 'IN_PROGRESS' => const Color(0xFF1A3A8F),
+        'PENDING_VERIFICATION' => const Color(0xFFFF9500),
+        'CLOSED' => const Color(0xFF2F9E6E),
+        'FALSE' => const Color(0xFFFF4D4D),
+        _ => const Color(0xFF94A3B8),
+      };
+
+  static String _citizenChipLabel(String status) => switch (status) {
+        'SUBMITTED' => 'Pending',
+        'ACTIVE' => 'Assigned',
+        'FORWARDED' || 'IN_PROGRESS' => 'In Progress',
+        'PENDING_VERIFICATION' => 'Verification',
+        'CLOSED' => 'Resolved',
+        'FALSE' => 'False Petition',
+        _ => 'Unknown',
+      };
+
+  Widget _citizenCollapsedRow(ImageProvider? image) {
+    return InkWell(
+      onTap: () {
+        HapticFeedback.selectionClick();
+        onToggle();
+      },
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          children: [
+            // Thumbnail visible only when collapsed; disappears on expand
+            if (!expanded) ...[
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: image != null
+                    ? Image(
+                        image: image,
+                        height: 64,
+                        width: 64,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) =>
+                            _photoFallback(64, 24),
+                      )
+                    : _photoFallback(64, 24),
+              ),
+              const SizedBox(width: 12),
+            ],
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          issue.title,
+                          maxLines: expanded ? 3 : 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: expanded ? 14 : 13,
+                            fontWeight: FontWeight.w700,
+                            height: 1.3,
+                            color: expanded
+                                ? const Color(0xFF1A1A2E)
+                                : const Color(0xFF1A2A4A),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: _citizenChipColor(issue.status),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          _citizenChipLabel(issue.status),
+                          style: const TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      Icon(Icons.thumb_up,
+                          size: 12,
+                          color: expanded
+                              ? const Color(0xFF2C3E50)
+                              : const Color(0xFF7A8799)),
+                      const SizedBox(width: 4),
+                      Text(
+                        '${issue.upvotes}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: expanded
+                              ? const Color(0xFF2C3E50)
+                              : const Color(0xFF7A8799),
+                        ),
+                      ),
+                      if (distanceKm != null) ...[
+                        const SizedBox(width: 16),
+                        Icon(Icons.place,
+                            size: 12,
+                            color: expanded
+                                ? const Color(0xFF2C3E50)
+                                : const Color(0xFF7A8799)),
+                        const SizedBox(width: 4),
+                        Text(
+                          '${formatDistanceKm(distanceKm!)} away',
+                          style: TextStyle(
+                              fontSize: 12,
+                              color: expanded
+                                  ? const Color(0xFF2C3E50)
+                                  : const Color(0xFF7A8799)),
+                        ),
+                      ],
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Icon(
+              expanded ? Icons.keyboard_arrow_up : Icons.chevron_right,
+              size: 18,
+              color: const Color(0xFF7A8799),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final image = mediaImage(issue.imageUrl);
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: NkColors.slate200),
+        borderRadius: BorderRadius.circular(citizenHome ? 12 : 16),
+        border: citizenHome ? null : Border.all(color: NkColors.slate200),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 6,
+            color: Colors.black.withValues(alpha: citizenHome ? 0.08 : 0.04),
+            blurRadius: citizenHome ? 10 : 6,
             offset: const Offset(0, 2),
           ),
         ],
@@ -78,7 +223,9 @@ class IssueCard extends StatelessWidget {
       child: Column(
         children: [
           // Collapsed row (always visible)
-          InkWell(
+          citizenHome
+              ? _citizenCollapsedRow(image)
+              : InkWell(
             onTap: () {
               HapticFeedback.selectionClick();
               onToggle();
@@ -235,14 +382,14 @@ class IssueCard extends StatelessWidget {
                                     Row(
                                       children: [
                                         const Icon(Icons.place,
-                                            size: 10, color: NkColors.slate500),
+                                            size: 10, color: Color(0xFF2C3E50)),
                                         const SizedBox(width: 3),
                                         Expanded(
                                           child: Text(
                                             issue.areaName!,
                                             style: const TextStyle(
                                                 fontSize: 11,
-                                                color: NkColors.slate500),
+                                                color: Color(0xFF2C3E50)),
                                           ),
                                         ),
                                       ],
@@ -268,7 +415,7 @@ class IssueCard extends StatelessWidget {
                                                 Icons
                                                     .confirmation_number_outlined,
                                                 size: 9,
-                                                color: NkColors.slate500),
+                                                color: Color(0xFF2C3E50)),
                                             const SizedBox(width: 3),
                                             Text(
                                               ticketNumber(issue.id),
@@ -276,7 +423,7 @@ class IssueCard extends StatelessWidget {
                                                 fontSize: 10,
                                                 fontWeight: FontWeight.w600,
                                                 fontFamily: 'monospace',
-                                                color: NkColors.slate500,
+                                                color: Color(0xFF2C3E50),
                                               ),
                                             ),
                                           ],
@@ -310,7 +457,7 @@ class IssueCard extends StatelessWidget {
                                       formatShortDate(issue.createdAt!),
                                       style: const TextStyle(
                                           fontSize: 11,
-                                          color: NkColors.slate400),
+                                          color: Color(0xFF4A5568)),
                                     ),
                                 ],
                               ),
@@ -335,7 +482,7 @@ class IssueCard extends StatelessWidget {
                                 const Row(
                                   children: [
                                     Icon(Icons.auto_awesome,
-                                        size: 12, color: NkColors.brand),
+                                        size: 12, color: Color(0xFF1A2A3A)),
                                     SizedBox(width: 6),
                                     Text(
                                       'AI SUMMARY',
@@ -343,7 +490,7 @@ class IssueCard extends StatelessWidget {
                                         fontSize: 10,
                                         fontWeight: FontWeight.w700,
                                         letterSpacing: 0.8,
-                                        color: NkColors.brand,
+                                        color: Color(0xFF1A2A3A),
                                       ),
                                     ),
                                   ],
@@ -356,7 +503,7 @@ class IssueCard extends StatelessWidget {
                                       fontSize: 12,
                                       fontStyle: FontStyle.italic,
                                       height: 1.4,
-                                      color: NkColors.slate700,
+                                      color: Color(0xFF2C3E50),
                                     ),
                                   ),
                                 ],
@@ -371,18 +518,18 @@ class IssueCard extends StatelessWidget {
                                           padding: const EdgeInsets.symmetric(
                                               horizontal: 8, vertical: 2),
                                           decoration: BoxDecoration(
-                                            color: Colors.white,
+                                            color: const Color(0x121A2A3A),
                                             borderRadius:
                                                 BorderRadius.circular(999),
                                             border: Border.all(
-                                                color: NkColors.brand200),
+                                                color: const Color(0x4D1A2A3A)),
                                           ),
                                           child: Text(
                                             h,
                                             style: const TextStyle(
                                               fontSize: 10,
                                               fontWeight: FontWeight.w500,
-                                              color: NkColors.brand,
+                                              color: Color(0xFF1A2A3A),
                                             ),
                                           ),
                                         ),

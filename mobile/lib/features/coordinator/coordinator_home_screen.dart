@@ -1,10 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart';
 
-import '../../core/glass.dart';
 import '../../core/theme.dart';
 import '../../domain/constituencies.dart';
 import '../../domain/coordinator_data.dart';
@@ -14,13 +12,15 @@ import '../../domain/models/issue.dart';
 import '../../state/providers.dart';
 import '../home/widgets/issue_card.dart';
 import '../home/widgets/map_card.dart';
+import '../profile/profile_screen.dart';
 import '../shared/wave_mark.dart';
 import 'widgets/action_sheets.dart';
 
-/// Coordinator home — the same single-page treatment as the citizen app, but
-/// for staff (port of /coordinator/grievance): glass header + profile,
-/// constituency + ward selectors, the ward map, and three tabs (Ward / My
-/// Reports / Previous) with per-status action buttons.
+// ── Reskin palette (matching citizen home) ──────────────────────────────────
+const _kBlue = Color(0xFF1A3A8F);
+const _kDarkNavy = Color(0xFF1A2A4A);
+const _kMuted = Color(0xFF7A8799);
+
 class CoordinatorHomeScreen extends ConsumerStatefulWidget {
   const CoordinatorHomeScreen({super.key});
 
@@ -38,10 +38,9 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen> {
   String? _busyId;
   String? _toast;
 
-  bool _profileOpen = false;
   late String _constituency;
   late String _ward;
-  int _tab = 0; // 0 ward · 1 mine · 2 previous
+  int _tab = 0; // 0 ward · 1 mine · 2 escalated · 3 previous
   String? _expandedId;
   Set<String> _verifiedIds = {};
   Map<String, String> _actionKinds = {};
@@ -130,6 +129,13 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen> {
         c.latitude, c.longitude, issue.latitude, issue.longitude);
   }
 
+  static String _greeting() {
+    final h = DateTime.now().hour;
+    if (h < 12) return 'Good morning';
+    if (h < 17) return 'Good afternoon';
+    return 'Good evening';
+  }
+
   // ── Actions (mirror the web handlers) ──────────────────────────────────
 
   Future<void> _assign(Issue issue) async {
@@ -152,8 +158,6 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen> {
   Future<void> _escalate(Issue issue) async {
     final data = await EscalateSheet.open(context, issue);
     if (data == null) return;
-    // Web parity: escalation moves the ticket forward LOCALLY so it stays in
-    // My Reports as In Progress (never reverts to pending or vanishes).
     await ref.read(coordinatorStoreProvider).addAction(
           coordinator: _me.username,
           issueId: issue.id,
@@ -246,7 +250,6 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen> {
             details: '${data['details'] ?? ''}',
           );
       final store = ref.read(coordinatorStoreProvider);
-      // Terminal state → lands in Previous Reports (needs ownership record).
       await store.verify(_me.username, issue.id);
       await store.addAction(
         coordinator: _me.username,
@@ -264,113 +267,105 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen> {
     }
   }
 
-  Future<void> _signOut() async {
-    await ref.read(coordinatorAuthProvider.notifier).signOut();
-    if (mounted) context.go('/login');
-  }
-
   // ── Build ──────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
     final parts = partitionWardIssues(_wardIssues, _verifiedIds);
+    final escalated =
+        parts.mine.where((i) => _actionKinds[i.id] == 'escalate').toList();
+    final myActive =
+        parts.mine.where((i) => _actionKinds[i.id] != 'escalate').toList();
+
     final current = switch (_tab) {
-      1 => parts.mine,
-      2 => parts.previous,
+      1 => myActive,
+      2 => escalated,
+      3 => parts.previous,
       _ => parts.ward,
     };
 
+    final topInset = MediaQuery.of(context).padding.top;
+    const kAppBarBody = 78.0 + 8.0 + 34.0 + 6.0;
+    final gradientHeight = topInset + kAppBarBody;
+
     return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: SystemUiOverlayStyle.dark,
+      value: SystemUiOverlayStyle.light,
       child: Scaffold(
-        backgroundColor: const Color(0xFFFBFCFD),
+        backgroundColor: const Color(0xFFF0F3FA),
         body: Stack(
           children: [
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              height: gradientHeight,
+              child: Container(
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [Color(0xFF1A3A8F), Color(0x001A3A8F)],
+                  ),
+                ),
+              ),
+            ),
+
             SafeArea(
               bottom: false,
-              // Header pinned outside the scrollable (same fix as the citizen
-              // home): only the content scrolls, never the app bar.
               child: Column(
                 children: [
                   _buildHeader(),
-                  // ── Map (pinned) ──
+
+                  _CoordWardPill(ward: _ward, constituency: _constituency),
+
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 16, 12, 0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 4),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              const Text(
-                                'Ward grievance map',
-                                style: TextStyle(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w800,
-                                  letterSpacing: -0.3,
-                                  color: NkColors.slate900,
-                                ),
-                              ),
-                              Text(
-                                'Ward $_ward',
-                                style: const TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w600,
-                                    color: NkColors.slate400),
-                              ),
-                            ],
+                    padding: const EdgeInsets.fromLTRB(14, 6, 14, 0),
+                    child: Container(
+                      height: 260,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(16),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.10),
+                            blurRadius: 10,
+                            offset: const Offset(0, 4),
                           ),
-                        ),
-                        const SizedBox(height: 8),
-                        Container(
-                          height: 260,
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(26),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.12),
-                                blurRadius: 24,
-                                offset: const Offset(0, 10),
-                              ),
-                            ],
-                          ),
-                          child: MapCard(
-                            center: _center,
-                            issues: current,
-                            selected: _selected,
-                            onSelect: (i) => setState(() => _selected = i),
-                            boundaries: _boundaries,
-                            currentWard: int.tryParse(_ward),
-                            showLocateChip: false,
-                            searchHint: 'Search grievances in this ward',
-                          ),
-                        ),
-                      ],
+                        ],
+                      ),
+                      child: MapCard(
+                        center: _center,
+                        issues: current,
+                        selected: _selected,
+                        onSelect: (i) => setState(() => _selected = i),
+                        boundaries: _boundaries,
+                        currentWard: int.tryParse(_ward),
+                        showLocateChip: false,
+                        showSearch: false,
+                        borderRadius: 16,
+                      ),
                     ),
                   ),
 
-                  // ── Selectors + tabs (pinned) ──
+                  _CoordStatsRow(me: _me),
+
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         _buildConstituencySelector(),
                         const SizedBox(height: 8),
                         _buildWardSelector(),
-                        const SizedBox(height: 12),
-                        _buildTabs(parts),
                       ],
                     ),
                   ),
 
-                  // Only the grievance list scrolls; pull-to-refresh is
-                  // scoped here so the map, selectors and tabs stay pinned.
+                  _buildTabs(parts.ward.length, myActive.length,
+                      escalated.length, parts.previous.length),
+
                   Expanded(
                     child: RefreshIndicator(
-                      color: NkColors.brand,
+                      color: _kBlue,
                       onRefresh: () async {
                         await Future.wait([_loadBoundaries(), _loadWard()]);
                       },
@@ -417,7 +412,6 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen> {
               ),
             ),
 
-            // ── Toast ──
             if (_toast != null)
               Positioned(
                 left: 24,
@@ -451,228 +445,134 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen> {
 
   Widget _buildHeader() {
     final me = _me;
-    return GlassContainer(
-      variant: Glass.clear,
-      borderRadius: const BorderRadius.only(
-        bottomLeft: Radius.circular(28),
-        bottomRight: Radius.circular(28),
-      ),
-      boxShadow: [
-        BoxShadow(
-          color: NkColors.slate900.withValues(alpha: 0.25),
-          blurRadius: 36,
-          offset: const Offset(0, 16),
-          spreadRadius: -22,
-        ),
-      ],
+    final firstName = me.name.split(' ').first;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Row(
-                  children: [
-                    const BrandMark(),
-                    const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 6, vertical: 2),
+          Row(
+            children: [
+              const BrandMark(color: Colors.white),
+              const SizedBox(width: 8),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.25)),
+                ),
+                child: const Text(
+                  'STAFF',
+                  style: TextStyle(
+                    fontSize: 8,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 1,
+                    color: Color(0xFFDDC689),
+                  ),
+                ),
+              ),
+              const Spacer(),
+              Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Icon(Icons.notifications_outlined,
+                      size: 24,
+                      color: Colors.white.withValues(alpha: 0.9)),
+                  Positioned(
+                    top: -4,
+                    right: -6,
+                    child: Container(
+                      height: 16,
+                      width: 16,
+                      alignment: Alignment.center,
                       decoration: BoxDecoration(
-                        color: NkColors.brandDark,
-                        borderRadius: BorderRadius.circular(6),
+                        color: const Color(0xFFFF4D4D),
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                            color: const Color(0xFF1A3A8F), width: 1.5),
                       ),
                       child: const Text(
-                        'STAFF',
+                        '3',
                         style: TextStyle(
                           fontSize: 8,
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: 1,
-                          color: NkColors.gold200,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(width: 12),
+              GestureDetector(
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const ProfileScreen(),
+                    ),
+                  );
+                },
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(2),
+                      decoration: const BoxDecoration(
+                        gradient: nkGoldGradient,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Container(
+                        height: 36,
+                        width: 36,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF1A3A8F),
+                          shape: BoxShape.circle,
+                          border:
+                              Border.all(color: Colors.white, width: 2),
+                        ),
+                        child: Text(
+                          me.initials,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w900,
+                            color: Color(0xFFDDC689),
+                          ),
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      bottom: -1,
+                      right: -1,
+                      child: Container(
+                        height: 12,
+                        width: 12,
+                        decoration: BoxDecoration(
+                          color: NkColors.emerald500,
+                          shape: BoxShape.circle,
+                          border:
+                              Border.all(color: Colors.white, width: 2),
                         ),
                       ),
                     ),
                   ],
                 ),
-                GestureDetector(
-                  onTap: () {
-                    HapticFeedback.selectionClick();
-                    setState(() => _profileOpen = !_profileOpen);
-                  },
-                  child: Container(
-                    padding: const EdgeInsets.all(2),
-                    decoration: const BoxDecoration(
-                      gradient: nkGoldGradient,
-                      shape: BoxShape.circle,
-                    ),
-                    child: Container(
-                      height: 36,
-                      width: 36,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: NkColors.brandDark,
-                        shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white, width: 2),
-                      ),
-                      child: Text(
-                        me.initials,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w900,
-                          color: NkColors.gold200,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
-
-          // Expandable coordinator profile
-          AnimatedSize(
-            duration: const Duration(milliseconds: 420),
-            curve: NkMotion.settle,
-            alignment: Alignment.topCenter,
-            child: !_profileOpen
-                ? const SizedBox(width: double.infinity)
-                : Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                    child: Column(
-                      children: [
-                        Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(3),
-                              decoration: const BoxDecoration(
-                                gradient: nkGoldGradient,
-                                shape: BoxShape.circle,
-                              ),
-                              child: Container(
-                                height: 52,
-                                width: 52,
-                                alignment: Alignment.center,
-                                decoration: BoxDecoration(
-                                  color: NkColors.brandDark,
-                                  shape: BoxShape.circle,
-                                  border:
-                                      Border.all(color: Colors.white, width: 2),
-                                ),
-                                child: Text(
-                                  me.initials,
-                                  style: const TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.w900,
-                                    color: NkColors.gold200,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    me.name,
-                                    style: const TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w800,
-                                      color: NkColors.slate900,
-                                    ),
-                                  ),
-                                  Text(
-                                    '${me.role} · ${shortAC(me.constituency)} · Ward ${me.homeWard}',
-                                    style: const TextStyle(
-                                        fontSize: 11, color: NkColors.slate500),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            IconButton(
-                              onPressed: () =>
-                                  setState(() => _profileOpen = false),
-                              icon: const Icon(Icons.keyboard_arrow_up,
-                                  size: 20, color: NkColors.slate400),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 10),
-                        Row(
-                          children: [
-                            for (final (value, label) in [
-                              ('${me.civicScore}', 'Civic Score'),
-                              ('${me.reports}', 'Reports'),
-                              ('${me.resolved}', 'Resolved'),
-                              (me.tenure, 'Tenure'),
-                            ]) ...[
-                              Expanded(
-                                child: Container(
-                                  padding:
-                                      const EdgeInsets.symmetric(vertical: 10),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white,
-                                    borderRadius: BorderRadius.circular(14),
-                                    border: Border.all(
-                                        color: NkColors.slate200
-                                            .withValues(alpha: 0.7)),
-                                  ),
-                                  child: Column(
-                                    children: [
-                                      Text(
-                                        value,
-                                        style: const TextStyle(
-                                          fontSize: 14,
-                                          fontWeight: FontWeight.w800,
-                                          color: NkColors.slate800,
-                                        ),
-                                      ),
-                                      Text(
-                                        label,
-                                        style: const TextStyle(
-                                            fontSize: 9,
-                                            color: NkColors.slate500),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                              if (label != 'Tenure') const SizedBox(width: 8),
-                            ],
-                          ],
-                        ),
-                        const SizedBox(height: 10),
-                        GestureDetector(
-                          onTap: _signOut,
-                          child: Container(
-                            height: 40,
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(color: NkColors.slate200),
-                            ),
-                            child: const Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(Icons.logout,
-                                    size: 13, color: NkColors.slate600),
-                                SizedBox(width: 6),
-                                Text(
-                                  'Sign out',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w700,
-                                    color: NkColors.slate600,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+          const SizedBox(height: 4),
+          Text(
+            '${_greeting()}, $firstName',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              color: Colors.white.withValues(alpha: 0.85),
+            ),
           ),
         ],
       ),
@@ -785,27 +685,16 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen> {
   }
 
   Widget _buildTabs(
-      ({List<Issue> ward, List<Issue> mine, List<Issue> previous}) parts) {
-    return Container(
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: NkColors.slate200.withValues(alpha: 0.7),
-        borderRadius: BorderRadius.circular(12),
-      ),
+      int wardCount, int mineCount, int escalatedCount, int previousCount) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
       child: Row(
         children: [
           for (final (idx, icon, label) in [
-            (0, Icons.groups_outlined, 'Ward (${parts.ward.length})'),
-            (
-              1,
-              Icons.description_outlined,
-              'My Reports (${parts.mine.length})'
-            ),
-            (
-              2,
-              Icons.assignment_outlined,
-              'Previous (${parts.previous.length})'
-            ),
+            (0, Icons.groups_outlined, 'Ward ($wardCount)'),
+            (1, Icons.description_outlined, 'Mine ($mineCount)'),
+            (2, Icons.keyboard_double_arrow_up, 'Escalated ($escalatedCount)'),
+            (3, Icons.assignment_outlined, 'Previous ($previousCount)'),
           ])
             Expanded(
               child: GestureDetector(
@@ -813,43 +702,34 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen> {
                   HapticFeedback.selectionClick();
                   setState(() => _tab = idx);
                 },
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 260),
-                  curve: NkMotion.settle,
-                  padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Container(
+                  padding: const EdgeInsets.only(bottom: 10),
                   decoration: BoxDecoration(
-                    color: _tab == idx ? Colors.white : Colors.transparent,
-                    borderRadius: BorderRadius.circular(8),
-                    boxShadow: _tab == idx
-                        ? [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.06),
-                              blurRadius: 4,
-                              offset: const Offset(0, 1),
-                            ),
-                          ]
-                        : null,
+                    border: Border(
+                      bottom: BorderSide(
+                        color: _tab == idx ? _kBlue : Colors.transparent,
+                        width: 2.5,
+                      ),
+                    ),
                   ),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Icon(icon,
-                          size: 12,
-                          color: _tab == idx
-                              ? NkColors.slate900
-                              : NkColors.slate500),
-                      const SizedBox(width: 4),
+                          size: 13,
+                          color: _tab == idx ? _kBlue : _kMuted),
+                      const SizedBox(width: 3),
                       Flexible(
                         child: Text(
                           label,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            color: _tab == idx
-                                ? NkColors.slate900
-                                : NkColors.slate500,
+                            fontSize: 10,
+                            fontWeight: _tab == idx
+                                ? FontWeight.w700
+                                : FontWeight.w500,
+                            color: _tab == idx ? _kBlue : _kMuted,
                           ),
                         ),
                       ),
@@ -867,11 +747,13 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen> {
     final headings = [
       'Public grievances in Ward $_ward',
       'Verified by me',
+      'Escalated grievances',
       'Previous reports',
     ];
     final empties = [
       'No unverified grievances in Ward $_ward.',
       'Verify grievances from the ward tab to see them here.',
+      'No escalated grievances yet.',
       'Closed grievances and false petitions land here.',
     ];
 
@@ -888,7 +770,7 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen> {
                 style: const TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w800,
-                  color: NkColors.slate900,
+                  color: _kDarkNavy,
                 ),
               ),
             ),
@@ -896,14 +778,14 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen> {
               onTap: _loadWard,
               child: const Row(
                 children: [
-                  Icon(Icons.refresh, size: 12, color: NkColors.brand),
+                  Icon(Icons.refresh, size: 14, color: _kBlue),
                   SizedBox(width: 4),
                   Text(
                     'Refresh',
                     style: TextStyle(
                       fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                      color: NkColors.brand,
+                      fontWeight: FontWeight.w600,
+                      color: _kBlue,
                     ),
                   ),
                 ],
@@ -918,11 +800,12 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen> {
             child: Column(
               children: [
                 Icon(
-                  _tab == 0
-                      ? Icons.groups_outlined
-                      : _tab == 1
-                          ? Icons.description_outlined
-                          : Icons.assignment_outlined,
+                  switch (_tab) {
+                    0 => Icons.groups_outlined,
+                    1 => Icons.description_outlined,
+                    2 => Icons.keyboard_double_arrow_up,
+                    _ => Icons.assignment_outlined,
+                  },
                   size: 32,
                   color: NkColors.slate300,
                 ),
@@ -930,8 +813,7 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen> {
                 Text(
                   empties[_tab],
                   textAlign: TextAlign.center,
-                  style:
-                      const TextStyle(fontSize: 14, color: NkColors.slate400),
+                  style: const TextStyle(fontSize: 14, color: _kMuted),
                 ),
               ],
             ),
@@ -953,6 +835,7 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen> {
                 actions: switch (_tab) {
                   0 => _wardActions(issue),
                   1 => _mineActions(issue),
+                  2 => _mineActions(issue),
                   _ => const SizedBox.shrink(),
                 },
               ),
@@ -1066,8 +949,133 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen> {
       );
 }
 
-/// Port of ActionStatusBadge — the latest coordinator action or terminal
-/// status on My Reports / Previous cards.
+class _CoordWardPill extends StatelessWidget {
+  const _CoordWardPill({required this.ward, required this.constituency});
+
+  final String ward;
+  final String constituency;
+
+  @override
+  Widget build(BuildContext context) {
+    final ac = shortAC(constituency);
+    final parts = <String>['Ward $ward', ac];
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 8, 14, 0),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Container(
+          height: 34,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF7F5F0),
+            borderRadius: BorderRadius.circular(17),
+            border: Border.all(color: const Color(0x1F1A2B46)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.08),
+                blurRadius: 6,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.place, size: 14, color: _kBlue),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  parts.join('  ·  '),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                    color: Color(0xFF1A2A3A),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CoordStatsRow extends StatelessWidget {
+  const _CoordStatsRow({required this.me});
+
+  final Coordinator me;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 0),
+      child: Row(
+        children: [
+          for (final (icon, value, label, iconColor, isLast) in [
+            (Icons.star_outline, '${me.civicScore}', 'Civic Score',
+                const Color(0xFFD97706), false),
+            (Icons.assignment_outlined, '${me.reports}', 'Reports',
+                const Color(0xFF3FA8A0), false),
+            (Icons.check_circle_outline, '${me.resolved}', 'Resolved',
+                const Color(0xFF2F9E6E), false),
+            (Icons.schedule, me.tenure, 'Tenure',
+                const Color(0xFFFF9500), true),
+          ]) ...[
+            Expanded(
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.08),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  children: [
+                    Container(
+                      height: 30,
+                      width: 30,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: iconColor.withValues(alpha: 0.12),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(icon, size: 16, color: iconColor),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      value,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        color: _kDarkNavy,
+                      ),
+                    ),
+                    Text(
+                      label,
+                      style: const TextStyle(fontSize: 11, color: _kMuted),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            if (!isLast) const SizedBox(width: 10),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 class _ActionStatusBadge extends StatelessWidget {
   const _ActionStatusBadge({required this.kind, required this.status});
 

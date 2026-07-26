@@ -2,140 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/glass.dart';
 import '../../../core/theme.dart';
 import '../../../domain/profile_data.dart';
 import '../../../state/providers.dart';
-import '../../profile/edit_profile_screen.dart';
+import '../../profile/profile_screen.dart';
 import '../../shared/wave_mark.dart';
 
-/// Home header — port of components/citizen/CitizenProfileHeader.js.
-/// Frosted glass bar with rounded bottom: brand + avatar (tap → the gamified
-/// profile expands in place with a spring). Name + initials come from the
-/// authenticated account (backend users table), not mock data.
+/// Home header — royal blue bar with white wordmark + greeting, notification
+/// bell, gold-ringed avatar. Tapping the avatar navigates to ProfileScreen.
 class ProfileHeader extends ConsumerWidget {
-  const ProfileHeader({
-    super.key,
-    required this.profileOpen,
-    required this.onToggleProfile,
-    required this.onSignOut,
-  });
+  const ProfileHeader({super.key});
 
-  final bool profileOpen;
-  final VoidCallback onToggleProfile;
-  final VoidCallback onSignOut;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final accountName = ref.watch(prefsProvider).citizenName;
-    return GlassContainer(
-      variant: Glass.clear,
-      borderRadius: const BorderRadius.only(
-        bottomLeft: Radius.circular(28),
-        bottomRight: Radius.circular(28),
-      ),
-      boxShadow: [
-        BoxShadow(
-          color: NkColors.slate900.withValues(alpha: 0.25),
-          blurRadius: 36,
-          offset: const Offset(0, 16),
-          spreadRadius: -22,
-        ),
-      ],
-      child: Column(
-        children: [
-          // Brand bar + avatar
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const BrandMark(),
-                GestureDetector(
-                  onTap: () {
-                    HapticFeedback.selectionClick();
-                    onToggleProfile();
-                  },
-                  child: Stack(
-                    clipBehavior: Clip.none,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(2),
-                        decoration: const BoxDecoration(
-                          gradient: nkGoldGradient,
-                          shape: BoxShape.circle,
-                        ),
-                        child: Container(
-                          height: 36,
-                          width: 36,
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            color: NkColors.slate100,
-                            shape: BoxShape.circle,
-                            border: Border.all(color: Colors.white, width: 2),
-                          ),
-                          child: Text(
-                            ProfileData.initialsOf(accountName),
-                            style: const TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w900,
-                              color: NkColors.brand,
-                            ),
-                          ),
-                        ),
-                      ),
-                      Positioned(
-                        bottom: -1,
-                        right: -1,
-                        child: Container(
-                          height: 12,
-                          width: 12,
-                          decoration: BoxDecoration(
-                            color: NkColors.emerald500,
-                            shape: BoxShape.circle,
-                            border: Border.all(color: Colors.white, width: 2),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          // Expandable profile panel
-          AnimatedSize(
-            duration: const Duration(milliseconds: 420),
-            curve: NkMotion.settle,
-            alignment: Alignment.topCenter,
-            child: profileOpen
-                ? _ProfilePanel(
-                    accountName: accountName,
-                    onCollapse: onToggleProfile,
-                    onSignOut: onSignOut)
-                : const SizedBox(width: double.infinity),
-          ),
-          // Breathing room above the rounded bottom edge.
-          const SizedBox(height: 6),
-        ],
-      ),
-    );
-  }
-}
-
-class _ProfilePanel extends StatelessWidget {
-  const _ProfilePanel({
-    required this.accountName,
-    required this.onCollapse,
-    required this.onSignOut,
-  });
-
-  final String accountName;
-  final VoidCallback onCollapse;
-  final VoidCallback onSignOut;
-
-  String get _greeting {
+  static String _greeting() {
     final h = DateTime.now().hour;
     if (h < 12) return 'Good morning';
     if (h < 17) return 'Good afternoon';
@@ -143,202 +21,136 @@ class _ProfilePanel extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final rawName = ref.watch(prefsProvider).citizenName;
+    final accountName = rawName.isNotEmpty
+        ? '${rawName[0].toUpperCase()}${rawName.substring(1)}'
+        : rawName;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Hero row
           Row(
             children: [
-              Container(
-                padding: const EdgeInsets.all(3),
-                decoration: const BoxDecoration(
-                  gradient: nkGoldGradient,
-                  shape: BoxShape.circle,
-                ),
-                child: Container(
-                  height: 56,
-                  width: 56,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: NkColors.slate100,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white, width: 2),
-                  ),
-                  child: Text(
-                    ProfileData.initialsOf(accountName),
-                    style: const TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w900,
-                      color: NkColors.brand,
-                    ),
-                  ),
-                ),
-              ),
+              const BrandMark(color: Colors.white),
+              const Spacer(),
+              const _NotificationBell(),
               const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('$_greeting,',
-                        style: const TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w500,
-                            color: NkColors.slate400)),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            '$accountName 👋',
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w800,
-                              color: NkColors.slate900,
-                              height: 1.2,
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        // IconButton keeps the 48dp material tap target even
-                        // though the glyph itself is small.
-                        IconButton(
-                          onPressed: () {
-                            HapticFeedback.selectionClick();
-                            Navigator.of(context).push(
-                              MaterialPageRoute<void>(
-                                builder: (_) => const EditProfileScreen(),
-                              ),
-                            );
-                          },
-                          padding: EdgeInsets.zero,
-                          tooltip: 'Edit profile',
-                          icon: const Icon(Icons.edit_outlined,
-                              size: 16, color: NkColors.slate500),
-                        ),
-                      ],
+              _Avatar(
+                accountName: accountName,
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const ProfileScreen(),
                     ),
-                  ],
-                ),
-              ),
-              IconButton(
-                onPressed: onCollapse,
-                icon: const Icon(Icons.keyboard_arrow_up,
-                    size: 20, color: NkColors.slate400),
+                  );
+                },
               ),
             ],
           ),
-
-          const SizedBox(height: 12),
-          // Stat tiles
-          Row(
-            children: [
-              for (final (icon, value, label, fg, bg) in [
-                (
-                  Icons.assignment_outlined,
-                  '${ProfileData.reports}',
-                  'Reports',
-                  NkColors.brand,
-                  NkColors.brand50
-                ),
-                (
-                  Icons.thumb_up_outlined,
-                  '${ProfileData.upvotes}',
-                  'Upvotes',
-                  NkColors.teal700,
-                  NkColors.teal50
-                ),
-                (
-                  Icons.check_circle_outline,
-                  '${ProfileData.resolved}',
-                  'Resolved',
-                  NkColors.emerald700,
-                  NkColors.emerald50
-                ),
-                (
-                  Icons.schedule,
-                  '${ProfileData.open}',
-                  'Open',
-                  NkColors.amber700,
-                  NkColors.amber50
-                ),
-              ]) ...[
-                Expanded(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                          color: NkColors.slate200.withValues(alpha: 0.7)),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.03),
-                          blurRadius: 4,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
-                    ),
-                    child: Column(
-                      children: [
-                        Container(
-                          height: 28,
-                          width: 28,
-                          alignment: Alignment.center,
-                          decoration:
-                              BoxDecoration(color: bg, shape: BoxShape.circle),
-                          child: Icon(icon, size: 15, color: fg),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          value,
-                          style: const TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w800,
-                            color: NkColors.slate800,
-                          ),
-                        ),
-                        Text(
-                          label,
-                          style: const TextStyle(
-                              fontSize: 9,
-                              fontWeight: FontWeight.w500,
-                              color: NkColors.slate500),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                if (label != 'Open') const SizedBox(width: 8),
-              ],
-            ],
+          const SizedBox(height: 4),
+          Text(
+            '${_greeting()}, $accountName',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              color: Colors.white.withValues(alpha: 0.85),
+            ),
           ),
+        ],
+      ),
+    );
+  }
+}
 
-          const SizedBox(height: 12),
-          // Sign out
-          GestureDetector(
-            onTap: onSignOut,
-            child: Container(
-              height: 42,
-              decoration: BoxDecoration(
+class _NotificationBell extends StatelessWidget {
+  const _NotificationBell();
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Icon(Icons.notifications_outlined,
+            size: 24, color: Colors.white.withValues(alpha: 0.9)),
+        Positioned(
+          top: -4,
+          right: -6,
+          child: Container(
+            height: 16,
+            width: 16,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: const Color(0xFFFF4D4D),
+              shape: BoxShape.circle,
+              border:
+                  Border.all(color: const Color(0xFF1A3A8F), width: 1.5),
+            ),
+            child: const Text(
+              '3',
+              style: TextStyle(
+                fontSize: 8,
+                fontWeight: FontWeight.w700,
                 color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: NkColors.slate200),
               ),
-              child: const Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.logout, size: 13, color: NkColors.slate600),
-                  SizedBox(width: 6),
-                  Text(
-                    'Sign out',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      color: NkColors.slate600,
-                    ),
-                  ),
-                ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _Avatar extends StatelessWidget {
+  const _Avatar({required this.accountName, required this.onTap});
+
+  final String accountName;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(2),
+            decoration: const BoxDecoration(
+              gradient: nkGoldGradient,
+              shape: BoxShape.circle,
+            ),
+            child: Container(
+              height: 36,
+              width: 36,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: NkColors.slate100,
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 2),
+              ),
+              child: Text(
+                ProfileData.initialsOf(accountName),
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w900,
+                  color: NkColors.brand,
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            bottom: -1,
+            right: -1,
+            child: Container(
+              height: 12,
+              width: 12,
+              decoration: BoxDecoration(
+                color: NkColors.emerald500,
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 2),
               ),
             ),
           ),
@@ -347,3 +159,4 @@ class _ProfilePanel extends StatelessWidget {
     );
   }
 }
+
