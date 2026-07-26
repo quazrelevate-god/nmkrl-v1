@@ -204,12 +204,25 @@ const Map<String, String> _ta = {
   // ── Issue card ──
   'AI SUMMARY': 'AI சுருக்கம்',
   'Support this grievance': 'இந்த குறையை ஆதரிக்கவும்',
+  'High Priority': 'அதிக முன்னுரிமை',
+  'Medium': 'நடுத்தரம்',
+  'Low': 'குறைவு',
 
   // ── Report sheet ──
   'Report Street Issue': 'தெரு பிரச்சினையைப் புகாரளி',
   'Help us build better and safer streets':
       'சிறந்த, பாதுகாப்பான தெருக்களை உருவாக்க உதவுங்கள்',
+  'Fair use policy': 'நியாயமான பயன்பாட்டுக் கொள்கை',
+  'You can report 1 grievance per day.':
+      'ஒரு நாளைக்கு 1 குறையை மட்டுமே பதிவு செய்யலாம்.',
+  'remaining today': 'இன்று மீதம்',
   'Current Location': 'தற்போதைய இருப்பிடம்',
+  'Upload Photo': 'புகைப்படம் பதிவேற்று',
+  'Add clear photos of the issue': 'பிரச்சினையின் தெளிவான புகைப்படங்களைச் சேர்க்கவும்',
+  'Record Voice': 'குரல் பதிவு',
+  'Describe the issue in your voice': 'பிரச்சினையை உங்கள் குரலில் விவரிக்கவும்',
+  'Your report helps us build better communities':
+      'உங்கள் புகார் சிறந்த சமூகங்களை உருவாக்க உதவுகிறது',
   'Capture photo': 'புகைப்படம் எடு',
   'Record voice': 'குரல் பதிவு',
   'Voice note': 'குரல் குறிப்பு',

@@ -270,43 +270,90 @@ class _ReportSheetState extends ConsumerState<ReportSheet> {
                 ],
               ),
 
-              // Fair-use banner
-              const SizedBox(height: 12),
+              // Fair-use policy card (navy)
+              const SizedBox(height: 14),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: NkColors.amber50,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: NkColors.amber200),
+                  gradient: nkBrandGradient,
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: NkColors.brand.withValues(alpha: 0.28),
+                      blurRadius: 18,
+                      offset: const Offset(0, 8),
+                      spreadRadius: -6,
+                    ),
+                  ],
                 ),
                 child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    const Icon(Icons.warning_amber_rounded,
-                        size: 16, color: NkColors.amber800),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text.rich(
-                        TextSpan(
-                          text: 'Fair-use: ',
-                          style: const TextStyle(
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w600,
-                            height: 1.35,
-                            color: NkColors.amber800,
-                          ),
-                          children: [
-                            const TextSpan(
-                              text: '1 grievance per day',
-                              style: TextStyle(fontWeight: FontWeight.w800),
-                            ),
-                            TextSpan(
-                              text:
-                                  ' · ${_limit.remaining} of ${_limit.max} remaining today',
-                            ),
-                          ],
-                        ),
+                    Container(
+                      height: 46,
+                      width: 46,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.35),
+                            width: 1.5),
                       ),
+                      child: const Icon(Icons.shield_outlined,
+                          size: 22, color: Colors.white),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            context.tr('Fair use policy'),
+                            style: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.white,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text.rich(
+                            TextSpan(
+                              style: TextStyle(
+                                fontSize: 12.5,
+                                height: 1.4,
+                                color: Colors.white.withValues(alpha: 0.82),
+                              ),
+                              children: [
+                                TextSpan(
+                                    text:
+                                        '${context.tr('You can report 1 grievance per day.')} '),
+                                TextSpan(
+                                  text:
+                                      '${_limit.remaining} of ${_limit.max} ${context.tr('remaining today')}.',
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      color: Colors.white),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Container(
+                      height: 44,
+                      width: 38,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(9),
+                        border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.15)),
+                      ),
+                      child: Icon(Icons.checklist_rounded,
+                          size: 20,
+                          color: Colors.white.withValues(alpha: 0.9)),
                     ),
                   ],
                 ),
@@ -315,32 +362,48 @@ class _ReportSheetState extends ConsumerState<ReportSheet> {
               // Location card
               const SizedBox(height: 12),
               Container(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
                   color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius: BorderRadius.circular(20),
                   border: Border.all(color: NkColors.slate200),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.03),
+                      blurRadius: 8,
+                      offset: const Offset(0, 3),
+                    ),
+                  ],
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Icon(Icons.place,
-                            size: 16, color: NkColors.brand),
-                        const SizedBox(width: 8),
+                        Container(
+                          height: 44,
+                          width: 44,
+                          alignment: Alignment.center,
+                          decoration: const BoxDecoration(
+                            color: NkColors.slate100,
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.place,
+                              size: 20, color: NkColors.brand),
+                        ),
+                        const SizedBox(width: 12),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(context.tr('Current Location'),
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w600,
-                                  color: NkColors.slate800,
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w800,
+                                  color: NkColors.slate900,
                                 ),
                               ),
+                              const SizedBox(height: 1),
                               Text(
                                 widget.coords == null
                                     ? 'Locating…'
@@ -348,57 +411,87 @@ class _ReportSheetState extends ConsumerState<ReportSheet> {
                                         ? widget.areaName
                                         : '${widget.coords!.latitude.toStringAsFixed(4)}° N, ${widget.coords!.longitude.toStringAsFixed(4)}° E',
                                 style: TextStyle(
-                                  fontSize: 12,
+                                  fontSize: 13,
                                   fontWeight: widget.areaName.isNotEmpty
                                       ? FontWeight.w500
                                       : FontWeight.w400,
                                   color: widget.areaName.isNotEmpty
-                                      ? NkColors.slate700
+                                      ? NkColors.slate600
                                       : NkColors.slate400,
                                 ),
                               ),
                             ],
                           ),
                         ),
+                        const SizedBox(width: 8),
                         Container(
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 4),
+                              horizontal: 10, vertical: 5),
                           decoration: BoxDecoration(
                             color: widget.geoStatus == 'ready'
                                 ? NkColors.emerald50
                                 : NkColors.slate100,
                             borderRadius: BorderRadius.circular(999),
                           ),
-                          child: Text(
-                            widget.geoStatus == 'ready'
-                                ? '±${(widget.accuracy ?? 0).round()} m'
-                                : widget.geoStatus == 'fallback'
-                                    ? 'Default location'
-                                    : 'Locating…',
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w600,
-                              color: widget.geoStatus == 'ready'
-                                  ? NkColors.emerald700
-                                  : NkColors.slate600,
-                            ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                height: 6,
+                                width: 6,
+                                decoration: BoxDecoration(
+                                  color: widget.geoStatus == 'ready'
+                                      ? NkColors.emerald500
+                                      : NkColors.slate400,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              const SizedBox(width: 5),
+                              Text(
+                                widget.geoStatus == 'ready'
+                                    ? '±${(widget.accuracy ?? 0).round()} m'
+                                    : widget.geoStatus == 'fallback'
+                                        ? 'Default'
+                                        : 'Locating…',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  color: widget.geoStatus == 'ready'
+                                      ? NkColors.emerald700
+                                      : NkColors.slate600,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 6),
+                    const SizedBox(height: 12),
+                    Divider(height: 1, color: NkColors.slate200),
+                    const SizedBox(height: 10),
                     GestureDetector(
                       onTap: widget.onRefreshLocation,
+                      behavior: HitTestBehavior.opaque,
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.refresh, size: 12, color: NkColors.brand),
-                          SizedBox(width: 4),
+                          Container(
+                            height: 24,
+                            width: 24,
+                            alignment: Alignment.center,
+                            decoration: const BoxDecoration(
+                              color: NkColors.brand50,
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(Icons.refresh,
+                                size: 14, color: NkColors.brand),
+                          ),
+                          const SizedBox(width: 8),
                           Text(
                             context.tr('Refresh location'),
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w500,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
                               color: NkColors.brand,
                             ),
                           ),
@@ -411,8 +504,9 @@ class _ReportSheetState extends ConsumerState<ReportSheet> {
 
               // Capture row: camera + voice
               const SizedBox(height: 12),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
+              IntrinsicHeight(
+                child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   // Camera column
                   Expanded(
@@ -466,9 +560,11 @@ class _ReportSheetState extends ConsumerState<ReportSheet> {
                         ],
                         _CaptureTile(
                           icon: Icons.photo_camera_outlined,
-                          label: _images.isNotEmpty
-                              ? 'Add photo (${_images.length})'
-                              : context.tr('Capture photo'),
+                          title: _images.isNotEmpty
+                              ? 'Added (${_images.length})'
+                              : context.tr('Upload Photo'),
+                          subtitle:
+                              context.tr('Add clear photos of the issue'),
                           onTap: _capturePhoto,
                         ),
                       ],
@@ -489,9 +585,11 @@ class _ReportSheetState extends ConsumerState<ReportSheet> {
                             ? _RecordingTile(recorder: _recorder)
                             : _CaptureTile(
                                 icon: Icons.mic_none,
-                                label: _recorder.file != null
+                                title: _recorder.file != null
                                     ? 'Re-record'
-                                    : context.tr('Record voice'),
+                                    : context.tr('Record Voice'),
+                                subtitle: context
+                                    .tr('Describe the issue in your voice'),
                                 onTap: () {
                                   HapticFeedback.selectionClick();
                                   _recorder.start();
@@ -501,7 +599,7 @@ class _ReportSheetState extends ConsumerState<ReportSheet> {
                     ),
                   ),
                 ],
-              ),
+              )),
               if (_recorder.error != null) ...[
                 const SizedBox(height: 8),
                 Text(
@@ -538,6 +636,25 @@ class _ReportSheetState extends ConsumerState<ReportSheet> {
                 resetToken: _resetToken,
                 onConfirm: _submit,
               ),
+
+              // Footer reassurance
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.verified_user_outlined,
+                      size: 13, color: NkColors.slate400),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      context.tr(
+                          'Your report helps us build better communities'),
+                      style: const TextStyle(
+                          fontSize: 11.5, color: NkColors.slate400),
+                    ),
+                  ),
+                ],
+              ),
             ],
           ),
         ),
@@ -549,35 +666,57 @@ class _ReportSheetState extends ConsumerState<ReportSheet> {
 class _CaptureTile extends StatelessWidget {
   const _CaptureTile({
     required this.icon,
-    required this.label,
+    required this.title,
+    required this.subtitle,
     required this.onTap,
   });
 
   final IconData icon;
-  final String label;
+  final String title;
+  final String subtitle;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: onTap,
+      behavior: HitTestBehavior.opaque,
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 14),
+        padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: NkColors.brand50,
+          color: Colors.white,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: NkColors.brand100),
+          border: Border.all(color: NkColors.slate200),
         ),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(icon, size: 22, color: NkColors.brand),
-            const SizedBox(height: 4),
+            Container(
+              height: 40,
+              width: 40,
+              alignment: Alignment.center,
+              decoration: const BoxDecoration(
+                color: NkColors.slate100,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, size: 20, color: NkColors.brand),
+            ),
+            const SizedBox(height: 10),
             Text(
-              label,
+              title,
               style: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: NkColors.brand,
+                fontSize: 13.5,
+                fontWeight: FontWeight.w800,
+                color: NkColors.slate900,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              subtitle,
+              style: const TextStyle(
+                fontSize: 11.5,
+                height: 1.3,
+                color: NkColors.slate500,
               ),
             ),
           ],

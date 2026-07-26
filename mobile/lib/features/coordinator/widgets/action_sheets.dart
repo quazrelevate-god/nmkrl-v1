@@ -79,21 +79,19 @@ class _SheetShell extends StatelessWidget {
               ),
               const SizedBox(height: 12),
               Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   Container(
-                    height: 32,
-                    width: 32,
+                    height: 42,
+                    width: 42,
                     alignment: Alignment.center,
-                    decoration: BoxDecoration(
+                    decoration: const BoxDecoration(
                       color: NkColors.brand50,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(
-                          color: NkColors.brand.withValues(alpha: 0.2)),
+                      shape: BoxShape.circle,
                     ),
-                    child: Icon(icon, size: 16, color: NkColors.brand),
+                    child: Icon(icon, size: 20, color: NkColors.brand),
                   ),
-                  const SizedBox(width: 10),
+                  const SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -101,8 +99,9 @@ class _SheetShell extends StatelessWidget {
                         Text(
                           title,
                           style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
+                            fontSize: 17,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -0.2,
                             color: NkColors.slate900,
                           ),
                         ),
@@ -116,8 +115,17 @@ class _SheetShell extends StatelessWidget {
                   ),
                   GestureDetector(
                     onTap: () => Navigator.of(context).pop(),
-                    child: const Icon(Icons.close,
-                        size: 18, color: NkColors.slate400),
+                    child: Container(
+                      height: 32,
+                      width: 32,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: NkColors.slate200.withValues(alpha: 0.7),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.close,
+                          size: 17, color: NkColors.slate500),
+                    ),
                   ),
                 ],
               ),
@@ -144,7 +152,8 @@ class _IssuePreview extends StatelessWidget {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: NkColors.slate50,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: NkColors.slate200),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -206,11 +215,11 @@ InputDecoration _fieldDec(String hint) => InputDecoration(
       fillColor: Colors.white,
       contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(14),
         borderSide: const BorderSide(color: NkColors.slate200),
       ),
       focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(14),
         borderSide: const BorderSide(color: NkColors.brand, width: 1.6),
       ),
     );
@@ -239,10 +248,10 @@ Widget _submitButton({
       child: Opacity(
         opacity: enabled ? 1 : 0.5,
         child: Container(
-          height: 48,
+          height: 52,
           decoration: BoxDecoration(
             color: color,
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(16),
             boxShadow: [
               BoxShadow(
                 color: color.withValues(alpha: 0.35),

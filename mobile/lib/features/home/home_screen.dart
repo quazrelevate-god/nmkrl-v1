@@ -393,39 +393,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     onToggleProfile: () =>
                         setState(() => _profileOpen = !_profileOpen),
                     onSignOut: _signOut,
-                    stats: _stats,
                   ),
                   // ── Map section (pinned) ──
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 16, 12, 0),
+                    padding: const EdgeInsets.fromLTRB(12, 14, 12, 0),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 4),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(
-                                context.tr('Grievance map'),
-                                style: TextStyle(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w800,
-                                  letterSpacing: -0.3,
-                                  color: NkColors.slate900,
-                                ),
-                              ),
-                              Text(
-                                context.tr('Tap a pin for details'),
-                                style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w500,
-                                    color: NkColors.slate400),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 8),
                         Container(
                           height: 300,
                           decoration: BoxDecoration(
@@ -452,6 +426,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                             onUpvote: _upvote,
                           ),
                         ),
+                        const SizedBox(height: 14),
+                        // Per-account stats (permanent row — v2)
+                        HomeStatsRow(stats: _stats),
                       ],
                     ),
                   ),
