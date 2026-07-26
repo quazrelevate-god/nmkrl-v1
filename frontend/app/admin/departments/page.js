@@ -20,8 +20,9 @@ import {
 } from "lucide-react";
 import {
   loadDeptTree, govDepartments, deptOfficerGroups, deptOfficerCount,
-  loadContacts, saveContacts, contactKey,
+  contactKey,
 } from "@/lib/deptRouting";
+import { fetchOfficerContacts, saveOfficerContact } from "@/lib/api";
 
 export default function DepartmentsPage() {
   const [tree, setTree] = useState(null);
@@ -35,7 +36,11 @@ export default function DepartmentsPage() {
       const list = govDepartments(t);
       setSelected((s) => s || list[0] || null);
     });
-    setContacts(loadContacts());
+    // Officer contacts are backend-backed so every browser shares one source
+    // of truth (they used to live in per-browser localStorage).
+    fetchOfficerContacts()
+      .then((r) => setContacts(r.contacts || {}))
+      .catch(() => setContacts({}));
   }, []);
 
   const departments = useMemo(() => (tree ? govDepartments(tree) : []), [tree]);
@@ -65,9 +70,10 @@ export default function DepartmentsPage() {
   function update(deptName, subDept, officer, field, value) {
     const key = contactKey(deptName, subDept, officer);
     setContacts((prev) => {
-      const next = { ...prev, [key]: { ...(prev[key] || {}), [field]: value } };
-      saveContacts(next);
-      return next;
+      const merged = { ...(prev[key] || {}), [field]: value };
+      // Persist the whole contact (name + mobile) for this key to the backend.
+      saveOfficerContact({ key, name: merged.name || "", mobile: merged.mobile || "" }).catch(() => {});
+      return { ...prev, [key]: merged };
     });
   }
 

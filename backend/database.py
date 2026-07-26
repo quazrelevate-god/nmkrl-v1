@@ -137,6 +137,16 @@ CREATE TABLE IF NOT EXISTS notifications (
 CREATE INDEX IF NOT EXISTS idx_notif_recipient
     ON notifications (recipient_type, recipient_id, created_at DESC);
 
+-- Responsible-officer contacts for the department taxonomy, entered in the
+-- admin Departmental Configuration page. Keyed by "<Dept>||<SubDept>||<Officer>"
+-- (mirrors the frontend contactKey), one name + mobile per officer slot.
+CREATE TABLE IF NOT EXISTS dept_officers (
+    contact_key  TEXT PRIMARY KEY,
+    name         TEXT DEFAULT '',
+    mobile       TEXT DEFAULT '',
+    updated_at   TEXT NOT NULL
+);
+
 -- Every /api/locate lookup is logged with the real GCC zone/ward the
 -- coordinate resolved to (via point-in-polygon over the KML boundaries).
 CREATE TABLE IF NOT EXISTS location_logs (

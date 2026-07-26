@@ -36,7 +36,7 @@ function hash(str) {
  * in the taxonomy, so a ticket routes somewhere sensible. Unknown/absent
  * departments fall back to a deterministic pick.
  */
-const APP_TO_GOV = {
+export const APP_TO_GOV = {
   "Solid Waste Management Department": "Municipal Administration and Water Supply Department (MAWS)",
   "Electrical Department": "Energy Department (ENERGY)",
   "Works & Roads Department": "Highways and Minor Ports Department (HWY)",
@@ -45,6 +45,21 @@ const APP_TO_GOV = {
   "Parks & Playfields Department": "Municipal Administration and Water Supply Department (MAWS)",
   "Allied Utilities": "Municipal Administration and Water Supply Department (MAWS)",
 };
+
+/**
+ * Real (non-mock) routing: the Government Department an issue actually belongs
+ * to, from its STORED `department` (the coordinator/Gemini value), mapped to the
+ * taxonomy. Returns null when the issue has no department or it maps nowhere —
+ * callers bucket those under "Unrouted" rather than inventing a destination.
+ */
+export function resolveGovDept(issue, tree) {
+  const app = (issue?.department || "").trim();
+  if (!app) return null;
+  const mapped = APP_TO_GOV[app];
+  if (mapped && tree?.[mapped]) return mapped;   // app dept → gov dept
+  if (tree?.[app]) return app;                   // already a government department
+  return null;
+}
 
 /** All Government Departments in the taxonomy (sorted). */
 export function govDepartments(tree) {

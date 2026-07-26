@@ -175,4 +175,10 @@ def serialize_issue(row) -> dict:
     # legacy rows consistent with the deterministic FMS-XXXXXXXX scheme).
     if not data.get("ticket_number"):
         data["ticket_number"] = ticket_number(data.get("id", ""))
+    # Derive the Assembly Constituency (MLA) from the ward so admin AC views
+    # can group/filter grievances. Wards can span ACs, so expose both the full
+    # list and a single primary value for convenience.
+    acs = get_constituency_by_ward(data.get("ward_no"))
+    data["constituencies"] = acs
+    data["constituency"] = acs[0] if acs else None
     return data
