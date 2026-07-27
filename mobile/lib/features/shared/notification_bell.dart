@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/glass.dart';
 import '../../core/theme.dart';
 import '../../core/i18n.dart';
 import '../../state/providers.dart';
@@ -195,17 +194,20 @@ class _NotificationPanel extends StatelessWidget {
     final w = MediaQuery.of(context).size.width;
     return ConstrainedBox(
       constraints: BoxConstraints(maxWidth: w > 460 ? 380 : w - 24, maxHeight: 460),
-      child: GlassContainer(
-        variant: Glass.strong,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: NkColors.slate900.withValues(alpha: 0.35),
-            blurRadius: 40,
-            offset: const Offset(0, 16),
-            spreadRadius: -8,
-          ),
-        ],
+      child: Container(
+        clipBehavior: Clip.antiAlias,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: NkColors.slate900.withValues(alpha: 0.3),
+              blurRadius: 40,
+              offset: const Offset(0, 16),
+              spreadRadius: -8,
+            ),
+          ],
+        ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,

@@ -60,7 +60,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   String? _busyId;
 
   // UI state
-  bool _profileOpen = false;
   int _tab = 0; // 0 = ward, 1 = mine
   String? _expandedId;
 
@@ -382,21 +381,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             // Soft app background (port of .app-bg)
             const Positioned.fill(child: _AppBackground()),
 
-            SafeArea(
-              bottom: false,
-              // Header pinned outside the scrollable: only the content below
-              // scrolls, and pull-to-refresh never drags the app bar.
-              child: Column(
-                children: [
-                  ProfileHeader(
-                    profileOpen: _profileOpen,
-                    onToggleProfile: () =>
-                        setState(() => _profileOpen = !_profileOpen),
-                    onSignOut: _signOut,
-                  ),
-                  // ── Map section (pinned) ──
+            // Flat full-bleed navy header pinned at the top; everything below
+            // is lifted 14px so the map card overlaps the header's bottom edge.
+            Column(
+              children: [
+                ProfileHeader(onSignOut: _signOut),
+                Expanded(
+                  child: Transform.translate(
+                    offset: const Offset(0, -14),
+                    child: Column(
+                      children: [
+                  // ── Map card (separate, overlapping the header) ──
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 14, 12, 0),
+                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 0),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
@@ -569,8 +566,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       ),
                     ),
                   ),
-                ],
-              ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
             ),
 
             // ── Floating notification banner for status updates ──

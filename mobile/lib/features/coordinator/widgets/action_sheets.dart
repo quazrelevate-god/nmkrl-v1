@@ -3,7 +3,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../../../core/glass.dart';
 import '../../../core/theme.dart';
 import '../../../domain/dept_routing.dart';
 import '../../../domain/departments.dart';
@@ -50,17 +49,20 @@ class _SheetShell extends StatelessWidget {
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
     return Padding(
       padding: EdgeInsets.fromLTRB(16, 0, 16, 16 + bottomInset),
-      child: GlassContainer(
-        variant: Glass.strong,
-        borderRadius: BorderRadius.circular(30),
-        boxShadow: [
-          BoxShadow(
-            color: NkColors.slate900.withValues(alpha: 0.55),
-            blurRadius: 80,
-            offset: const Offset(0, 30),
-            spreadRadius: -20,
-          ),
-        ],
+      child: Container(
+        clipBehavior: Clip.antiAlias,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(30),
+          boxShadow: [
+            BoxShadow(
+              color: NkColors.slate900.withValues(alpha: 0.35),
+              blurRadius: 60,
+              offset: const Offset(0, 24),
+              spreadRadius: -16,
+            ),
+          ],
+        ),
         child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
           child: Column(

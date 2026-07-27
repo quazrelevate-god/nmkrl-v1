@@ -12,11 +12,15 @@ import 'tamil_nadu_outline.dart';
 
 const _navy = Color(0xFF16324F);
 const _gold = Color(0xFFD4A537);
+// Light-beige palette for the solid wordmark gradient.
+const _beigeLight = Color(0xFFFBF3DC);
+const _beigeMid = Color(0xFFE7CE96);
 
-/// Animated government splash: gold particles hold along the Tamil Nadu
-/// state outline, then converge into the நம்குரல் wordmark and shimmer
-/// until session restore decides the entry screen (citizen home /
-/// coordinator console / login).
+/// Animated government splash. Gold particles hold along the Tamil Nadu state
+/// outline, then swarm along randomized curved paths and settle into the shape
+/// of the நம்குரல் wordmark. As they arrive, the particles dissolve and the
+/// SOLID wordmark (light-beige gradient) fades in over a soft background glow —
+/// then the whole scene fades out before navigating to the entry screen.
 class SplashScreen extends ConsumerStatefulWidget {
   const SplashScreen({super.key});
 
@@ -26,30 +30,35 @@ class SplashScreen extends ConsumerStatefulWidget {
 
 class _SplashScreenState extends ConsumerState<SplashScreen>
     with TickerProviderStateMixin {
-  static const int particleCount = 360;
-  static const Duration holdDuration = Duration(milliseconds: 900);
-  static const Duration morphDuration = Duration(milliseconds: 2100);
+  static const int particleCount = 380;
+  static const String _wordmark = 'நம்குரல்';
 
-  /// Dwell on the converged wordmark before navigating away, so it
-  /// registers instead of flashing past.
-  static const Duration settleDuration = Duration(milliseconds: 600);
-
-  /// Fraction of the main controller spent holding on the outline.
-  static final double _holdFraction = holdDuration.inMilliseconds /
-      (holdDuration + morphDuration).inMilliseconds;
+  // Phase boundaries as fractions of the main controller.
+  static const double _holdEnd = 0.18; // particles resting on the outline
+  static const double _morphEnd = 0.60; // particles have reached the wordmark
+  static const double _revealStart = 0.54; // solid text starts fading in
+  static const double _revealEnd = 0.76; // solid text fully in, dots gone
+  static const double _fadeStart = 0.90; // whole scene begins to fade out
 
   late final AnimationController _controller = AnimationController(
     vsync: this,
-    duration: holdDuration + morphDuration,
+    duration: const Duration(milliseconds: 3200),
   );
-  late final AnimationController _shimmer = AnimationController(
+  // Independent slow pulse for the background glow.
+  late final AnimationController _glow = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 1800),
-  );
+    duration: const Duration(milliseconds: 2400),
+  )..repeat(reverse: true);
 
   List<Offset> _outlineVertices = const [];
   List<Offset> _startPoints = const [];
   List<Offset> _targetPoints = const [];
+  // Per-particle curve control point + arrival stagger (precomputed once so the
+  // paths stay stable frame-to-frame — the "randomness" is fixed, not jittery).
+  List<Offset> _controlPoints = const [];
+  List<double> _delays = const [];
+  static const double _textWidthFrac = 0.85;
+
   bool _initialized = false;
   bool _navigated = false;
 
@@ -59,13 +68,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
     if (_initialized) return;
     _initialized = true;
 
-    // The outline geometry is pure math — computed before the first build so
-    // the very first Flutter frame already shows the held constellation
-    // (no blank-navy beat while the text rasterizes).
     final size = MediaQuery.sizeOf(context);
-
-    // Outline draw box: centered, ~70% of the screen width, capped so the
-    // 1.3503-tall box always fits within 80% of the screen height.
     final boxW =
         math.min(size.width * 0.7, size.height * 0.8 / kTamilNaduAspect);
     final boxH = boxW * kTamilNaduAspect;
@@ -82,32 +85,25 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
   @override
   void dispose() {
     _controller.dispose();
-    _shimmer.dispose();
+    _glow.dispose();
     super.dispose();
   }
 
   Future<void> _startAfterTargets(Size size) async {
-    // Rasterize the wordmark during the visible hold, then run the timeline.
     _targetPoints = await _computeTextTargetPoints(size, particleCount);
+    _buildParticlePaths();
     if (!mounted) return;
     setState(() {});
 
-    final converged = Completer<void>();
-    _controller.addStatusListener((status) {
-      if (status == AnimationStatus.completed) {
-        _shimmer.repeat(reverse: true);
-        Future.delayed(settleDuration, () {
-          if (!converged.isCompleted) converged.complete();
-        });
-      }
+    final done = Completer<void>();
+    _controller.addStatusListener((s) {
+      if (s == AnimationStatus.completed && !done.isCompleted) done.complete();
     });
     _controller.forward();
 
-    // Navigate when BOTH the settled wordmark AND real init are done; a
-    // timeout keeps a wedged init from trapping the user on the splash.
     var route = '/login';
     await Future.wait([
-      converged.future,
+      done.future,
       _runRealAppInit()
           .timeout(const Duration(seconds: 5), onTimeout: () => '/login')
           .then((r) => route = r),
@@ -117,33 +113,50 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
     context.go(route);
   }
 
-  /// Session restore. SharedPreferences is pre-loaded in main(), so today
-  /// this resolves instantly — kept async so a real auth check can slot in
-  /// without re-wiring the splash.
+  /// Give every particle a randomized quadratic-bezier control point (so it
+  /// arcs, rather than sliding straight in) and a small arrival delay (so the
+  /// cloud swarms in over a window instead of snapping in lockstep).
+  void _buildParticlePaths() {
+    final rnd = math.Random(7);
+    final n = math.min(_startPoints.length, _targetPoints.length);
+    final ctrl = <Offset>[];
+    final delays = <double>[];
+    for (var i = 0; i < n; i++) {
+      final s = _startPoints[i];
+      final t = _targetPoints[i];
+      final mid = Offset.lerp(s, t, 0.5)!;
+      final d = t - s;
+      final dist = d.distance == 0 ? 1 : d.distance;
+      // Unit perpendicular to the start→target line.
+      final perp = Offset(-d.dy / dist, d.dx / dist);
+      // Random sideways bow (both directions) + a little along-line wander.
+      final bow = (rnd.nextDouble() - 0.5) * 2 * dist * 0.55;
+      final along = (rnd.nextDouble() - 0.5) * dist * 0.25;
+      final tangent = Offset(d.dx / dist, d.dy / dist);
+      ctrl.add(mid + perp * bow + tangent * along);
+      delays.add(rnd.nextDouble() * 0.35); // 0..0.35 of the morph window
+    }
+    _controlPoints = ctrl;
+    _delays = delays;
+  }
+
   Future<String> _runRealAppInit() async {
     if (ref.read(authProvider)) return '/home';
     if (ref.read(coordinatorAuthProvider) != null) return '/coordinator';
     return '/login';
   }
 
-  /// Rasterizes the wordmark once and samples opaque pixels as dot targets,
-  /// centered on screen. Never recomputed after init.
   Future<List<Offset>> _computeTextTargetPoints(Size screen, int count) async {
-    const style = TextStyle(
-      fontSize: 100,
-      fontWeight: FontWeight.w900,
-      color: _gold,
-    );
+    const style = TextStyle(fontSize: 100, fontWeight: FontWeight.w900);
     final probe = TextPainter(
-      text: const TextSpan(text: 'நம்குரல்', style: style),
+      text: const TextSpan(text: _wordmark, style: style),
       textDirection: TextDirection.ltr,
     )..layout();
-    // Re-lay-out at the size that makes the text span ~85% of the width.
-    final scale = (screen.width * 0.85) / probe.width;
+    final scale = (screen.width * _textWidthFrac) / probe.width;
     final painter = TextPainter(
       text: TextSpan(
-        text: 'நம்குரல்',
-        style: style.copyWith(fontSize: 100 * scale),
+        text: _wordmark,
+        style: style.copyWith(fontSize: 100 * scale, color: _gold),
       ),
       textDirection: TextDirection.ltr,
     )..layout();
@@ -170,12 +183,8 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
     final origin =
         Offset((screen.width - painter.width) / 2, (screen.height - h) / 2);
     if (candidates.isEmpty) {
-      // Degenerate fallback (glyphs failed to rasterize): converge on center.
       return List.filled(count, screen.center(Offset.zero));
     }
-    // Even index stepping over the row-major candidates spreads the dots
-    // uniformly across every glyph, which keeps the wordmark legible —
-    // random picks clump and leave gaps.
     final step = candidates.length / count;
     return List.generate(
       count,
@@ -184,89 +193,182 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
     );
   }
 
+  double _phase(double t, double a, double b) =>
+      ((t - a) / (b - a)).clamp(0.0, 1.0);
+
   @override
   Widget build(BuildContext context) {
+    final size = MediaQuery.sizeOf(context);
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light,
       child: Scaffold(
         backgroundColor: _navy,
-        body: SizedBox.expand(
-          child: CustomPaint(
-            painter: _SplashPainter(
-              controller: _controller,
-              shimmer: _shimmer,
-              holdFraction: _holdFraction,
-              outlineVertices: _outlineVertices,
-              startPoints: _startPoints,
-              targetPoints: _targetPoints,
-            ),
-          ),
+        body: AnimatedBuilder(
+          animation: Listenable.merge([_controller, _glow]),
+          builder: (context, _) {
+            final t = _controller.value;
+            final morph = _phase(t, _holdEnd, _morphEnd);
+            final reveal =
+                Curves.easeOut.transform(_phase(t, _revealStart, _revealEnd));
+            final sceneFade = _phase(t, _fadeStart, 1.0);
+            final glowPulse = Curves.easeInOut.transform(_glow.value);
+
+            return Opacity(
+              opacity: (1 - sceneFade).clamp(0.0, 1.0),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  const ColoredBox(color: _navy),
+
+                  // Soft background glow behind the wordmark (fades in with
+                  // the reveal, then breathes via the glow pulse).
+                  Center(
+                    child: Opacity(
+                      opacity: reveal * (0.55 + 0.45 * glowPulse),
+                      child: Container(
+                        width: size.width * 0.9,
+                        height: size.width * 0.9,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          gradient: RadialGradient(
+                            colors: [
+                              _gold.withValues(alpha: 0.28),
+                              _gold.withValues(alpha: 0.10),
+                              _gold.withValues(alpha: 0.0),
+                            ],
+                            stops: const [0.0, 0.45, 1.0],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  // Particle field (dissolves as the solid text arrives).
+                  Opacity(
+                    opacity: (1 - reveal).clamp(0.0, 1.0),
+                    child: CustomPaint(
+                      size: Size.infinite,
+                      painter: _ParticlePainter(
+                        morph: morph,
+                        outlineVertices: _outlineVertices,
+                        startPoints: _startPoints,
+                        controlPoints: _controlPoints,
+                        targetPoints: _targetPoints,
+                        delays: _delays,
+                      ),
+                    ),
+                  ),
+
+                  // Solid wordmark with a light-beige gradient + soft glow.
+                  Center(
+                    child: Opacity(
+                      opacity: reveal,
+                      child: Transform.scale(
+                        scale: 0.96 + 0.04 * reveal,
+                        child: SizedBox(
+                          width: size.width * _textWidthFrac,
+                          child: ShaderMask(
+                            shaderCallback: (rect) => const LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [_beigeLight, _beigeMid, _beigeLight],
+                              stops: [0.0, 0.5, 1.0],
+                            ).createShader(rect),
+                            blendMode: BlendMode.srcIn,
+                            child: FittedBox(
+                              fit: BoxFit.contain,
+                              child: Text(
+                                _wordmark,
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w900,
+                                  color: Colors.white,
+                                  height: 1.0,
+                                  shadows: [
+                                    Shadow(
+                                      color: _gold.withValues(
+                                          alpha: 0.55 * glowPulse),
+                                      blurRadius: 28,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
         ),
       ),
     );
   }
 }
 
-class _SplashPainter extends CustomPainter {
-  _SplashPainter({
-    required this.controller,
-    required this.shimmer,
-    required this.holdFraction,
+class _ParticlePainter extends CustomPainter {
+  _ParticlePainter({
+    required this.morph,
     required this.outlineVertices,
     required this.startPoints,
+    required this.controlPoints,
     required this.targetPoints,
-  }) : super(repaint: Listenable.merge([controller, shimmer]));
+    required this.delays,
+  });
 
-  final AnimationController controller;
-  final AnimationController shimmer;
-  final double holdFraction;
+  final double morph; // 0..1 within the morph phase
   final List<Offset> outlineVertices;
   final List<Offset> startPoints;
+  final List<Offset> controlPoints;
   final List<Offset> targetPoints;
+  final List<double> delays;
 
-  /// 0..1 linear progress within the morph phase (0 during the hold).
-  double get _morphLinear {
-    final t = controller.value;
-    if (t <= holdFraction) return 0;
-    return ((t - holdFraction) / (1 - holdFraction)).clamp(0.0, 1.0);
+  static Offset _quad(Offset a, Offset c, Offset b, double t) {
+    final u = 1 - t;
+    return a * (u * u) + c * (2 * u * t) + b * (t * t);
   }
 
   @override
   void paint(Canvas canvas, Size size) {
-    canvas.drawRect(Offset.zero & size, Paint()..color = _navy);
-
-    final morph = _morphLinear;
-    final eased = Curves.easeOutCubic.transform(morph);
-
-    // Faint state outline behind the dots; fades as the dots leave it.
-    final outlineOpacity = 0.38 * (1 - morph);
-    if (outlineOpacity > 0.01) {
-      final outlinePaint = Paint()
-        ..color = _gold.withValues(alpha: outlineOpacity)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1;
-      canvas.drawPath(Path()..addPolygon(outlineVertices, true), outlinePaint);
+    // Faint outline behind the particles; fades as the swarm departs.
+    final outlineOpacity = 0.32 * (1 - morph);
+    if (outlineOpacity > 0.01 && outlineVertices.isNotEmpty) {
+      canvas.drawPath(
+        Path()..addPolygon(outlineVertices, true),
+        Paint()
+          ..color = _gold.withValues(alpha: outlineOpacity)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1,
+      );
     }
 
-    // Converged dots pulse 1.0 ↔ 0.85 (shimmer runs repeat(reverse: true)).
-    final shimmerOpacity = controller.isCompleted
-        ? 1 - 0.15 * Curves.easeInOut.transform(shimmer.value)
-        : 1.0;
-    final dotPaint = Paint()..color = _gold.withValues(alpha: shimmerOpacity);
-    if (targetPoints.isEmpty) {
-      // Targets still rasterizing — the hold state needs only start points.
+    final dot = Paint()..color = _gold;
+    if (targetPoints.isEmpty || controlPoints.isEmpty) {
       for (final p in startPoints) {
-        canvas.drawCircle(p, 2.2, dotPaint);
+        canvas.drawCircle(p, 2.2, dot);
       }
       return;
     }
+
+    const window = 0.35; // max per-particle stagger
     for (var i = 0; i < targetPoints.length; i++) {
-      final pos = Offset.lerp(startPoints[i], targetPoints[i], eased)!;
-      canvas.drawCircle(pos, 2.2, dotPaint);
+      final delay = delays[i];
+      final local =
+          ((morph - delay) / (1 - window)).clamp(0.0, 1.0);
+      final e = Curves.easeInOutCubic.transform(local);
+      final pos = _quad(startPoints[i], controlPoints[i], targetPoints[i], e);
+      // Particles are a touch brighter/larger in flight, tightening on arrival.
+      final r = 2.6 - 0.6 * e;
+      dot.color = _gold.withValues(alpha: 0.55 + 0.45 * (1 - e));
+      canvas.drawCircle(pos, r, dot);
     }
   }
 
   @override
-  bool shouldRepaint(covariant _SplashPainter old) =>
-      old.startPoints != startPoints || old.targetPoints != targetPoints;
+  bool shouldRepaint(covariant _ParticlePainter old) =>
+      old.morph != morph ||
+      old.startPoints != startPoints ||
+      old.targetPoints != targetPoints;
 }

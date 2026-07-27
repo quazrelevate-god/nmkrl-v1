@@ -9,20 +9,15 @@ import '../../../state/providers.dart';
 import '../../shared/notification_bell.dart';
 import '../../shared/wave_mark.dart';
 
-/// Home header — navy bar (v2). Gold brand mark + language toggle + notification
-/// bell + avatar, with the greeting always visible below. Tapping the avatar
-/// expands a small sign-out panel. The per-account stats live in [HomeStatsRow]
-/// in the body now, not in this header.
+/// Home header — a flat, full-bleed navy bar (v2). Gold brand mark + language
+/// toggle + notification bell + avatar, with the greeting always visible below.
+/// The header is a fixed-height rectangle (no rounded corners, no expansion):
+/// tapping the avatar opens a lightweight floating [MenuAnchor] dropdown, not a
+/// panel that resizes the bar. The map card below overlaps the bottom edge, and
+/// the per-account stats live in [HomeStatsRow] in the body.
 class ProfileHeader extends ConsumerWidget {
-  const ProfileHeader({
-    super.key,
-    required this.profileOpen,
-    required this.onToggleProfile,
-    required this.onSignOut,
-  });
+  const ProfileHeader({super.key, required this.onSignOut});
 
-  final bool profileOpen;
-  final VoidCallback onToggleProfile;
   final VoidCallback onSignOut;
 
   String get _greeting {
@@ -35,158 +30,146 @@ class ProfileHeader extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final accountName = ref.watch(prefsProvider).citizenName;
+    final topInset = MediaQuery.paddingOf(context).top;
     return Container(
-      decoration: const BoxDecoration(
-        gradient: nkNavyGradient,
-        borderRadius: BorderRadius.only(
-          bottomLeft: Radius.circular(28),
-          bottomRight: Radius.circular(28),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Color(0x33000000),
-            blurRadius: 30,
-            offset: Offset(0, 14),
-            spreadRadius: -16,
+      width: double.infinity,
+      // Flat full-bleed rectangle — navy runs edge to edge and up behind the
+      // status bar (topInset). The overlapping map card owns all rounding.
+      decoration: const BoxDecoration(gradient: nkNavyGradient),
+      padding: EdgeInsets.fromLTRB(16, topInset + 10, 16, 24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Brand bar + avatar
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const BrandMark(color: NkColors.gold300),
+              Row(
+                children: [
+                  const LangToggle(onDark: true),
+                  const SizedBox(width: 6),
+                  NotificationBell(
+                    recipientType: 'citizen',
+                    recipientId: ref.watch(userIdProvider),
+                    dark: true,
+                  ),
+                  const SizedBox(width: 4),
+                  _AvatarMenu(
+                    initials: ProfileData.initialsOf(accountName),
+                    onSignOut: onSignOut,
+                  ),
+                ],
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 8),
+          // Persistent greeting
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              '${context.tr(_greeting)}, $accountName 👋',
+              style: const TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.2,
+                color: Colors.white,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
         ],
       ),
-      child: Column(
-        children: [
-          // Brand bar + avatar
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const BrandMark(color: NkColors.gold300),
-                Row(
-                  children: [
-                    const LangToggle(onDark: true),
-                    const SizedBox(width: 6),
-                    NotificationBell(
-                      recipientType: 'citizen',
-                      recipientId: ref.watch(userIdProvider),
-                      dark: true,
-                    ),
-                    const SizedBox(width: 4),
-                    GestureDetector(
-                      onTap: () {
-                        HapticFeedback.selectionClick();
-                        onToggleProfile();
-                      },
-                      child: Stack(
-                        clipBehavior: Clip.none,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(2),
-                            decoration: const BoxDecoration(
-                              gradient: nkGoldGradient,
-                              shape: BoxShape.circle,
-                            ),
-                            child: Container(
-                              height: 36,
-                              width: 36,
-                              alignment: Alignment.center,
-                              decoration: BoxDecoration(
-                                color: NkColors.brandDark,
-                                shape: BoxShape.circle,
-                                border:
-                                    Border.all(color: Colors.white, width: 2),
-                              ),
-                              child: Text(
-                                ProfileData.initialsOf(accountName),
-                                style: const TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w900,
-                                  color: NkColors.gold300,
-                                ),
-                              ),
-                            ),
-                          ),
-                          Positioned(
-                            bottom: -1,
-                            right: -1,
-                            child: Container(
-                              height: 12,
-                              width: 12,
-                              decoration: BoxDecoration(
-                                color: NkColors.emerald500,
-                                shape: BoxShape.circle,
-                                border:
-                                    Border.all(color: NkColors.brand, width: 2),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ],
+    );
+  }
+}
+
+/// Avatar + floating sign-out dropdown (Material 3 [MenuAnchor]). Tapping the
+/// avatar toggles a small rounded menu anchored just below it; tapping outside
+/// dismisses it. The menu floats over content — the page layout never moves.
+class _AvatarMenu extends StatelessWidget {
+  const _AvatarMenu({required this.initials, required this.onSignOut});
+
+  final String initials;
+  final VoidCallback onSignOut;
+
+  @override
+  Widget build(BuildContext context) {
+    return MenuAnchor(
+      alignmentOffset: const Offset(-96, 8),
+      style: MenuStyle(
+        backgroundColor: const WidgetStatePropertyAll(Colors.white),
+        elevation: const WidgetStatePropertyAll(10),
+        padding: const WidgetStatePropertyAll(
+            EdgeInsets.symmetric(vertical: 6)),
+        shape: WidgetStatePropertyAll(
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        ),
+      ),
+      menuChildren: [
+        MenuItemButton(
+          leadingIcon:
+              const Icon(Icons.logout, size: 16, color: NkColors.rose600),
+          onPressed: onSignOut,
+          child: Text(
+            context.tr('Sign out'),
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: NkColors.slate800,
             ),
           ),
-
-          // Persistent greeting
-          Padding(
-            padding: const EdgeInsets.fromLTRB(18, 6, 16, 0),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                '${context.tr(_greeting)}, $accountName 👋',
-                style: const TextStyle(
-                  fontSize: 17,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: -0.2,
-                  color: Colors.white,
+        ),
+      ],
+      builder: (context, controller, _) => GestureDetector(
+        onTap: () {
+          HapticFeedback.selectionClick();
+          controller.isOpen ? controller.close() : controller.open();
+        },
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(2),
+              decoration: const BoxDecoration(
+                gradient: nkGoldGradient,
+                shape: BoxShape.circle,
+              ),
+              child: Container(
+                height: 36,
+                width: 36,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: NkColors.brandDark,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white, width: 2),
                 ),
-                overflow: TextOverflow.ellipsis,
+                child: Text(
+                  initials,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w900,
+                    color: NkColors.gold300,
+                  ),
+                ),
               ),
             ),
-          ),
-
-          // Expandable sign-out panel (avatar tap)
-          AnimatedSize(
-            duration: const Duration(milliseconds: 360),
-            curve: NkMotion.settle,
-            alignment: Alignment.topCenter,
-            child: profileOpen
-                ? Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-                    child: GestureDetector(
-                      onTap: onSignOut,
-                      child: Container(
-                        height: 42,
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.2)),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Icon(Icons.logout,
-                                size: 14, color: Colors.white),
-                            const SizedBox(width: 6),
-                            Text(
-                              context.tr('Sign out'),
-                              style: const TextStyle(
-                                fontSize: 12.5,
-                                fontWeight: FontWeight.w700,
-                                color: Colors.white,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  )
-                : const SizedBox(width: double.infinity),
-          ),
-
-          const SizedBox(height: 14),
-        ],
+            Positioned(
+              bottom: -1,
+              right: -1,
+              child: Container(
+                height: 12,
+                width: 12,
+                decoration: BoxDecoration(
+                  color: NkColors.emerald500,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: NkColors.brand, width: 2),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

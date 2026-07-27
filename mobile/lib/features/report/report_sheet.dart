@@ -6,7 +6,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:latlong2/latlong.dart';
 
-import '../../core/glass.dart';
 import '../../core/theme.dart';
 import '../../core/i18n.dart';
 import '../../data/media.dart';
@@ -198,17 +197,20 @@ class _ReportSheetState extends ConsumerState<ReportSheet> {
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
     return Padding(
       padding: EdgeInsets.fromLTRB(16, 0, 16, 16 + bottomInset),
-      child: GlassContainer(
-        variant: Glass.strong,
-        borderRadius: BorderRadius.circular(30),
-        boxShadow: [
-          BoxShadow(
-            color: NkColors.slate900.withValues(alpha: 0.55),
-            blurRadius: 80,
-            offset: const Offset(0, 30),
-            spreadRadius: -20,
-          ),
-        ],
+      child: Container(
+        clipBehavior: Clip.antiAlias,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(30),
+          boxShadow: [
+            BoxShadow(
+              color: NkColors.slate900.withValues(alpha: 0.35),
+              blurRadius: 60,
+              offset: const Offset(0, 24),
+              spreadRadius: -16,
+            ),
+          ],
+        ),
         child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(16, 10, 16, 20),
           child: Column(
