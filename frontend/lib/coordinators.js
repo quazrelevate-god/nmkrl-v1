@@ -150,7 +150,10 @@ export function updateCoordinator(username, patch) {
   return getCoordinator(username);
 }
 
-/** Add a brand-new coordinator (admin-created). Rejects duplicate usernames. */
+/** Add a brand-new coordinator (admin-created). Rejects duplicate usernames.
+ *  Also fires the record at the backend so the mobile coordinator app can
+ *  authenticate this account (fire-and-forget — the web UI stays local).
+ */
 export function createCoordinator(coord) {
   const bag = readDirectoryBag();
   const username = (coord.username || "").trim().toLowerCase();
@@ -173,7 +176,156 @@ export function createCoordinator(coord) {
   };
   bag.extras = [...bag.extras, record];
   writeDirectoryBag(bag);
+  // Sync to backend so mobile can log in — non-blocking.
+  try {
+    fetch("/fms/api/admin/coordinators", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: record.name,
+        username: record.username,
+        password: record.password || "changeme",
+        role: record.role,
+        constituency: record.constituency,
+        home_ward: String(record.homeWard || ""),
+        must_change_password: !!record.mustChangePassword,
+      }),
+    }).catch(() => {});
+  } catch { /* ignore */ }
   return record;
+}
+
+/* ── Backend-backed directory (shared source of truth) ─────────────────────
+ * The admin console reads and writes coordinators through the FastAPI backend
+ * (proxied at /fms) so every browser — and the mobile coordinator app — see the
+ * SAME accounts. The localStorage layer above stays only as an offline fallback
+ * for the read path; all writes go to the backend.
+ * ────────────────────────────────────────────────────────────────────────── */
+
+const API = "/fms";
+
+/** Backend row (snake_case, no password) → the UI-shaped coordinator object. */
+function mapRemoteCoordinator(row) {
+  const seed = COORDINATORS.find((c) => c.username === row.username) || {};
+  return {
+    // Seed demo stats/avatar underneath so familiar accounts keep their look…
+    civicScore: 0, reports: 0, resolved: 0, upvotes: 0, tenure: "New",
+    ...seed,
+    // …but the backend is authoritative for identity, role, ward, etc.
+    username: row.username,
+    name: row.name,
+    role: row.role,
+    constituency: row.constituency,
+    homeWard: row.home_ward,
+    mustChangePassword: !!row.must_change_password,
+    status: "active",
+    initials: initialsFrom(row.name),
+    avatar: seed.avatar || `https://i.pravatar.cc/160?u=${encodeURIComponent(row.username)}`,
+    createdAt: row.created_at || null,
+  };
+}
+
+/** Fetch the whole directory from the backend. Throws on network/HTTP error. */
+export async function listCoordinatorsRemote() {
+  const res = await fetch(`${API}/api/admin/coordinators`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`Could not load coordinators (${res.status})`);
+  const data = await res.json();
+  const bag = readDirectoryBag();
+  return (data.coordinators || []).map((row) => ({
+    ...mapRemoteCoordinator(row),
+    // Local-only flags the backend doesn't store (e.g. disabled) layer on top.
+    ...(bag.overrides[row.username] || {}),
+  }));
+}
+
+/** Idempotently ensure the 4 demo coordinators exist in the backend so the
+ *  seeded logins work on mobile too. 409 (already exists) is silently fine. */
+export async function ensureSeedCoordinators() {
+  await Promise.all(
+    COORDINATORS.map((c) =>
+      fetch(`${API}/api/admin/coordinators`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: c.name,
+          username: c.username,
+          password: c.password,
+          role: c.role,
+          constituency: c.constituency,
+          home_ward: String(c.homeWard || ""),
+          must_change_password: false,
+        }),
+      }).catch(() => {})
+    )
+  );
+}
+
+/** Create a coordinator in the backend. Throws with the server message on
+ *  failure (duplicate username, weak password, …) so the form can surface it. */
+export async function createCoordinatorRemote(coord) {
+  const username = (coord.username || "").trim().toLowerCase();
+  if (!username) throw new Error("Username is required");
+  const res = await fetch(`${API}/api/admin/coordinators`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: coord.name,
+      username,
+      password: coord.password || "changeme",
+      role: coord.role || "Ward Coordinator",
+      constituency: coord.constituency || "",
+      home_ward: String(coord.homeWard || ""),
+      must_change_password: !!coord.mustChangePassword,
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.detail || `Create failed (${res.status})`);
+  }
+  return mapRemoteCoordinator(await res.json());
+}
+
+/** Patch a coordinator in the backend (name/role/constituency/ward/password/
+ *  mustChange). A `status` change is local-only (no backend column). */
+export async function updateCoordinatorRemote(username, patch) {
+  const body = {};
+  if (patch.name != null) body.name = patch.name;
+  if (patch.role != null) body.role = patch.role;
+  if (patch.constituency != null) body.constituency = patch.constituency;
+  if (patch.homeWard != null) body.home_ward = String(patch.homeWard);
+  if (patch.password != null) body.password = patch.password;
+  if (patch.mustChangePassword != null)
+    body.must_change_password = !!patch.mustChangePassword;
+
+  if (Object.keys(body).length) {
+    const res = await fetch(
+      `${API}/api/admin/coordinators/${encodeURIComponent(username)}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }
+    );
+    if (!res.ok) {
+      const b = await res.json().catch(() => ({}));
+      throw new Error(b.detail || `Update failed (${res.status})`);
+    }
+  }
+  // Disable/enable has no backend column — keep it as a per-browser override.
+  if (patch.status != null) updateCoordinator(username, { status: patch.status });
+  return getCoordinator(username);
+}
+
+/** Delete a coordinator from the backend. */
+export async function deleteCoordinatorRemote(username) {
+  const res = await fetch(
+    `${API}/api/admin/coordinators/${encodeURIComponent(username)}`,
+    { method: "DELETE" }
+  );
+  if (!res.ok && res.status !== 404) {
+    const b = await res.json().catch(() => ({}));
+    throw new Error(b.detail || `Delete failed (${res.status})`);
+  }
 }
 
 /** Compute 2-letter initials for the avatar fallback. */

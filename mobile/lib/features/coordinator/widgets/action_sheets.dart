@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
 
-import '../../../core/glass.dart';
 import '../../../core/theme.dart';
+import '../../../domain/dept_routing.dart';
 import '../../../domain/departments.dart';
 import '../../../domain/geo_utils.dart';
 import '../../../domain/models/issue.dart';
 import '../../../domain/ticket.dart';
+import '../../../state/providers.dart';
 import 'evidence_section.dart';
 
 /// The four coordinator action sheets — ports of ActionModals.js:
@@ -46,17 +49,20 @@ class _SheetShell extends StatelessWidget {
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
     return Padding(
       padding: EdgeInsets.fromLTRB(16, 0, 16, 16 + bottomInset),
-      child: GlassContainer(
-        variant: Glass.strong,
-        borderRadius: BorderRadius.circular(30),
-        boxShadow: [
-          BoxShadow(
-            color: NkColors.slate900.withValues(alpha: 0.55),
-            blurRadius: 80,
-            offset: const Offset(0, 30),
-            spreadRadius: -20,
-          ),
-        ],
+      child: Container(
+        clipBehavior: Clip.antiAlias,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(30),
+          boxShadow: [
+            BoxShadow(
+              color: NkColors.slate900.withValues(alpha: 0.35),
+              blurRadius: 60,
+              offset: const Offset(0, 24),
+              spreadRadius: -16,
+            ),
+          ],
+        ),
         child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
           child: Column(
@@ -75,21 +81,19 @@ class _SheetShell extends StatelessWidget {
               ),
               const SizedBox(height: 12),
               Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   Container(
-                    height: 32,
-                    width: 32,
+                    height: 42,
+                    width: 42,
                     alignment: Alignment.center,
-                    decoration: BoxDecoration(
+                    decoration: const BoxDecoration(
                       color: NkColors.brand50,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(
-                          color: NkColors.brand.withValues(alpha: 0.2)),
+                      shape: BoxShape.circle,
                     ),
-                    child: Icon(icon, size: 16, color: NkColors.brand),
+                    child: Icon(icon, size: 20, color: NkColors.brand),
                   ),
-                  const SizedBox(width: 10),
+                  const SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -97,8 +101,9 @@ class _SheetShell extends StatelessWidget {
                         Text(
                           title,
                           style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
+                            fontSize: 17,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -0.2,
                             color: NkColors.slate900,
                           ),
                         ),
@@ -112,8 +117,17 @@ class _SheetShell extends StatelessWidget {
                   ),
                   GestureDetector(
                     onTap: () => Navigator.of(context).pop(),
-                    child: const Icon(Icons.close,
-                        size: 18, color: NkColors.slate400),
+                    child: Container(
+                      height: 32,
+                      width: 32,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: NkColors.slate200.withValues(alpha: 0.7),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.close,
+                          size: 17, color: NkColors.slate500),
+                    ),
                   ),
                 ],
               ),
@@ -140,7 +154,8 @@ class _IssuePreview extends StatelessWidget {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: NkColors.slate50,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: NkColors.slate200),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -202,11 +217,11 @@ InputDecoration _fieldDec(String hint) => InputDecoration(
       fillColor: Colors.white,
       contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(14),
         borderSide: const BorderSide(color: NkColors.slate200),
       ),
       focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(14),
         borderSide: const BorderSide(color: NkColors.brand, width: 1.6),
       ),
     );
@@ -235,10 +250,10 @@ Widget _submitButton({
       child: Opacity(
         opacity: enabled ? 1 : 0.5,
         child: Container(
-          height: 48,
+          height: 52,
           decoration: BoxDecoration(
             color: color,
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(16),
             boxShadow: [
               BoxShadow(
                 color: color.withValues(alpha: 0.35),
@@ -415,30 +430,42 @@ class _CloseSheetState extends State<CloseSheet> {
 
 /* ══════════════════════ Department Transfer ══════════════════════ */
 
-class TransferSheet extends StatefulWidget {
+/// Fetches the TN grievance-routing taxonomy from
+/// GET /api/departments/tree at open, deterministically resolves this
+/// grievance to (Government Department → Sub-Department → Responsible Officer),
+/// and lets the coordinator override the dept before dispatching.
+///
+/// On "Send", the WhatsApp preview stage opens `https://web.whatsapp.com/send?text=…`
+/// so the message drops straight into WhatsApp Web instead of just displaying
+/// a fake bubble.
+class TransferSheet extends ConsumerStatefulWidget {
   const TransferSheet({super.key, required this.issue, required this.onSubmit});
 
   final Issue issue;
 
-  /// Fired when the coordinator submits the form; the sheet then shows the
-  /// WhatsApp dispatch stage (mirrors the web two-stage flow).
-  final Future<void> Function(String department, String notes) onSubmit;
+  /// Called with `(governmentDepartment, notes, responsibleOfficer)` when
+  /// the coordinator confirms the transfer. Parent posts to the backend.
+  final Future<void> Function(String department, String notes, String officer) onSubmit;
 
   static Future<void> open(
     BuildContext context, {
     required Issue issue,
-    required Future<void> Function(String department, String notes) onSubmit,
+    required Future<void> Function(String department, String notes, String officer) onSubmit,
   }) =>
       _openActionSheet(
           context, TransferSheet(issue: issue, onSubmit: onSubmit));
 
   @override
-  State<TransferSheet> createState() => _TransferSheetState();
+  ConsumerState<TransferSheet> createState() => _TransferSheetState();
 }
 
-class _TransferSheetState extends State<TransferSheet> {
-  late String _department;
-  late final String _aiSuggested;
+class _TransferSheetState extends ConsumerState<TransferSheet> {
+  Map<String, dynamic>? _tree; // {gov dept name → {type → {subtype → {sd, ro}}}}
+  String? _loadError;
+
+  String _department = '';
+  String _officer = '';
+  String _originalDept = '';
   final _notes = TextEditingController();
   final _evidence = EvidenceController();
   bool _dispatchStage = false;
@@ -448,11 +475,8 @@ class _TransferSheetState extends State<TransferSheet> {
   @override
   void initState() {
     super.initState();
-    _aiSuggested = kDepartments.containsKey(widget.issue.department)
-        ? widget.issue.department!
-        : kDepartments.keys.first;
-    _department = _aiSuggested;
     _evidence.addListener(() => setState(() {}));
+    _loadTaxonomy();
   }
 
   @override
@@ -462,51 +486,117 @@ class _TransferSheetState extends State<TransferSheet> {
     super.dispose();
   }
 
+  Future<void> _loadTaxonomy() async {
+    try {
+      final tree = await ref.read(apiClientProvider).fetchDepartmentsTree();
+      final routing = resolveRouting(
+        tree: tree,
+        issueId: widget.issue.id,
+        geminiDepartment: widget.issue.department,
+      );
+      if (!mounted) return;
+      setState(() {
+        _tree = tree;
+        _department = routing?.govDept ?? tree.keys.first;
+        _originalDept = _department;
+        _officer = routing?.officer ?? '';
+      });
+    } catch (e) {
+      if (mounted) setState(() => _loadError = 'Couldn\'t load department taxonomy — $e');
+    }
+  }
+
+  RoutingResult? get _routing => _tree == null
+      ? null
+      : resolveRouting(
+          tree: _tree!,
+          issueId: widget.issue.id,
+          geminiDepartment: _department == _originalDept
+              ? widget.issue.department
+              : _department,
+        );
+
   String get _waMessage {
     final i = widget.issue;
+    final r = _routing;
     final highlights = i.summaryHighlights.join(', ');
-    final deadline = formatShortDate(slaDeadline(i.createdAt, _department));
-    final loc = i.areaName != null
+    final loc = i.areaName != null && i.areaName!.isNotEmpty
         ? '${i.areaName} (${i.latitude.toStringAsFixed(5)}, ${i.longitude.toStringAsFixed(5)})'
         : '${i.latitude.toStringAsFixed(5)}, ${i.longitude.toStringAsFixed(5)}';
-    final note =
-        _notes.text.trim().isEmpty ? '' : '\n\n*Coordinator note:* ${_notes.text.trim()}';
-    return '🏛️ *FixMyStreet Grievance Dispatch*\n\n'
-        '*Ticket:* ${ticketNumber(i.id)}\n'
+    final note = _notes.text.trim().isEmpty
+        ? ''
+        : '\n\n*Coordinator note:* ${_notes.text.trim()}';
+    return '🏛️ *நம் குரல் · Grievance Dispatch*\n\n'
+        '*Ticket:* ${i.ticketNo ?? ticketNumber(i.id)}\n'
         '*Ward No:* ${i.wardNo ?? '—'}\n'
         '*Issue:* ${i.title}\n'
         '*Details:* ${i.transcript ?? (highlights.isEmpty ? '—' : highlights)}\n'
         '*Location:* $loc\n'
         '*Reported:* ${i.createdAt != null ? formatShortDate(i.createdAt!) : '—'}\n'
-        '*SLA Deadline:* $deadline$note\n\n'
-        'Kindly action this grievance before the SLA deadline.';
+        '*Routed to:* $_department\n'
+        '*Responsible officer:* ${r?.officer ?? _officer}${r?.subDept != null ? " · ${r!.subDept}" : ""}$note\n\n'
+        'Kindly action this grievance at the earliest.';
   }
 
   Future<void> _submit() async {
     setState(() => _busy = true);
     try {
-      await widget.onSubmit(_department, _notes.text.trim());
+      await widget.onSubmit(_department, _notes.text.trim(), _officer);
       if (mounted) setState(() => _dispatchStage = true);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
+  Future<void> _openWhatsAppWeb() async {
+    HapticFeedback.mediumImpact();
+    setState(() => _dispatched = true);
+    final url = Uri.parse(
+      'https://web.whatsapp.com/send?text=${Uri.encodeComponent(_waMessage)}',
+    );
+    try {
+      await launchUrl(url, mode: LaunchMode.externalApplication);
+    } catch (_) {
+      /* best-effort — the toast + dispatched state still show */
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final meta = departmentMeta(_department);
-    final overridden = _department != _aiSuggested;
-
+    final overridden = _department.isNotEmpty && _department != _originalDept;
+    final r = _routing;
     return _SheetShell(
       icon: Icons.send_outlined,
       title: 'Department Transfer',
       subtitle: _dispatchStage
-          ? 'WhatsApp dispatch to the department'
-          : 'AI-detected route — change if needed',
+          ? 'Sending via WhatsApp Web…'
+          : 'AI routing → Responsible Officer',
       children: [
         _IssuePreview(issue: widget.issue),
-        if (!_dispatchStage) ...[
-          // AI suggestion banner
+        if (_loadError != null)
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: NkColors.rose50,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Text(_loadError!,
+                style: const TextStyle(fontSize: 12, color: NkColors.rose600)),
+          )
+        else if (_tree == null)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 24),
+            child: Center(
+              child: SizedBox(
+                height: 22,
+                width: 22,
+                child: CircularProgressIndicator(
+                    strokeWidth: 2.4, color: NkColors.brand),
+              ),
+            ),
+          )
+        else if (!_dispatchStage) ...[
+          // AI ROUTING → RESPONSIBLE OFFICER panel (port of the /admin/routing UI)
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
@@ -521,31 +611,54 @@ class _TransferSheetState extends State<TransferSheet> {
                   children: [
                     Icon(Icons.auto_awesome, size: 11, color: NkColors.brand),
                     SizedBox(width: 6),
-                    Text(
-                      'AI ROUTED TO',
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.8,
-                        color: NkColors.brand,
-                      ),
-                    ),
+                    Text('AI ROUTING → RESPONSIBLE OFFICER',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.8,
+                          color: NkColors.brand,
+                        )),
                   ],
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  _aiSuggested,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                    color: NkColors.slate800,
+                const SizedBox(height: 6),
+                Text(_originalDept,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: NkColors.slate800,
+                    )),
+                if (r != null) ...[
+                  const SizedBox(height: 4),
+                  Text('${r.type} → ${r.subtype}',
+                      style: const TextStyle(
+                          fontSize: 11, color: NkColors.slate600)),
+                  Text('Sub-department: ${r.subDept}',
+                      style: const TextStyle(
+                          fontSize: 11, color: NkColors.slate600)),
+                  const SizedBox(height: 4),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.person,
+                            size: 11, color: NkColors.brand),
+                        const SizedBox(width: 4),
+                        Text(r.officer,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: NkColors.slate900,
+                            )),
+                      ],
+                    ),
                   ),
-                ),
-                Text(
-                  'SLA · ${departmentMeta(_aiSuggested).slaDays} days',
-                  style: const TextStyle(
-                      fontSize: 10, color: NkColors.slate500),
-                ),
+                ],
               ],
             ),
           ),
@@ -554,20 +667,16 @@ class _TransferSheetState extends State<TransferSheet> {
             children: [
               const Icon(Icons.business, size: 13, color: NkColors.slate600),
               const SizedBox(width: 6),
-              const Text(
-                'Route to department',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: NkColors.slate600,
-                ),
-              ),
+              const Text('Route to Government Department',
+                  style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: NkColors.slate600)),
               if (overridden) ...[
                 const SizedBox(width: 6),
-                const Text(
-                  '· overridden',
-                  style: TextStyle(fontSize: 10, color: NkColors.amber600),
-                ),
+                const Text('· overridden',
+                    style:
+                        TextStyle(fontSize: 10, color: NkColors.amber600)),
               ],
             ],
           ),
@@ -585,28 +694,20 @@ class _TransferSheetState extends State<TransferSheet> {
                 isExpanded: true,
                 borderRadius: BorderRadius.circular(14),
                 style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: NkColors.slate800,
-                ),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: NkColors.slate800),
                 items: [
-                  for (final d in kDepartments.keys)
+                  for (final d in govDepartments(_tree!))
                     DropdownMenuItem(
                       value: d,
-                      child: Text('${departmentMeta(d).short} · $d',
-                          overflow: TextOverflow.ellipsis),
+                      child: Text(d,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 12)),
                     ),
                 ],
-                onChanged: (v) =>
-                    setState(() => _department = v ?? _department),
+                onChanged: (v) => setState(() => _department = v ?? _department),
               ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.only(top: 4),
-            child: Text(
-              'SLA · ${meta.slaDays} days · ${meta.phone}',
-              style: const TextStyle(fontSize: 10, color: NkColors.slate500),
             ),
           ),
           const SizedBox(height: 14),
@@ -640,15 +741,15 @@ class _TransferSheetState extends State<TransferSheet> {
                   onTap: _submit,
                 ),
         ] else ...[
-          // ── WhatsApp dispatch preview ──
+          // ── WhatsApp Web dispatch preview ──
           ClipRRect(
             borderRadius: BorderRadius.circular(16),
             child: Column(
               children: [
                 Container(
                   color: const Color(0xFF075E54),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 12, vertical: 8),
                   child: Row(
                     children: [
                       Container(
@@ -659,33 +760,32 @@ class _TransferSheetState extends State<TransferSheet> {
                           color: Color(0xFF25D366),
                           shape: BoxShape.circle,
                         ),
-                        child: const Text(
-                          'W',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            '${meta.short} Dept.',
-                            style: const TextStyle(
-                              fontSize: 12,
+                        child: const Text('W',
+                            style: TextStyle(
+                              fontSize: 14,
                               fontWeight: FontWeight.w700,
                               color: Colors.white,
-                            ),
-                          ),
-                          Text(
-                            meta.phone,
-                            style: const TextStyle(
-                                fontSize: 10, color: NkColors.emerald100),
-                          ),
-                        ],
+                            )),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(_department,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.white,
+                                )),
+                            Text('via WhatsApp Web',
+                                style: TextStyle(
+                                    fontSize: 10,
+                                    color: NkColors.emerald100.withValues(alpha: 0.9))),
+                          ],
+                        ),
                       ),
                     ],
                   ),
@@ -699,8 +799,7 @@ class _TransferSheetState extends State<TransferSheet> {
                         alignment: Alignment.centerRight,
                         child: Container(
                           constraints: BoxConstraints(
-                              maxWidth:
-                                  MediaQuery.of(context).size.width * 0.72),
+                              maxWidth: MediaQuery.of(context).size.width * 0.72),
                           padding: const EdgeInsets.all(10),
                           decoration: const BoxDecoration(
                             color: Color(0xFFDCF8C6),
@@ -710,21 +809,19 @@ class _TransferSheetState extends State<TransferSheet> {
                               bottomRight: Radius.circular(12),
                             ),
                           ),
-                          child: Text(
-                            _waMessage,
-                            style: const TextStyle(
-                              fontSize: 11,
-                              height: 1.4,
-                              color: NkColors.slate800,
-                            ),
-                          ),
+                          child: Text(_waMessage,
+                              style: const TextStyle(
+                                fontSize: 11,
+                                height: 1.4,
+                                color: NkColors.slate800,
+                              )),
                         ),
                       ),
                       if (_dispatched)
                         const Padding(
                           padding: EdgeInsets.only(top: 8),
                           child: Text(
-                            '✓ Message queued for the department (demo)',
+                            '✓ Opened in WhatsApp Web — send from the browser',
                             style: TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.w500,
@@ -737,8 +834,8 @@ class _TransferSheetState extends State<TransferSheet> {
                 ),
                 Container(
                   color: Colors.white,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 12, vertical: 8),
                   child: Row(
                     children: [
                       Expanded(
@@ -760,12 +857,7 @@ class _TransferSheetState extends State<TransferSheet> {
                       ),
                       const SizedBox(width: 8),
                       GestureDetector(
-                        onTap: _dispatched
-                            ? null
-                            : () {
-                                HapticFeedback.mediumImpact();
-                                setState(() => _dispatched = true);
-                              },
+                        onTap: _dispatched ? null : _openWhatsAppWeb,
                         child: Container(
                           height: 36,
                           width: 36,
@@ -793,7 +885,10 @@ class _TransferSheetState extends State<TransferSheet> {
             children: [
               Expanded(
                 child: GestureDetector(
-                  onTap: () => setState(() => _dispatchStage = false),
+                  onTap: () => setState(() {
+                    _dispatchStage = false;
+                    _dispatched = false;
+                  }),
                   child: Container(
                     height: 42,
                     alignment: Alignment.center,
@@ -802,14 +897,11 @@ class _TransferSheetState extends State<TransferSheet> {
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(color: NkColors.slate300),
                     ),
-                    child: const Text(
-                      'Edit dispatch',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: NkColors.slate700,
-                      ),
-                    ),
+                    child: const Text('Edit dispatch',
+                        style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: NkColors.slate700)),
                   ),
                 ),
               ),
@@ -824,14 +916,11 @@ class _TransferSheetState extends State<TransferSheet> {
                       color: NkColors.brand,
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: const Text(
-                      'Done',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white,
-                      ),
-                    ),
+                    child: const Text('Done',
+                        style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white)),
                   ),
                 ),
               ),

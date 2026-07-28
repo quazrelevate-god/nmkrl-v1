@@ -12,16 +12,36 @@ import { useEffect, useMemo, useState } from "react";
 import {
   ClipboardCheck, ShieldCheck, ImageIcon, Volume2, MapPin, Phone,
   ThumbsUp, Search, X, Landmark, ArrowRightLeft, CheckCircle2, Ban, Send,
-  Sparkles, User, MessageSquare, Camera, Mic, Clock,
+  Sparkles, MessageSquare,
 } from "lucide-react";
 import { useAdminData } from "@/components/admin/AdminDataProvider";
 import TicketDrawer from "@/components/admin/TicketDrawer";
 import { adminVerifyGrievance } from "@/lib/api";
 import { citizenName, initials, tokenNo, daysOpen } from "@/lib/adminModel";
 import { constituenciesForWard, shortAC } from "@/lib/constituencies";
-import { COORDINATORS } from "@/lib/coordinators";
-import { loadCoordinatorActions, ACTION_KINDS } from "@/lib/coordinatorActions";
+import { listCoordinatorsRemote } from "@/lib/coordinators";
+import { ACTION_KINDS } from "@/lib/coordinatorActions";
 import { departmentMeta } from "@/lib/departments";
+
+// Which real backend status(es) back each coordinator-action tab. The action
+// tabs used to read a coordinator-app localStorage bag; they now derive from the
+// grievance's live status + coordinator_message, so mobile-coordinator actions
+// show up too (the localStorage bag was web-coordinator only).
+function matchesActionTab(issue, tab) {
+  switch (tab) {
+    case "redirect": // coordinator bounced it back to the citizen (SUBMITTED + apology msg)
+      return issue.status === "SUBMITTED" && !!issue.coordinator_message;
+    case "transfer": // routed to a department
+      return issue.status === "FORWARDED";
+    case "close":    // coordinator marked resolved (awaiting citizen verify, or verified)
+      return (issue.status === "PENDING_VERIFICATION" || issue.status === "CLOSED")
+        && !!issue.assigned_coordinator;
+    case "false":    // marked a false petition
+      return issue.status === "FALSE";
+    default:
+      return false;
+  }
+}
 
 const AVATAR_TINTS = ["bg-blue-100 text-blue-700", "bg-emerald-100 text-emerald-700",
   "bg-violet-100 text-violet-700", "bg-amber-100 text-amber-700", "bg-rose-100 text-rose-700"];
@@ -39,23 +59,23 @@ const TABS = [
 ];
 
 export default function PetitionReviewPage() {
-  const { pending, loading, reload } = useAdminData();
+  const { pending, issues, loading, reload } = useAdminData();
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(null);
   const [busyId, setBusyId] = useState(null);
   const [tab, setTab] = useState("pending");
-  const [coordActions, setCoordActions] = useState([]);
+  const [coordMap, setCoordMap] = useState({});
 
-  // Load coordinator actions from localStorage (writable by CoordinatorProvider
-  // in a separate app; polled here so newly-submitted actions surface without
-  // requiring a hard reload).
+  // Resolve coordinator usernames → their profile (name/role/constituency) so
+  // action rows can name who actioned each grievance. Backend-backed directory.
   useEffect(() => {
-    const load = () => setCoordActions(loadCoordinatorActions());
-    load();
-    const t = setInterval(load, 2500);
-    const onStorage = () => load();
-    window.addEventListener("storage", onStorage);
-    return () => { clearInterval(t); window.removeEventListener("storage", onStorage); };
+    let alive = true;
+    listCoordinatorsRemote()
+      .then((list) => {
+        if (alive) setCoordMap(Object.fromEntries(list.map((c) => [c.username, c])));
+      })
+      .catch(() => {});
+    return () => { alive = false; };
   }, []);
 
   const rows = useMemo(() => {
@@ -66,15 +86,24 @@ export default function PetitionReviewPage() {
   }, [pending, query]);
 
   const actionRows = useMemo(() => {
-    const kindMap = { redirect: "redirect", transfer: "transfer", close: "close", false: "false" };
-    return coordActions.filter((a) => a.kind === kindMap[tab]);
-  }, [coordActions, tab]);
+    if (tab === "pending") return [];
+    const q = query.trim().toLowerCase();
+    return (issues || [])
+      .filter((i) => matchesActionTab(i, tab))
+      .filter((i) => !q || [citizenName(i), i.phone, i.title, tokenNo(i), i.assigned_coordinator]
+        .some((v) => (v || "").toString().toLowerCase().includes(q)))
+      .sort((a, b) => (b.escalated_at || b.created_at || "").localeCompare(a.escalated_at || a.created_at || ""));
+  }, [issues, tab, query]);
 
   const counts = useMemo(() => {
     const c = { pending: pending.length, redirect: 0, transfer: 0, close: 0, false: 0 };
-    for (const a of coordActions) { if (c[a.kind] != null) c[a.kind]++; }
+    for (const i of issues || []) {
+      for (const k of ["redirect", "transfer", "close", "false"]) {
+        if (matchesActionTab(i, k)) c[k]++;
+      }
+    }
     return c;
-  }, [pending.length, coordActions]);
+  }, [pending.length, issues]);
 
   async function verify(id, e) {
     e?.stopPropagation();
@@ -122,7 +151,7 @@ export default function PetitionReviewPage() {
 
         <div className="min-h-0 flex-1 overflow-y-auto">
           {tab !== "pending" ? (
-            <ActionsList kind={tab} actions={actionRows} />
+            <ActionsList kind={tab} issues={actionRows} coordMap={coordMap} />
           ) : loading ? (
             <p className="py-16 text-center text-slate-400">Loading…</p>
           ) : rows.length === 0 ? (
@@ -200,54 +229,57 @@ function Chip({ icon: Icon, children }) {
   );
 }
 
-/* ── Coordinator-actioned petitions list ── */
-function ActionsList({ kind, actions }) {
-  const coordinatorMap = Object.fromEntries(COORDINATORS.map((c) => [c.username, c]));
+/* ── Coordinator-actioned petitions list (derived from live grievance status) ── */
+function ActionsList({ kind, issues, coordMap }) {
   const meta = ACTION_KINDS[kind];
 
-  if (!actions.length) {
+  if (!issues.length) {
     return (
       <div className="py-24 text-center text-slate-400">
         <ClipboardCheck size={40} className="mx-auto mb-3 text-slate-300" />
         <p className="font-semibold">No petitions in the {meta?.label || "this"} bucket yet.</p>
-        <p className="text-xs">Coordinator actions surface here once they submit them.</p>
+        <p className="text-xs">Grievances appear here as coordinators action them in the app.</p>
       </div>
     );
   }
 
   return (
     <div className="space-y-3">
-      {actions.map((a) => {
-        const coord = coordinatorMap[a.coordinator];
+      {issues.map((issue) => {
+        const uname = issue.assigned_coordinator;
+        const coord = uname ? coordMap[uname] : null;
+        const when = issue.escalated_at || issue.rejected_at || issue.created_at;
         return (
-          <article key={a.id} className="glass-panel rounded-2xl p-4">
+          <article key={issue.id} className="glass-panel rounded-2xl p-4">
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div>
-                <p className="text-sm font-bold text-slate-800">{a.issueTitle || "Grievance"}</p>
-                <p className="mt-0.5 flex items-center gap-2 text-[11px] text-slate-500">
-                  {a.wardNo != null && <span className="rounded bg-slate-100 px-1.5 py-0.5 font-semibold">Ward {a.wardNo}</span>}
-                  {a.department && <span className="rounded bg-slate-100 px-1.5 py-0.5 font-semibold">{departmentMeta(a.department).short}</span>}
-                  <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono">#{(a.issueId || "").slice(0, 8)}</span>
+                <p className="text-sm font-bold text-slate-800">{issue.title || "Grievance"}</p>
+                <p className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+                  {issue.ward_no != null && <span className="rounded bg-slate-100 px-1.5 py-0.5 font-semibold">Ward {issue.ward_no}</span>}
+                  {issue.department && <span className="rounded bg-slate-100 px-1.5 py-0.5 font-semibold">{departmentMeta(issue.department).short}</span>}
+                  {issue.constituency && <span className="rounded bg-slate-100 px-1.5 py-0.5 font-semibold">{shortAC(issue.constituency)}</span>}
+                  <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono">{issue.ticket_number || `#${(issue.id || "").slice(0, 8)}`}</span>
                 </p>
               </div>
               <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ring-1 ${meta.tone}`}>{meta.label}</span>
             </div>
 
-            {/* Coordinator info */}
-            {coord && (
+            {/* Who actioned it */}
+            {uname && (
               <div className="mt-3 flex items-center gap-2 rounded-lg bg-slate-50 px-2.5 py-1.5">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={coord.avatar} alt="" className="h-6 w-6 rounded-full object-cover" />
+                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-brand/10 text-[10px] font-bold text-brand">
+                  {initials(coord?.name || uname)}
+                </span>
                 <p className="text-[11px] text-slate-500">
-                  Actioned by <span className="font-semibold text-slate-800">{coord.name}</span>
-                  <span className="text-slate-400"> · {shortAC(coord.constituency)}</span>
-                  <span className="text-slate-400"> · {new Date(a.timestamp).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</span>
+                  Actioned by <span className="font-semibold text-slate-800">{coord?.name || `@${uname}`}</span>
+                  {coord?.constituency && <span className="text-slate-400"> · {shortAC(coord.constituency)}</span>}
+                  {when && <span className="text-slate-400"> · {new Date(when).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</span>}
                 </p>
               </div>
             )}
 
-            {/* Kind-specific payload */}
-            <ActionPayload kind={kind} data={a.data || {}} />
+            {/* Kind-specific payload (from the grievance's own fields) */}
+            <ActionPayload kind={kind} issue={issue} />
           </article>
         );
       })}
@@ -255,17 +287,8 @@ function ActionsList({ kind, actions }) {
   );
 }
 
-function ActionPayload({ kind, data }) {
-  if (kind === "redirect") {
-    return (
-      <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3">
-        <p className="mb-1 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-500">
-          <MessageSquare size={11} /> Reason for redirect
-        </p>
-        <p className="text-[13px] italic leading-snug text-slate-700">"{data.description}"</p>
-      </div>
-    );
-  }
+function ActionPayload({ kind, issue }) {
+  const msg = issue.coordinator_message;
   if (kind === "transfer") {
     return (
       <div className="mt-3 space-y-2">
@@ -273,45 +296,12 @@ function ActionPayload({ kind, data }) {
           <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-brand">
             <Sparkles size={11} /> Routed to
           </p>
-          <p className="text-sm font-bold text-slate-800">{data.department}</p>
-          {data.overridden && (
-            <p className="text-[10px] text-amber-700">Coordinator overrode AI suggestion ({data.aiSuggested})</p>
-          )}
+          <p className="text-sm font-bold text-slate-800">{issue.department || "Department (unspecified)"}</p>
         </div>
-        {data.notes && (
+        {msg && (
           <div className="rounded-xl border border-slate-200 bg-white p-3">
-            <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-slate-500">Notes</p>
-            <p className="text-[13px] italic leading-snug text-slate-700">"{data.notes}"</p>
-          </div>
-        )}
-      </div>
-    );
-  }
-  if (kind === "close") {
-    return (
-      <div className="mt-3 grid grid-cols-2 gap-2">
-        {data.photoUrl && (
-          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-            <p className="flex items-center gap-1.5 px-2.5 pt-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-500">
-              <Camera size={11} /> Closure photo
-            </p>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={data.photoUrl} alt="" className="mt-1 h-28 w-full object-cover" />
-          </div>
-        )}
-        {data.audioUrl && (
-          <div className="rounded-xl border border-slate-200 bg-white p-2.5">
-            <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-500">
-              <Mic size={11} /> Voice note
-            </p>
-            <audio src={data.audioUrl} controls className="mt-1 h-8 w-full" />
-            <p className="mt-1 flex items-center gap-1 text-[10px] text-slate-400"><Clock size={10} /> {data.audioSeconds}s</p>
-          </div>
-        )}
-        {data.notes && (
-          <div className="col-span-2 rounded-xl border border-slate-200 bg-white p-3">
-            <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-slate-500">Notes</p>
-            <p className="text-[13px] italic leading-snug text-slate-700">"{data.notes}"</p>
+            <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-slate-500">Coordinator note</p>
+            <p className="text-[13px] italic leading-snug text-slate-700">"{msg}"</p>
           </div>
         )}
       </div>
@@ -321,12 +311,21 @@ function ActionPayload({ kind, data }) {
     return (
       <div className="mt-3 rounded-xl border border-rose-100 bg-rose-50/50 p-3">
         <p className="mb-1 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-rose-600">
-          <Ban size={11} /> Marked false — reason
+          <Ban size={11} /> Marked false
         </p>
-        <p className="text-sm font-semibold text-slate-800">{data.reason}</p>
-        {data.details && <p className="mt-1 text-[13px] italic leading-snug text-slate-700">"{data.details}"</p>}
+        <p className="text-[13px] italic leading-snug text-slate-700">{msg ? `"${msg}"` : "No reason recorded."}</p>
       </div>
     );
   }
-  return null;
+  // redirect + close: surface the coordinator's citizen-facing message.
+  if (!msg) return null;
+  const isRedirect = kind === "redirect";
+  return (
+    <div className={`mt-3 rounded-xl border p-3 ${isRedirect ? "border-slate-200 bg-white" : "border-emerald-100 bg-emerald-50/50"}`}>
+      <p className={`mb-1 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide ${isRedirect ? "text-slate-500" : "text-emerald-600"}`}>
+        {isRedirect ? <MessageSquare size={11} /> : <CheckCircle2 size={11} />} {isRedirect ? "Redirect message" : "Resolution note"}
+      </p>
+      <p className="text-[13px] italic leading-snug text-slate-700">"{msg}"</p>
+    </div>
+  );
 }

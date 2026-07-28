@@ -9,17 +9,37 @@ import 'package:namma_kural/state/providers.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Fake backend for the phase-1 login protocol: one registered account
-/// (9876543210 → "Chinmay Sai"); any other phone auto-registers.
+/// (9876543210 → "Chinmay Sai"); any other phone auto-registers. Requires a
+/// requested OTP ('111111' in dummy mode) before login succeeds.
 class _FakeApi implements ApiClient {
   final Map<String, String> registered = {'9876543210': 'Chinmay Sai'};
+  final Set<String> otpRequested = {};
   int loginCalls = 0;
+  int otpCalls = 0;
+
+  static String _clean(String phone) {
+    final digits = phone.replaceAll(RegExp(r'\D'), '');
+    return digits.length >= 10 ? digits.substring(digits.length - 10) : digits;
+  }
 
   @override
-  Future<CitizenUser> citizenLogin(
-      {required String name, required String phone}) async {
+  Future<String?> requestCitizenOtp(String phone) async {
+    otpCalls++;
+    otpRequested.add(_clean(phone));
+    return '111111'; // dummy-mode dev OTP
+  }
+
+  @override
+  Future<CitizenUser> citizenLogin({
+    required String name,
+    required String phone,
+    required String otp,
+  }) async {
     loginCalls++;
-    final digits = phone.replaceAll(RegExp(r'\D'), '');
-    final clean = digits.length >= 10 ? digits.substring(digits.length - 10) : digits;
+    final clean = _clean(phone);
+    if (!otpRequested.contains(clean) || otp != '111111') {
+      throw const ApiException('Incorrect OTP.');
+    }
     final existing = registered[clean];
     if (existing != null) {
       if (existing.toLowerCase() != name.trim().toLowerCase()) {
@@ -102,9 +122,9 @@ void main() {
     await tester.pumpWidget(app);
 
     await fillAndSendOtp(tester, name: 'Meena Devi', phone: '9000011111');
-    expect(find.textContaining('demo code 246813'), findsOneWidget);
+    expect(find.textContaining('demo code 111111'), findsOneWidget);
 
-    await tester.enterText(find.widgetWithText(TextField, '••••••'), '246813');
+    await tester.enterText(find.widgetWithText(TextField, '••••••'), '111111');
     await tester.pump();
     await tester.tap(find.text('Login'));
     await tester.pumpAndSettle();
@@ -124,7 +144,7 @@ void main() {
     await tester.pumpWidget(app);
 
     await fillAndSendOtp(tester, name: 'chinmay sai', phone: '98765 43210');
-    await tester.enterText(find.widgetWithText(TextField, '••••••'), '246813');
+    await tester.enterText(find.widgetWithText(TextField, '••••••'), '111111');
     await tester.pump();
     await tester.tap(find.text('Login'));
     await tester.pumpAndSettle();
@@ -144,7 +164,7 @@ void main() {
     await tester.pumpWidget(app);
 
     await fillAndSendOtp(tester, name: 'Someone Else', phone: '9876543210');
-    await tester.enterText(find.widgetWithText(TextField, '••••••'), '246813');
+    await tester.enterText(find.widgetWithText(TextField, '••••••'), '111111');
     await tester.pump();
     await tester.tap(find.text('Login'));
     await tester.pumpAndSettle();
@@ -157,18 +177,20 @@ void main() {
     container.dispose();
   });
 
-  testWidgets('wrong OTP never reaches the backend', (tester) async {
+  testWidgets('wrong OTP is rejected server-side', (tester) async {
     final (app, container, api) = await harness();
     await tester.pumpWidget(app);
 
     await fillAndSendOtp(tester, name: 'Meena Devi', phone: '9000011111');
-    await tester.enterText(find.widgetWithText(TextField, '••••••'), '111111');
+    await tester.enterText(find.widgetWithText(TextField, '••••••'), '000000');
     await tester.pump();
     await tester.tap(find.text('Login'));
-    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pumpAndSettle();
 
-    expect(api.loginCalls, 0);
+    // The OTP is verified by the backend (login is called and throws).
+    expect(api.loginCalls, 1);
     expect(container.read(authProvider), isFalse);
+    expect(find.text('HOME STUB'), findsNothing);
     expect(find.textContaining('Incorrect OTP'), findsOneWidget);
 
     container.dispose();

@@ -3,17 +3,23 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/theme.dart';
+import '../../../core/i18n.dart';
 import '../../../domain/profile_data.dart';
 import '../../../state/providers.dart';
 import '../../profile/profile_screen.dart';
+import '../../shared/notification_bell.dart';
 import '../../shared/wave_mark.dart';
 
-/// Home header — royal blue bar with white wordmark + greeting, notification
-/// bell, gold-ringed avatar. Tapping the avatar navigates to ProfileScreen.
+/// Home header — a flat, full-bleed navy bar (v2). Gold brand mark + language
+/// toggle + notification bell + avatar, with the greeting always visible below.
+/// The header is a fixed-height rectangle (no rounded corners, no expansion):
+/// tapping the avatar navigates to [ProfileScreen]. The map card below overlaps
+/// the bottom edge, and the per-account stats live in [HomeStatsRow] in the
+/// body.
 class ProfileHeader extends ConsumerWidget {
   const ProfileHeader({super.key});
 
-  static String _greeting() {
+  String get _greeting {
     final h = DateTime.now().hour;
     if (h < 12) return 'Good morning';
     if (h < 17) return 'Good afternoon';
@@ -22,41 +28,53 @@ class ProfileHeader extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final rawName = ref.watch(prefsProvider).citizenName;
-    final accountName = rawName.isNotEmpty
-        ? '${rawName[0].toUpperCase()}${rawName.substring(1)}'
-        : rawName;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
+    final accountName = ref.watch(prefsProvider).citizenName;
+    final topInset = MediaQuery.paddingOf(context).top;
+    return Container(
+      width: double.infinity,
+      // Flat full-bleed rectangle — navy runs edge to edge and up behind the
+      // status bar (topInset). The overlapping map card owns all rounding.
+      decoration: const BoxDecoration(gradient: nkNavyGradient),
+      padding: EdgeInsets.fromLTRB(16, topInset + 10, 16, 24),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
+          // Brand bar + avatar
           Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const BrandMark(color: Colors.white),
-              const Spacer(),
-              const _NotificationBell(),
-              const SizedBox(width: 12),
-              _Avatar(
-                accountName: accountName,
-                onTap: () {
-                  HapticFeedback.selectionClick();
-                  Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => const ProfileScreen(),
-                    ),
-                  );
-                },
+              const BrandMark(color: NkColors.gold300),
+              Row(
+                children: [
+                  const LangToggle(onDark: true),
+                  const SizedBox(width: 6),
+                  NotificationBell(
+                    recipientType: 'citizen',
+                    recipientId: ref.watch(userIdProvider),
+                    dark: true,
+                  ),
+                  const SizedBox(width: 4),
+                  _ProfileAvatar(
+                    initials: ProfileData.initialsOf(accountName),
+                  ),
+                ],
               ),
             ],
           ),
-          const SizedBox(height: 4),
-          Text(
-            '${_greeting()}, $accountName',
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
-              color: Colors.white.withValues(alpha: 0.85),
+
+          const SizedBox(height: 8),
+          // Persistent greeting
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              '${context.tr(_greeting)}, $accountName \u{1F44B}',
+              style: const TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.2,
+                color: Colors.white,
+              ),
+              overflow: TextOverflow.ellipsis,
             ),
           ),
         ],
@@ -65,54 +83,23 @@ class ProfileHeader extends ConsumerWidget {
   }
 }
 
-class _NotificationBell extends StatelessWidget {
-  const _NotificationBell();
+/// Gold-ringed avatar circle. Tapping navigates to [ProfileScreen].
+class _ProfileAvatar extends StatelessWidget {
+  const _ProfileAvatar({required this.initials});
 
-  @override
-  Widget build(BuildContext context) {
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        Icon(Icons.notifications_outlined,
-            size: 24, color: Colors.white.withValues(alpha: 0.9)),
-        Positioned(
-          top: -4,
-          right: -6,
-          child: Container(
-            height: 16,
-            width: 16,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: const Color(0xFFFF4D4D),
-              shape: BoxShape.circle,
-              border:
-                  Border.all(color: const Color(0xFF1A3A8F), width: 1.5),
-            ),
-            child: const Text(
-              '3',
-              style: TextStyle(
-                fontSize: 8,
-                fontWeight: FontWeight.w700,
-                color: Colors.white,
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _Avatar extends StatelessWidget {
-  const _Avatar({required this.accountName, required this.onTap});
-
-  final String accountName;
-  final VoidCallback onTap;
+  final String initials;
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: onTap,
+      onTap: () {
+        HapticFeedback.selectionClick();
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => const ProfileScreen(),
+          ),
+        );
+      },
       child: Stack(
         clipBehavior: Clip.none,
         children: [
@@ -127,16 +114,16 @@ class _Avatar extends StatelessWidget {
               width: 36,
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                color: NkColors.slate100,
+                color: NkColors.brandDark,
                 shape: BoxShape.circle,
                 border: Border.all(color: Colors.white, width: 2),
               ),
               child: Text(
-                ProfileData.initialsOf(accountName),
+                initials,
                 style: const TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w900,
-                  color: NkColors.brand,
+                  color: NkColors.gold300,
                 ),
               ),
             ),
@@ -150,7 +137,7 @@ class _Avatar extends StatelessWidget {
               decoration: BoxDecoration(
                 color: NkColors.emerald500,
                 shape: BoxShape.circle,
-                border: Border.all(color: Colors.white, width: 2),
+                border: Border.all(color: NkColors.brand, width: 2),
               ),
             ),
           ),
@@ -160,3 +147,97 @@ class _Avatar extends StatelessWidget {
   }
 }
 
+/// The four per-account counters (Reports / Upvotes / Resolved / Open) as a
+/// permanent white card row in the home body (v2). `stats` is null until the
+/// first history load, so tiles show "—".
+class HomeStatsRow extends StatelessWidget {
+  const HomeStatsRow({super.key, required this.stats});
+
+  final ({int reports, int upvotes, int resolved, int open})? stats;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        for (final (icon, value, label, fg, bg) in [
+          (
+            Icons.assignment_outlined,
+            stats == null ? '—' : '${stats!.reports}',
+            'Reports',
+            NkColors.brand,
+            NkColors.brand50
+          ),
+          (
+            Icons.thumb_up_outlined,
+            stats == null ? '—' : '${stats!.upvotes}',
+            'Upvotes',
+            NkColors.teal700,
+            NkColors.teal50
+          ),
+          (
+            Icons.check_circle_outline,
+            stats == null ? '—' : '${stats!.resolved}',
+            'Resolved',
+            NkColors.emerald700,
+            NkColors.emerald50
+          ),
+          (
+            Icons.schedule,
+            stats == null ? '—' : '${stats!.open}',
+            'Open',
+            NkColors.amber700,
+            NkColors.amber50
+          ),
+        ]) ...[
+          Expanded(
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(18),
+                border:
+                    Border.all(color: NkColors.slate200.withValues(alpha: 0.8)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.04),
+                    blurRadius: 8,
+                    offset: const Offset(0, 3),
+                  ),
+                ],
+              ),
+              child: Column(
+                children: [
+                  Container(
+                    height: 30,
+                    width: 30,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(color: bg, shape: BoxShape.circle),
+                    child: Icon(icon, size: 16, color: fg),
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    value,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w900,
+                      color: NkColors.slate900,
+                    ),
+                  ),
+                  Text(
+                    context.tr(label),
+                    style: const TextStyle(
+                      fontSize: 9.5,
+                      fontWeight: FontWeight.w600,
+                      color: NkColors.slate500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (label != 'Open') const SizedBox(width: 9),
+        ],
+      ],
+    );
+  }
+}

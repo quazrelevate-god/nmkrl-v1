@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 import 'package:http_parser/http_parser.dart';
 
 import '../core/env.dart';
+import '../domain/coordinator_data.dart';
 import '../domain/models/boundary_data.dart';
 import '../domain/models/citizen_user.dart';
 import '../domain/models/issue.dart';
@@ -71,12 +72,29 @@ class DioApiClient implements ApiClient {
           .toList();
 
   @override
-  Future<CitizenUser> citizenLogin(
-      {required String name, required String phone}) async {
+  Future<String?> requestCitizenOtp(String phone) async {
+    try {
+      final res = await _dio.post<Map<String, dynamic>>(
+        '/api/auth/request-otp',
+        data: FormData.fromMap({'phone': phone}),
+      );
+      final d = res.data ?? const {};
+      return d['dev_otp'] as String?; // non-null only in dummy mode
+    } catch (e) {
+      _friendly(e);
+    }
+  }
+
+  @override
+  Future<CitizenUser> citizenLogin({
+    required String name,
+    required String phone,
+    required String otp,
+  }) async {
     try {
       final res = await _dio.post<Map<String, dynamic>>(
         '/api/auth/login',
-        data: FormData.fromMap({'name': name, 'phone': phone}),
+        data: FormData.fromMap({'name': name, 'phone': phone, 'otp': otp}),
       );
       return CitizenUser.fromJson(res.data!);
     } catch (e) {
@@ -119,6 +137,20 @@ class DioApiClient implements ApiClient {
   @override
   Future<List<Issue>> fetchHistory(String userId) =>
       _get('/api/issues/history/$userId', parse: _issueList);
+
+  @override
+  Future<({int reports, int upvotes, int resolved, int open})> fetchUserStats(
+          String userId) =>
+      _get('/api/issues/stats/$userId', parse: (d) {
+        final m = d as Map<String, dynamic>;
+        int n(String k) => (m[k] as num?)?.toInt() ?? 0;
+        return (
+          reports: n('reports'),
+          upvotes: n('upvotes'),
+          resolved: n('resolved'),
+          open: n('open'),
+        );
+      });
 
   @override
   Future<ReportOutcome> reportIssue({
@@ -209,8 +241,28 @@ class DioApiClient implements ApiClient {
   }
 
   @override
-  Future<List<Issue>> fetchCoordinatorWardIssues(int wardNo) =>
-      _get('/api/coordinator/ward/$wardNo', parse: _issueList);
+  Future<Coordinator> coordinatorLogin(
+      {required String username, required String password}) async {
+    try {
+      final res = await _dio.post<Map<String, dynamic>>(
+        '/api/auth/coordinator/login',
+        data: FormData.fromMap({'username': username, 'password': password}),
+      );
+      return Coordinator.fromJson(res.data!);
+    } catch (e) {
+      _friendly(e);
+    }
+  }
+
+  @override
+  Future<List<Issue>> fetchCoordinatorWardIssues(int wardNo,
+          {required String coordinator, String sort = 'recent'}) =>
+      _get('/api/coordinator/ward/$wardNo?coordinator=$coordinator&sort=$sort',
+          parse: _issueList);
+
+  @override
+  Future<List<Issue>> fetchCoordinatorMine(String coordinator) =>
+      _get('/api/coordinator/mine/$coordinator', parse: _issueList);
 
   Future<Issue> _coordPost(String path, [Map<String, dynamic>? fields]) async {
     try {
@@ -225,16 +277,24 @@ class DioApiClient implements ApiClient {
   }
 
   @override
-  Future<Issue> coordinatorVerify(String issueId) =>
-      _coordPost('/api/coordinator/issues/$issueId/verify');
+  Future<Issue> coordinatorVerify(String issueId, String coordinator) =>
+      _coordPost('/api/coordinator/issues/$issueId/verify',
+          {'coordinator': coordinator});
 
   @override
   Future<Issue> coordinatorTransfer(String issueId, String department,
-          {String notes = ''}) =>
+          {String notes = '', String officer = ''}) =>
       _coordPost('/api/coordinator/issues/$issueId/transfer', {
         'department': department,
         if (notes.isNotEmpty) 'notes': notes,
+        if (officer.isNotEmpty) 'officer': officer,
       });
+
+  @override
+  Future<Issue> coordinatorEscalate(String issueId,
+          {required String description}) =>
+      _coordPost('/api/coordinator/issues/$issueId/escalate',
+          {'description': description});
 
   @override
   Future<Issue> coordinatorClose(String issueId, {String notes = ''}) =>
@@ -244,11 +304,45 @@ class DioApiClient implements ApiClient {
 
   @override
   Future<Issue> coordinatorMarkFalse(String issueId, String reason,
-          {String details = ''}) =>
+          {String details = '', String coordinator = ''}) =>
       _coordPost('/api/coordinator/issues/$issueId/mark_false', {
         'reason': reason,
         if (details.isNotEmpty) 'details': details,
+        if (coordinator.isNotEmpty) 'coordinator': coordinator,
       });
+
+  @override
+  Future<Map<String, dynamic>> fetchDepartmentsTree() => _get(
+        '/api/departments/tree',
+        parse: (d) => (d as Map<String, dynamic>)['departments'] as Map<String, dynamic>,
+      );
+
+  @override
+  Future<({List<Map<String, dynamic>> items, String serverTime})>
+      fetchNotifications({
+    required String recipientType,
+    required String recipientId,
+    String since = '',
+  }) async {
+    try {
+      final res = await _dio.get<Map<String, dynamic>>(
+        '/api/notifications',
+        queryParameters: {
+          'recipient_type': recipientType,
+          'recipient_id': recipientId,
+          if (since.isNotEmpty) 'since': since,
+        },
+      );
+      final data = res.data!;
+      final raw = (data['notifications'] as List<dynamic>);
+      return (
+        items: raw.map((e) => (e as Map).cast<String, dynamic>()).toList(),
+        serverTime: '${data['server_time'] ?? ''}',
+      );
+    } catch (e) {
+      _friendly(e);
+    }
+  }
 
   @override
   Future<String> reverseGeocode(double lat, double lng) async {

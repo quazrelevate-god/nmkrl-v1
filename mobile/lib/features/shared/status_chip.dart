@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../core/i18n.dart';
 import '../../domain/status_meta.dart';
 
 /// Small rounded status badge. Statuses in the "pending" family softly pulse
@@ -65,7 +66,7 @@ class _StatusChipState extends State<StatusChip>
         border: Border.all(color: m.badgeBorder),
       ),
       child: Text(
-        m.label,
+        context.tr(m.label),
         style: TextStyle(
           fontSize: widget.fontSize,
           fontWeight: FontWeight.w600,

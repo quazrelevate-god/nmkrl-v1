@@ -18,8 +18,11 @@ import {
 import { useAdminData } from "@/components/admin/AdminDataProvider";
 import { slaBreached, daysOpen } from "@/lib/adminModel";
 import {
-  loadDeptTree, resolveRouting, deptOfficerCount, loadContacts, contactKey, deptOfficerGroups,
+  loadDeptTree, resolveGovDept, deptOfficerCount, contactKey, deptOfficerGroups,
 } from "@/lib/deptRouting";
+import { fetchOfficerContacts } from "@/lib/api";
+
+const UNROUTED = "Unrouted / no department";
 
 const RESOLVED = ["PENDING_VERIFICATION", "CLOSED"];
 const INPROG = ["IN_PROGRESS"];
@@ -32,38 +35,39 @@ export default function RoutingPage() {
 
   useEffect(() => {
     loadDeptTree().then(setTree);
-    setContacts(loadContacts());
-    const sync = () => setContacts(loadContacts());
-    window.addEventListener("nk:dept-contacts-changed", sync);
-    return () => window.removeEventListener("nk:dept-contacts-changed", sync);
+    // Officer contacts come from the backend (shared across browsers).
+    fetchOfficerContacts().then((r) => setContacts(r.contacts || {})).catch(() => setContacts({}));
   }, []);
 
   const stats = useMemo(() => {
     if (!tree || !issues?.length) return [];
     const byDept = new Map();
     for (const it of issues) {
-      const r = resolveRouting(it, tree);
-      if (!r) continue;
-      if (!byDept.has(r.govDept)) byDept.set(r.govDept, { dept: r.govDept, total: 0, open: 0, inProgress: 0, resolved: 0, breached: 0, ageSum: 0, ageN: 0, subDepts: new Map() });
-      const s = byDept.get(r.govDept);
+      // Use the grievance's REAL stored department (via the taxonomy map);
+      // ones with no/unknown department are bucketed as Unrouted, not invented.
+      const govDept = resolveGovDept(it, tree) || UNROUTED;
+      if (!byDept.has(govDept)) byDept.set(govDept, { dept: govDept, total: 0, open: 0, inProgress: 0, resolved: 0, breached: 0, ageSum: 0, ageN: 0, appDepts: new Map() });
+      const s = byDept.get(govDept);
       s.total++;
       if (RESOLVED.includes(it.status)) s.resolved++;
       else if (INPROG.includes(it.status)) s.inProgress++;
       else s.open++;
       if (slaBreached(it)) s.breached++;
       if (!RESOLVED.includes(it.status)) { s.ageSum += daysOpen(it); s.ageN++; }
-      s.subDepts.set(r.subDept, (s.subDepts.get(r.subDept) || 0) + 1);
+      if (it.department) s.appDepts.set(it.department, (s.appDepts.get(it.department) || 0) + 1);
     }
-    // enrich with coverage
+    // enrich with officer-contact coverage (Unrouted has no taxonomy → 0/0)
     const arr = [...byDept.values()].map((s) => {
-      const total = deptOfficerCount(tree, s.dept);
+      const isReal = s.dept !== UNROUTED;
+      const total = isReal ? deptOfficerCount(tree, s.dept) : 0;
       let done = 0;
-      for (const g of deptOfficerGroups(tree, s.dept))
-        for (const o of g.officers) {
-          const c = contacts[contactKey(s.dept, g.subDept, o)];
-          if (c && c.name && c.mobile) done++;
-        }
-      const topSub = [...s.subDepts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || "—";
+      if (isReal)
+        for (const g of deptOfficerGroups(tree, s.dept))
+          for (const o of g.officers) {
+            const c = contacts[contactKey(s.dept, g.subDept, o)];
+            if (c && c.name && c.mobile) done++;
+          }
+      const topSub = [...s.appDepts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || "—";
       return {
         ...s,
         rate: s.total ? Math.round((s.resolved / s.total) * 100) : 0,
@@ -146,7 +150,7 @@ function DeptCard({ s }) {
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand/10 text-brand"><Building2 size={20} /></div>
           <div className="min-w-0">
             <p className="text-sm font-extrabold leading-tight text-slate-900">{s.dept}</p>
-            <p className="text-[11px] text-slate-400">Top sub-dept · {s.topSub}</p>
+            <p className="text-[11px] text-slate-400">Top category · {s.topSub}</p>
           </div>
         </div>
         <div className="flex items-center gap-4">

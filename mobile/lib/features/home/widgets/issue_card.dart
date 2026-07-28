@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/theme.dart';
+import '../../../core/i18n.dart';
 import '../../../data/media.dart';
 import '../../../domain/geo_utils.dart';
 import '../../../domain/models/issue.dart';
@@ -254,16 +255,27 @@ class IssueCard extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          issue.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                            height: 1.25,
-                            color: NkColors.slate900,
-                          ),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                issue.title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w700,
+                                  height: 1.25,
+                                  color: NkColors.slate900,
+                                ),
+                              ),
+                            ),
+                            if (badge == null) ...[
+                              const SizedBox(width: 8),
+                              _PriorityChip(upvotes: issue.upvotes),
+                            ],
+                          ],
                         ),
                         const SizedBox(height: 3),
                         Wrap(
@@ -311,8 +323,13 @@ class IssueCard extends StatelessWidget {
                                   ),
                                 ],
                               ),
-                            StatusChip(status: issue.status),
-                            if (badge != null) badge!,
+                            // Exactly ONE status pill: the coordinator badge
+                            // (richer label) when provided, else the default
+                            // status chip. Never both.
+                            if (badge != null)
+                              badge!
+                            else
+                              StatusChip(status: issue.status),
                           ],
                         ),
                       ],
@@ -418,7 +435,8 @@ class IssueCard extends StatelessWidget {
                                                 color: Color(0xFF2C3E50)),
                                             const SizedBox(width: 3),
                                             Text(
-                                              ticketNumber(issue.id),
+                                              issue.ticketNo ??
+                                                  ticketNumber(issue.id),
                                               style: const TextStyle(
                                                 fontSize: 10,
                                                 fontWeight: FontWeight.w600,
@@ -479,13 +497,13 @@ class IssueCard extends StatelessWidget {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const Row(
+                                Row(
                                   children: [
                                     Icon(Icons.auto_awesome,
                                         size: 12, color: Color(0xFF1A2A3A)),
                                     SizedBox(width: 6),
                                     Text(
-                                      'AI SUMMARY',
+                                      context.tr('AI SUMMARY'),
                                       style: TextStyle(
                                         fontSize: 10,
                                         fontWeight: FontWeight.w700,
@@ -498,7 +516,9 @@ class IssueCard extends StatelessWidget {
                                 if (issue.transcript != null) ...[
                                   const SizedBox(height: 6),
                                   Text(
-                                    '"${issue.transcript}"',
+                                    // Tamil transcript in Tamil mode when the
+                                    // backend stored one; else the English.
+                                    '"${context.lang == AppLang.ta && (issue.transcriptTa?.isNotEmpty ?? false) ? issue.transcriptTa : issue.transcript}"',
                                     style: const TextStyle(
                                       fontSize: 12,
                                       fontStyle: FontStyle.italic,
@@ -585,7 +605,10 @@ class IssueCard extends StatelessWidget {
                           _LifecycleTracker(index: progressIndex(issue.status)),
                         ],
 
-                        if (actions == null && onUpvote != null) ...[
+                        // Support button — hidden on false petitions (#4).
+                        if (actions == null &&
+                            onUpvote != null &&
+                            issue.status != 'FALSE') ...[
                           const SizedBox(height: 12),
                           GestureDetector(
                             onTap: () => onUpvote!(issue),
@@ -595,14 +618,14 @@ class IssueCard extends StatelessWidget {
                                 color: NkColors.brand,
                                 borderRadius: BorderRadius.circular(12),
                               ),
-                              child: const Row(
+                              child: Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
                                   Icon(Icons.thumb_up_outlined,
                                       size: 13, color: Colors.white),
                                   SizedBox(width: 6),
                                   Text(
-                                    'Support this grievance',
+                                    context.tr('Support this grievance'),
                                     style: TextStyle(
                                       fontSize: 12,
                                       fontWeight: FontWeight.w700,
@@ -619,6 +642,41 @@ class IssueCard extends StatelessWidget {
                   ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Small priority pill shown top-right of a collapsed card. Derived from
+/// community support (upvotes), mirroring how the admin console ranks urgency —
+/// High (rose) / Medium (amber) / Low (emerald).
+class _PriorityChip extends StatelessWidget {
+  const _PriorityChip({required this.upvotes});
+
+  final int upvotes;
+
+  @override
+  Widget build(BuildContext context) {
+    final (label, fg, bg, border) = upvotes >= 8
+        ? ('High Priority', NkColors.rose700, NkColors.rose50, NkColors.rose200)
+        : upvotes >= 3
+            ? ('Medium', NkColors.amber700, NkColors.amber50, NkColors.amber200)
+            : ('Low', NkColors.emerald700, NkColors.emerald50,
+                NkColors.emerald100);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: border),
+      ),
+      child: Text(
+        context.tr(label),
+        style: TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.w800,
+          color: fg,
+        ),
       ),
     );
   }

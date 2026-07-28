@@ -1,96 +1,100 @@
 import 'models/issue.dart';
 
-/// Port of lib/coordinators.js — the 4 seeded Egmore constituency
-/// coordinators (illustrative PoC auth; plain-text by design for the demo).
+/// The authenticated constituency-staff account, as returned by
+/// POST /api/auth/coordinator/login. Fields come from the admin-created
+/// record in the backend `coordinators` table — there are no hardcoded
+/// demo accounts on the mobile side anymore.
 class Coordinator {
   const Coordinator({
+    required this.id,
     required this.username,
-    required this.password,
     required this.name,
-    required this.initials,
     required this.role,
     required this.constituency,
     required this.homeWard,
-    required this.civicScore,
-    required this.reports,
-    required this.resolved,
-    required this.upvotes,
-    required this.tenure,
+    this.mustChangePassword = false,
   });
 
+  final String id;
   final String username;
-  final String password;
   final String name;
-  final String initials;
   final String role;
+
+  /// Fixed on sign-in — the coordinator can switch wards WITHIN this AC but
+  /// not change the AC itself.
   final String constituency;
+
+  /// The default ward the app opens on. The dropdown may switch to other
+  /// wards inside [constituency] once loaded.
   final String homeWard;
-  final int civicScore;
-  final int reports;
-  final int resolved;
-  final int upvotes;
-  final String tenure;
-}
 
-const kCoordinators = [
-  Coordinator(
-    username: 'raja', password: 'raja123',
-    name: 'V. Ramkumar Raja', initials: 'VR', role: 'Constituency Lead',
-    constituency: '16 - Egmore', homeWard: '58',
-    civicScore: 1560, reports: 112, resolved: 88, upvotes: 214, tenure: '4y 8m'),
-  Coordinator(
-    username: 'suresh', password: 'suresh123',
-    name: 'Suresh Balan', initials: 'SB', role: 'Constituency PA',
-    constituency: '16 - Egmore', homeWard: '77',
-    civicScore: 1180, reports: 92, resolved: 71, upvotes: 168, tenure: '2y 6m'),
-  Coordinator(
-    username: 'karthik', password: 'karthik123',
-    name: 'Karthik Sundaram', initials: 'KS', role: 'Ward Coordinator',
-    constituency: '16 - Egmore', homeWard: '78',
-    civicScore: 1240, reports: 87, resolved: 62, upvotes: 156, tenure: '3y 4m'),
-  Coordinator(
-    username: 'meena', password: 'meena123',
-    name: 'Meena Lakshmi', initials: 'ML', role: 'Ward Coordinator',
-    constituency: '16 - Egmore', homeWard: '104',
-    civicScore: 1310, reports: 96, resolved: 79, upvotes: 190, tenure: '3y 1m'),
-];
+  final bool mustChangePassword;
 
-Coordinator? authenticateCoordinator(String username, String password) {
-  for (final c in kCoordinators) {
-    if (c.username == username.trim().toLowerCase() && c.password == password) {
-      return c;
-    }
+  String get initials {
+    final parts = name.trim().split(RegExp(r'\s+')).where((w) => w.isNotEmpty);
+    if (parts.isEmpty) return '?';
+    return parts.map((w) => w[0]).take(2).join().toUpperCase();
   }
-  return null;
+
+  factory Coordinator.fromJson(Map<String, dynamic> json) => Coordinator(
+        id: '${json['id']}',
+        username: '${json['username']}',
+        name: '${json['name']}',
+        role: '${json['role'] ?? ''}',
+        constituency: '${json['constituency'] ?? ''}',
+        homeWard: '${json['home_ward'] ?? json['homeWard'] ?? ''}',
+        mustChangePassword:
+            json['must_change_password'] == true || json['mustChangePassword'] == true,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'username': username,
+        'name': name,
+        'role': role,
+        'constituency': constituency,
+        'home_ward': homeWard,
+        'must_change_password': mustChangePassword,
+      };
 }
 
-Coordinator? coordinatorByUsername(String? username) {
-  for (final c in kCoordinators) {
-    if (c.username == username) return c;
-  }
-  return null;
-}
+/// The four tabs a coordinator navigates. Escalated is a first-class tab
+/// (backed by `escalated_at` on the issue). Terminal statuses (CLOSED /
+/// FALSE) go to Previous.
+enum CoordinatorTab { ward, mine, escalated, previous }
 
-/// The three coordinator tabs, partitioned exactly like the web page's
-/// useMemos:
-///   ward     = grievances I haven't taken ownership of yet
-///   mine     = verified by me and still active (actions keep them here)
-///   previous = terminal: CLOSED by citizen approval OR FALSE
-({List<Issue> ward, List<Issue> mine, List<Issue> previous}) partitionWardIssues(
-  List<Issue> issues,
-  Set<String> verifiedIds,
-) {
+/// Partition ward issues by tab, taking backend-persisted state as the
+/// source of truth:
+///   ward:      unassigned open grievances (any coord may verify)
+///   mine:      assigned to me AND not-escalated AND not-terminal
+///   escalated: assigned to me AND escalated_at is non-null AND not-terminal
+///   previous:  assigned to me AND terminal (CLOSED or FALSE)
+///
+/// Grievances assigned to OTHER coordinators are not returned by the backend
+/// for this coordinator, so they never show up in any tab.
+({List<Issue> ward, List<Issue> mine, List<Issue> escalated, List<Issue> previous})
+    partitionForCoordinator(List<Issue> issues, String myUsername) {
+  final me = myUsername.toLowerCase();
   final ward = <Issue>[];
   final mine = <Issue>[];
+  final escalated = <Issue>[];
   final previous = <Issue>[];
   for (final i in issues) {
-    if (!verifiedIds.contains(i.id)) {
-      ward.add(i);
-    } else if (i.status == 'CLOSED' || i.status == 'FALSE') {
-      previous.add(i);
-    } else {
-      mine.add(i);
+    final owner = (i.assignedCoordinator ?? '').toLowerCase();
+    final terminal = i.status == 'CLOSED' || i.status == 'FALSE';
+    if (owner.isEmpty) {
+      if (!terminal) ward.add(i);
+      // (terminal + unassigned is a rare seed-only edge case; drop it.)
+    } else if (owner == me) {
+      if (terminal) {
+        previous.add(i);
+      } else if (i.escalatedAt != null) {
+        escalated.add(i);
+      } else {
+        mine.add(i);
+      }
     }
+    // owner != me → hidden entirely
   }
-  return (ward: ward, mine: mine, previous: previous);
+  return (ward: ward, mine: mine, escalated: escalated, previous: previous);
 }

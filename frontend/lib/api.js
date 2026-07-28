@@ -160,15 +160,46 @@ export async function verifyIssue(issueId, userId, response) {
   return handle(res);
 }
 
-/** Admin: filterable issue queue (by status, zone, ward). */
-export async function fetchAdminIssues({ status, sort, zone, ward } = {}) {
+/** Admin: filterable issue queue (status, zone, ward, coordinator, department,
+ *  constituency, q free-text). Omitted filters return the full set. */
+export async function fetchAdminIssues({
+  status, sort, zone, ward, coordinator, department, constituency, q,
+} = {}) {
   const params = new URLSearchParams();
-  if (status) params.set("status", status);
-  if (sort)   params.set("sort", sort);
-  if (zone)   params.set("zone", zone);
+  if (status)       params.set("status", status);
+  if (sort)         params.set("sort", sort);
+  if (zone)         params.set("zone", zone);
   if (ward != null && ward !== "") params.set("ward", ward);
+  if (coordinator)  params.set("coordinator", coordinator);
+  if (department)   params.set("department", department);
+  if (constituency) params.set("constituency", constituency);
+  if (q)            params.set("q", q);
   const qs = params.toString();
   const res = await fetch(`${API_BASE}/api/admin/issues${qs ? `?${qs}` : ""}`);
+  return handle(res);
+}
+
+/** Admin: list citizen accounts with per-user report/resolved/open counters. */
+export async function fetchAdminUsers({ q } = {}) {
+  const qs = q ? `?q=${encodeURIComponent(q)}` : "";
+  const res = await fetch(`${API_BASE}/api/admin/users${qs}`);
+  return handle(res);
+}
+
+/** Admin: fetch all configured responsible-officer contacts as a
+ *  { "<Dept>||<SubDept>||<Officer>": {name, mobile} } map. */
+export async function fetchOfficerContacts() {
+  const res = await fetch(`${API_BASE}/api/admin/officers`);
+  return handle(res);
+}
+
+/** Admin: create/update one officer contact (name + mobile) by its key. */
+export async function saveOfficerContact({ key, name = "", mobile = "" }) {
+  const res = await fetch(`${API_BASE}/api/admin/officers`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ key, name, mobile }),
+  });
   return handle(res);
 }
 

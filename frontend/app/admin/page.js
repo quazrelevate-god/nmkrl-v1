@@ -274,7 +274,11 @@ function TicketRow({ issue, onOpen }) {
         <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-bold ${st.badge}`}>{st.label}</span>
       </td>
       {/* Assigned */}
-      <td className="px-3 py-3.5"><span className="text-[13px] italic text-slate-400">Unassigned</span></td>
+      <td className="px-3 py-3.5">
+        {issue.assigned_coordinator
+          ? <span className="text-[13px] font-semibold text-slate-700">@{issue.assigned_coordinator}</span>
+          : <span className="text-[13px] italic text-slate-400">Unassigned</span>}
+      </td>
       {/* Open for */}
       <td className="px-3 py-3.5 text-right">
         <p className={`text-[13px] font-bold ${breached ? "text-red-500" : "text-emerald-600"}`}>{d}d</p>

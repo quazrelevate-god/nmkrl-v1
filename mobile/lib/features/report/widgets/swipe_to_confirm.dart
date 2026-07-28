@@ -149,11 +149,22 @@ class _SwipeToConfirmState extends State<SwipeToConfirm>
         return Opacity(
           opacity: widget.disabled ? 0.5 : 1,
           child: Container(
-            height: 56,
+            height: 58,
             decoration: BoxDecoration(
-              color: NkColors.slate100,
+              gradient: widget.emerald
+                  ? const LinearGradient(
+                      colors: [NkColors.emerald500, NkColors.emerald600])
+                  : nkBrandGradient,
               borderRadius: BorderRadius.circular(_radius),
-              border: Border.all(color: NkColors.slate200),
+              boxShadow: [
+                BoxShadow(
+                  color: (widget.emerald ? NkColors.emerald600 : NkColors.brand)
+                      .withValues(alpha: 0.3),
+                  blurRadius: 16,
+                  offset: const Offset(0, 8),
+                  spreadRadius: -6,
+                ),
+              ],
             ),
             // Everything that moves is hard-clipped to the pill so the fill
             // can never poke past the rounded corners, mid-drag or settled.
@@ -165,7 +176,8 @@ class _SwipeToConfirmState extends State<SwipeToConfirm>
                   final pct = (x / _maxX).clamp(0.0, 1.0);
                   return Stack(
                     children: [
-                      // Progress fill
+                      // Progress sheen — a soft white fill tracking the knob
+                      // over the navy track (the track itself is already navy).
                       Positioned(
                         left: 0,
                         top: 0,
@@ -173,14 +185,7 @@ class _SwipeToConfirmState extends State<SwipeToConfirm>
                         child: Container(
                           width: _fillWidth(x),
                           decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: widget.emerald
-                                  ? const [
-                                      NkColors.emerald500,
-                                      NkColors.emerald600
-                                    ]
-                                  : const [NkColors.brand, NkColors.brandDark],
-                            ),
+                            color: Colors.white.withValues(alpha: 0.14),
                           ),
                         ),
                       ),
@@ -192,12 +197,10 @@ class _SwipeToConfirmState extends State<SwipeToConfirm>
                             padding: const EdgeInsets.only(left: 40),
                             child: AnimatedDefaultTextStyle(
                               duration: const Duration(milliseconds: 200),
-                              style: TextStyle(
+                              style: const TextStyle(
                                 fontSize: 14,
                                 fontWeight: FontWeight.w700,
-                                color: (pct > 0.45 || _confirmed)
-                                    ? Colors.white
-                                    : NkColors.slate500,
+                                color: Colors.white,
                               ),
                               child: Text(
                                 widget.busy
@@ -238,8 +241,8 @@ class _SwipeToConfirmState extends State<SwipeToConfirm>
                                         fontSize: 20,
                                         fontWeight: FontWeight.w800,
                                         height: 1,
-                                        color: NkColors.slate300.withValues(
-                                            alpha: 0.25 + 0.65 * wave),
+                                        color: Colors.white.withValues(
+                                            alpha: 0.3 + 0.55 * wave),
                                       ),
                                     ),
                                   );

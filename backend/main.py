@@ -27,13 +27,17 @@ from pydantic import BaseModel
 import boundaries
 from database import DB_PATH, get_connection, init_db
 from gemini_service import keyword_department
-from routers import admin, auth, coordinator, issues, servicehub
+from routers import (
+    admin, auth, coordinator, coordinators_admin, departments, issues,
+    notifications, servicehub,
+)
 from utils import (
     UPLOAD_DIR,
     ensure_upload_dirs,
     get_constituency_by_ward,
     new_id,
     now_iso,
+    ticket_number,
 )
 
 SEED_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "seed")
@@ -51,7 +55,7 @@ def _backfill_zones_and_departments() -> None:
     with get_connection() as conn:
         rows = conn.execute(
             "SELECT id, title, transcript, latitude, longitude, ward_no, "
-            "zone, department FROM issues"
+            "zone, department, ticket_number FROM issues"
         ).fetchall()
         for r in rows:
             updates, params = [], []
@@ -66,6 +70,10 @@ def _backfill_zones_and_departments() -> None:
             if not r["department"]:
                 updates.append("department = ?")
                 params.append(keyword_department(f"{r['title']} {r['transcript'] or ''}"))
+            # Backfill the stored ticket number for pre-existing rows.
+            if not r["ticket_number"]:
+                updates.append("ticket_number = ?")
+                params.append(ticket_number(r["id"]))
             if updates:
                 params.append(r["id"])
                 conn.execute(
@@ -162,6 +170,9 @@ app.include_router(auth.router)
 app.include_router(issues.router)
 app.include_router(admin.router)
 app.include_router(coordinator.router)
+app.include_router(coordinators_admin.router)
+app.include_router(departments.router)
+app.include_router(notifications.router)
 app.include_router(servicehub.router)
 
 

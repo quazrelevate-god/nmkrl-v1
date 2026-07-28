@@ -19,9 +19,22 @@ import {
   ShieldCheck, Send, PlayCircle, CheckCircle2, Clock, Landmark, Hash, Flag,
   Route, CornerDownRight, UserCheck, AlertCircle,
 } from "lucide-react";
-import { mediaUrl, adminVerifyGrievance, adminForwardIssue, adminStartIssue, adminCloseIssue } from "@/lib/api";
+import { mediaUrl, adminVerifyGrievance, adminForwardIssue, adminStartIssue, adminCloseIssue, fetchOfficerContacts } from "@/lib/api";
 import { departmentMeta } from "@/lib/departments";
-import { loadDeptTree, resolveRouting, contactForRouting } from "@/lib/deptRouting";
+import { loadDeptTree, resolveRouting } from "@/lib/deptRouting";
+
+/** Fuzzy officer-contact lookup against the backend contacts map (mirrors the
+ *  old localStorage contactForRouting: exact key, then any officer match in
+ *  the same department). */
+function pickContact(routing, contacts) {
+  if (!routing || !contacts) return null;
+  const exact = contacts[`${routing.govDept}||${routing.subDept}||${routing.officer}`];
+  if (exact) return exact;
+  const prefix = `${routing.govDept}||`;
+  const suffix = `||${routing.officer}`;
+  const hit = Object.keys(contacts).find((k) => k.startsWith(prefix) && k.endsWith(suffix));
+  return hit ? contacts[hit] : null;
+}
 import {
   portalStatus, derivePriority, PRIORITY_META, ticketNo, tokenNo,
   daysOpen, slaWeeksLabel, slaBreached, citizenName,
@@ -54,16 +67,16 @@ export default function TicketDrawer({ issue, onClose, onChanged }) {
   useEffect(() => {
     if (!issue) return undefined;
     let alive = true;
-    let current = null;
-    loadDeptTree().then((tree) => {
+    Promise.all([
+      loadDeptTree(),
+      fetchOfficerContacts().then((r) => r.contacts || {}).catch(() => ({})),
+    ]).then(([tree, contacts]) => {
       if (!alive) return;
-      current = resolveRouting(issue, tree);
+      const current = resolveRouting(issue, tree);
       setRouting(current);
-      setContact(contactForRouting(current));
+      setContact(pickContact(current, contacts));
     });
-    const sync = () => setContact(contactForRouting(current));
-    window.addEventListener("nk:dept-contacts-changed", sync);
-    return () => { alive = false; window.removeEventListener("nk:dept-contacts-changed", sync); };
+    return () => { alive = false; };
   }, [issue]);
 
   if (!issue) return null;

@@ -3,7 +3,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
 
+import '../../core/glass.dart';
 import '../../core/theme.dart';
+import '../../core/i18n.dart';
 import '../../domain/constituencies.dart';
 import '../../domain/coordinator_data.dart';
 import '../../domain/geo_utils.dart';
@@ -13,14 +15,16 @@ import '../../state/providers.dart';
 import '../home/widgets/issue_card.dart';
 import '../home/widgets/map_card.dart';
 import '../profile/profile_screen.dart';
+import '../shared/notification_banner.dart';
+import '../shared/notification_bell.dart';
 import '../shared/wave_mark.dart';
 import 'widgets/action_sheets.dart';
 
-// ── Reskin palette (matching citizen home) ──────────────────────────────────
-const _kBlue = Color(0xFF1A3A8F);
-const _kDarkNavy = Color(0xFF1A2A4A);
-const _kMuted = Color(0xFF7A8799);
-
+/// Coordinator home — single-page treatment for staff:
+///   glass header + expandable profile (fixed constituency, ward switcher),
+///   Ward | My Reports | Escalated | Previous tabs,
+///   sort dropdown (Recent | Priority), per-ward assigned counts,
+///   in-app notification banner for new grievances in this ward.
 class CoordinatorHomeScreen extends ConsumerStatefulWidget {
   const CoordinatorHomeScreen({super.key});
 
@@ -29,45 +33,55 @@ class CoordinatorHomeScreen extends ConsumerStatefulWidget {
       _CoordinatorHomeScreenState();
 }
 
-class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen> {
+class _CoordinatorHomeScreenState
+    extends ConsumerState<CoordinatorHomeScreen> {
   BoundaryData? _boundaries;
   List<Issue> _wardIssues = [];
+  List<Issue> _mineAllWards = [];
   Issue? _selected;
+  final Map<String, GlobalKey> _cardKeys = {};
   LatLng? _center;
   String? _error;
   String? _busyId;
   String? _toast;
 
-  late String _constituency;
-  late String _ward;
-  int _tab = 0; // 0 ward · 1 mine · 2 escalated · 3 previous
+  late String _ward; // starts at coord.homeWard, user can switch within AC
+  CoordinatorTab _tab = CoordinatorTab.ward;
   String? _expandedId;
-  Set<String> _verifiedIds = {};
-  Map<String, String> _actionKinds = {};
+  String _sort = 'recent'; // 'recent' | 'priority'
 
   Coordinator get _me =>
-      ref.read(coordinatorAuthProvider) ?? kCoordinators.first;
+      ref.read(coordinatorAuthProvider) ??
+      const Coordinator(
+        id: '', username: '', name: '?', role: '',
+        constituency: '', homeWard: '',
+      );
 
   @override
   void initState() {
     super.initState();
-    _constituency = _me.constituency;
     _ward = _me.homeWard;
-    _refreshLocalState();
     _loadBoundaries();
     _loadWard();
-  }
-
-  void _refreshLocalState() {
-    final store = ref.read(coordinatorStoreProvider);
-    _verifiedIds = store.verifiedIds(_me.username);
-    _actionKinds = store.latestActionKindByIssue();
+    _loadMine();
   }
 
   List<String> get _wardsInConstituency {
-    final list = List<String>.from(kChennaiAcMap[_constituency] ?? []);
+    final list = List<String>.from(kChennaiAcMap[_me.constituency] ?? []);
     list.sort((a, b) => int.parse(a).compareTo(int.parse(b)));
     return list;
+  }
+
+  /// per-ward count of grievances the signed-in coordinator has taken
+  /// ownership of (mine + escalated + previous — anything with our username).
+  Map<String, int> get _mineCountByWard {
+    final m = <String, int>{};
+    for (final i in _mineAllWards) {
+      if (i.wardNo == null) continue;
+      final w = '${i.wardNo}';
+      m[w] = (m[w] ?? 0) + 1;
+    }
+    return m;
   }
 
   Future<void> _loadBoundaries() async {
@@ -93,16 +107,26 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen> {
     final w = int.tryParse(_ward);
     if (w == null) return;
     try {
-      final list =
-          await ref.read(apiClientProvider).fetchCoordinatorWardIssues(w);
+      final list = await ref.read(apiClientProvider).fetchCoordinatorWardIssues(
+            w,
+            coordinator: _me.username,
+            sort: _sort,
+          );
       if (!mounted) return;
-      setState(() {
-        _wardIssues = list;
-        _refreshLocalState();
-      });
+      setState(() => _wardIssues = list);
     } catch (e) {
       if (mounted) setState(() => _error = '$e');
     }
+  }
+
+  Future<void> _loadMine() async {
+    try {
+      final list = await ref
+          .read(apiClientProvider)
+          .fetchCoordinatorMine(_me.username);
+      if (!mounted) return;
+      setState(() => _mineAllWards = list);
+    } catch (_) {}
   }
 
   void _selectWard(String w) {
@@ -129,25 +153,80 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen> {
         c.latitude, c.longitude, issue.latitude, issue.longitude);
   }
 
-  static String _greeting() {
-    final h = DateTime.now().hour;
-    if (h < 12) return 'Good morning';
-    if (h < 17) return 'Good afternoon';
-    return 'Good evening';
+  /// Map pin tap → highlight + bring forward the matching ribbon in the list
+  /// (#6); switches to whichever tab currently holds the issue.
+  void _onMapSelect(Issue? i) {
+    setState(() {
+      _selected = i;
+      if (i != null) {
+        _expandedId = i.id;
+        final parts = partitionForCoordinator(_wardIssues, _me.username);
+        if (parts.ward.any((x) => x.id == i.id)) {
+          _tab = CoordinatorTab.ward;
+        } else if (parts.mine.any((x) => x.id == i.id)) {
+          _tab = CoordinatorTab.mine;
+        } else if (parts.escalated.any((x) => x.id == i.id)) {
+          _tab = CoordinatorTab.escalated;
+        } else if (parts.previous.any((x) => x.id == i.id)) {
+          _tab = CoordinatorTab.previous;
+        }
+      }
+    });
+    if (i == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final ctx = _cardKeys[i.id]?.currentContext;
+      if (ctx != null) {
+        Scrollable.ensureVisible(ctx,
+            duration: const Duration(milliseconds: 420),
+            curve: NkMotion.settle,
+            alignment: 0.1);
+      }
+    });
   }
 
-  // ── Actions (mirror the web handlers) ──────────────────────────────────
+  Widget _selectableCard(Issue issue, Widget card) {
+    final selected = _selected?.id == issue.id;
+    return AnimatedScale(
+      key: _cardKeys.putIfAbsent(issue.id, () => GlobalKey()),
+      scale: selected ? 1.025 : 1,
+      duration: const Duration(milliseconds: 260),
+      curve: NkMotion.settle,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 260),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+              color: selected ? NkColors.gold300 : Colors.transparent,
+              width: 2),
+          boxShadow: selected
+              ? [
+                  BoxShadow(
+                    color: NkColors.gold300.withValues(alpha: 0.35),
+                    blurRadius: 22,
+                    offset: const Offset(0, 8),
+                    spreadRadius: -2,
+                  ),
+                ]
+              : null,
+        ),
+        child: card,
+      ),
+    );
+  }
+
+  // ── Actions (all backend-persistent now) ────────────────────────────────
 
   Future<void> _assign(Issue issue) async {
     HapticFeedback.mediumImpact();
     setState(() => _busyId = issue.id);
     try {
-      await ref.read(apiClientProvider).coordinatorVerify(issue.id);
-      await ref.read(coordinatorStoreProvider).verify(_me.username, issue.id);
-      _showToast(
-          'Assigned · ${issue.title.substring(0, issue.title.length.clamp(0, 30))} moved to My Reports');
+      await ref
+          .read(apiClientProvider)
+          .coordinatorVerify(issue.id, _me.username);
+      _showToast('Assigned · moved to My Reports');
       setState(() => _expandedId = null);
       await _loadWard();
+      await _loadMine();
     } catch (e) {
       setState(() => _error = '$e');
     } finally {
@@ -158,58 +237,37 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen> {
   Future<void> _escalate(Issue issue) async {
     final data = await EscalateSheet.open(context, issue);
     if (data == null) return;
-    await ref.read(coordinatorStoreProvider).addAction(
-          coordinator: _me.username,
-          issueId: issue.id,
-          kind: 'escalate',
-          data: data,
-        );
-    setState(() {
-      _wardIssues = [
-        for (final i in _wardIssues)
-          i.id == issue.id
-              ? Issue.fromJson({
-                  'id': i.id,
-                  'title': i.title,
-                  'image_url': i.imageUrl,
-                  'audio_url': i.audioUrl,
-                  'transcript': i.transcript,
-                  'latitude': i.latitude,
-                  'longitude': i.longitude,
-                  'status': 'IN_PROGRESS',
-                  'upvotes': i.upvotes,
-                  'created_at': i.createdAt?.toIso8601String(),
-                  'area_name': i.areaName,
-                  'ward_no': i.wardNo,
-                  'zone': i.zone,
-                  'department': i.department,
-                  'coordinator_message': i.coordinatorMessage,
-                  'summary_highlights': i.summaryHighlights,
-                })
-              : i
-      ];
-      _refreshLocalState();
-      _expandedId = null;
-    });
-    _showToast('Escalated · now In Progress');
+    setState(() => _busyId = issue.id);
+    try {
+      await ref.read(apiClientProvider).coordinatorEscalate(
+            issue.id,
+            description: '${data['description']}',
+          );
+      _showToast('Escalated · moved to Escalated tab');
+      setState(() => _expandedId = null);
+      await _loadWard();
+      await _loadMine();
+    } catch (e) {
+      setState(() => _error = '$e');
+    } finally {
+      if (mounted) setState(() => _busyId = null);
+    }
   }
 
   Future<void> _transfer(Issue issue) async {
     await TransferSheet.open(
       context,
       issue: issue,
-      onSubmit: (department, notes) async {
-        await ref
-            .read(apiClientProvider)
-            .coordinatorTransfer(issue.id, department, notes: notes);
-        await ref.read(coordinatorStoreProvider).addAction(
-          coordinator: _me.username,
-          issueId: issue.id,
-          kind: 'transfer',
-          data: {'department': department, 'notes': notes},
-        );
-        _showToast('Transferred to department');
+      onSubmit: (department, notes, officer) async {
+        await ref.read(apiClientProvider).coordinatorTransfer(
+              issue.id,
+              department,
+              notes: notes,
+              officer: officer,
+            );
+        _showToast('Transferred to $department');
         await _loadWard();
+        await _loadMine();
       },
     );
     setState(() => _expandedId = null);
@@ -223,15 +281,10 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen> {
       await ref
           .read(apiClientProvider)
           .coordinatorClose(issue.id, notes: '${data['notes'] ?? ''}');
-      await ref.read(coordinatorStoreProvider).addAction(
-            coordinator: _me.username,
-            issueId: issue.id,
-            kind: 'close',
-            data: data,
-          );
-      _showToast('Closed · citizen must verify to move to Previous Reports');
+      _showToast('Closed · awaiting citizen verification');
       setState(() => _expandedId = null);
       await _loadWard();
+      await _loadMine();
     } catch (e) {
       setState(() => _error = '$e');
     } finally {
@@ -248,18 +301,12 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen> {
             issue.id,
             '${data['reason']}',
             details: '${data['details'] ?? ''}',
+            coordinator: _me.username,
           );
-      final store = ref.read(coordinatorStoreProvider);
-      await store.verify(_me.username, issue.id);
-      await store.addAction(
-        coordinator: _me.username,
-        issueId: issue.id,
-        kind: 'false',
-        data: data,
-      );
       _showToast('Flagged as false · moved to Previous Reports');
       setState(() => _expandedId = null);
       await _loadWard();
+      await _loadMine();
     } catch (e) {
       setState(() => _error = '$e');
     } finally {
@@ -271,109 +318,96 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final parts = partitionWardIssues(_wardIssues, _verifiedIds);
-    final escalated =
-        parts.mine.where((i) => _actionKinds[i.id] == 'escalate').toList();
-    final myActive =
-        parts.mine.where((i) => _actionKinds[i.id] != 'escalate').toList();
-
+    final parts = partitionForCoordinator(_wardIssues, _me.username);
     final current = switch (_tab) {
-      1 => myActive,
-      2 => escalated,
-      3 => parts.previous,
-      _ => parts.ward,
+      CoordinatorTab.ward => parts.ward,
+      CoordinatorTab.mine => parts.mine,
+      CoordinatorTab.escalated => parts.escalated,
+      CoordinatorTab.previous => parts.previous,
     };
 
-    final topInset = MediaQuery.of(context).padding.top;
-    const kAppBarBody = 78.0 + 8.0 + 34.0 + 6.0;
-    final gradientHeight = topInset + kAppBarBody;
-
     return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: SystemUiOverlayStyle.light,
+      value: SystemUiOverlayStyle.dark,
       child: Scaffold(
-        backgroundColor: const Color(0xFFF0F3FA),
+        backgroundColor: const Color(0xFFFBFCFD),
         body: Stack(
           children: [
-            Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              height: gradientHeight,
-              child: Container(
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [Color(0xFF1A3A8F), Color(0x001A3A8F)],
-                  ),
-                ),
-              ),
-            ),
-
             SafeArea(
               bottom: false,
-              child: Column(
-                children: [
-                  _buildHeader(),
-
-                  _CoordWardPill(ward: _ward, constituency: _constituency),
-
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(14, 6, 14, 0),
-                    child: Container(
-                      height: 260,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(16),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.10),
-                            blurRadius: 10,
-                            offset: const Offset(0, 4),
+              child: RefreshIndicator(
+                color: NkColors.brand,
+                onRefresh: () async {
+                  await Future.wait([_loadBoundaries(), _loadWard(), _loadMine()]);
+                },
+                child: ListView(
+                  physics: const AlwaysScrollableScrollPhysics(
+                      parent: BouncingScrollPhysics()),
+                  padding: const EdgeInsets.only(bottom: 120),
+                  children: [
+                    _buildHeader(),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 16, 12, 0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                            child: Row(
+                              mainAxisAlignment:
+                                  MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(context.tr('Ward grievance map'),
+                                    style: TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w800,
+                                      letterSpacing: -0.3,
+                                      color: NkColors.slate900,
+                                    )),
+                                Text('Ward $_ward',
+                                    style: const TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600,
+                                        color: NkColors.slate400)),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Container(
+                            height: 260,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(26),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withValues(alpha: 0.12),
+                                  blurRadius: 24,
+                                  offset: const Offset(0, 10),
+                                ),
+                              ],
+                            ),
+                            child: MapCard(
+                              center: _center,
+                              issues: current,
+                              selected: _selected,
+                              onSelect: _onMapSelect,
+                              boundaries: _boundaries,
+                              currentWard: int.tryParse(_ward),
+                              showLocateChip: false,
+                              searchHint: context.tr('Search grievances in this ward'),
+                            ),
                           ),
                         ],
                       ),
-                      child: MapCard(
-                        center: _center,
-                        issues: current,
-                        selected: _selected,
-                        onSelect: (i) => setState(() => _selected = i),
-                        boundaries: _boundaries,
-                        currentWard: int.tryParse(_ward),
-                        showLocateChip: false,
-                        showSearch: false,
-                        borderRadius: 16,
-                      ),
                     ),
-                  ),
-
-                  _CoordStatsRow(me: _me),
-
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        _buildConstituencySelector(),
-                        const SizedBox(height: 8),
-                        _buildWardSelector(),
-                      ],
-                    ),
-                  ),
-
-                  _buildTabs(parts.ward.length, myActive.length,
-                      escalated.length, parts.previous.length),
-
-                  Expanded(
-                    child: RefreshIndicator(
-                      color: _kBlue,
-                      onRefresh: () async {
-                        await Future.wait([_loadBoundaries(), _loadWard()]);
-                      },
-                      child: ListView(
-                        physics: const AlwaysScrollableScrollPhysics(
-                            parent: BouncingScrollPhysics()),
-                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
+                          _buildConstituencyChip(),
+                          const SizedBox(height: 8),
+                          _buildWardSelector(),
+                          const SizedBox(height: 12),
+                          _buildTabs(parts),
                           if (_error != null) ...[
                             const SizedBox(height: 12),
                             Container(
@@ -386,15 +420,14 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen> {
                               child: Row(
                                 children: [
                                   Expanded(
-                                    child: Text(
-                                      _error!,
-                                      style: const TextStyle(
-                                          fontSize: 12,
-                                          color: NkColors.rose600),
-                                    ),
+                                    child: Text(_error!,
+                                        style: const TextStyle(
+                                            fontSize: 12,
+                                            color: NkColors.rose600)),
                                   ),
                                   GestureDetector(
-                                    onTap: () => setState(() => _error = null),
+                                    onTap: () =>
+                                        setState(() => _error = null),
                                     child: const Icon(Icons.close,
                                         size: 14, color: NkColors.rose600),
                                   ),
@@ -407,33 +440,42 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen> {
                         ],
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
+              ),
+            ),
+
+            // Floating notification banner — polls /api/notifications every
+            // 15s while this screen is foregrounded.
+            Positioned(
+              top: 0, left: 0, right: 0,
+              child: NotificationPoller(
+                recipientType: 'coordinator',
+                recipientId: _me.username,
+                onNewGrievanceInMyWard: (_) {
+                  _loadWard();
+                  _loadMine();
+                },
               ),
             ),
 
             if (_toast != null)
               Positioned(
-                left: 24,
-                right: 24,
-                bottom: 100,
+                left: 24, right: 24, bottom: 40,
                 child: Center(
                   child: Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 8),
                     decoration: BoxDecoration(
                       color: NkColors.slate900.withValues(alpha: 0.9),
                       borderRadius: BorderRadius.circular(999),
                     ),
-                    child: Text(
-                      _toast!,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.white,
-                      ),
-                    ),
+                    child: Text(_toast!,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white)),
                   ),
                 ),
               ),
@@ -445,133 +487,92 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen> {
 
   Widget _buildHeader() {
     final me = _me;
-    final firstName = me.name.split(' ').first;
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
+    return GlassContainer(
+      variant: Glass.clear,
+      borderRadius: const BorderRadius.only(
+        bottomLeft: Radius.circular(28),
+        bottomRight: Radius.circular(28),
+      ),
+      boxShadow: [
+        BoxShadow(
+          color: NkColors.slate900.withValues(alpha: 0.25),
+          blurRadius: 36,
+          offset: const Offset(0, 16),
+          spreadRadius: -22,
+        ),
+      ],
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              const BrandMark(color: Colors.white),
-              const SizedBox(width: 8),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(6),
-                  border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.25)),
-                ),
-                child: const Text(
-                  'STAFF',
-                  style: TextStyle(
-                    fontSize: 8,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 1,
-                    color: Color(0xFFDDC689),
-                  ),
-                ),
-              ),
-              const Spacer(),
-              Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  Icon(Icons.notifications_outlined,
-                      size: 24,
-                      color: Colors.white.withValues(alpha: 0.9)),
-                  Positioned(
-                    top: -4,
-                    right: -6,
-                    child: Container(
-                      height: 16,
-                      width: 16,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFFF4D4D),
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                            color: const Color(0xFF1A3A8F), width: 1.5),
-                      ),
-                      child: const Text(
-                        '3',
-                        style: TextStyle(
-                          fontSize: 8,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(width: 12),
-              GestureDetector(
-                onTap: () {
-                  HapticFeedback.selectionClick();
-                  Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => const ProfileScreen(),
-                    ),
-                  );
-                },
-                child: Stack(
-                  clipBehavior: Clip.none,
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
                   children: [
+                    const BrandMark(),
+                    const SizedBox(width: 8),
                     Container(
-                      padding: const EdgeInsets.all(2),
-                      decoration: const BoxDecoration(
-                        gradient: nkGoldGradient,
-                        shape: BoxShape.circle,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: NkColors.brandDark,
+                        borderRadius: BorderRadius.circular(6),
                       ),
-                      child: Container(
-                        height: 36,
-                        width: 36,
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF1A3A8F),
-                          shape: BoxShape.circle,
-                          border:
-                              Border.all(color: Colors.white, width: 2),
-                        ),
-                        child: Text(
-                          me.initials,
-                          style: const TextStyle(
-                            fontSize: 12,
+                      child: const Text('STAFF',
+                          style: TextStyle(
+                            fontSize: 8,
                             fontWeight: FontWeight.w900,
-                            color: Color(0xFFDDC689),
-                          ),
-                        ),
-                      ),
+                            letterSpacing: 1,
+                            color: NkColors.gold200,
+                          )),
                     ),
-                    Positioned(
-                      bottom: -1,
-                      right: -1,
+                  ],
+                ),
+                Row(
+                  children: [
+                    const LangToggle(),
+                    const SizedBox(width: 6),
+                    NotificationBell(
+                      recipientType: 'coordinator',
+                      recipientId: me.username,
+                    ),
+                    const SizedBox(width: 4),
+                    GestureDetector(
+                      onTap: () {
+                        HapticFeedback.selectionClick();
+                        Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => const ProfileScreen(),
+                          ),
+                        );
+                      },
                       child: Container(
-                        height: 12,
-                        width: 12,
-                        decoration: BoxDecoration(
-                          color: NkColors.emerald500,
+                        padding: const EdgeInsets.all(2),
+                        decoration: const BoxDecoration(
+                          gradient: nkGoldGradient,
                           shape: BoxShape.circle,
-                          border:
-                              Border.all(color: Colors.white, width: 2),
+                        ),
+                        child: Container(
+                          height: 36, width: 36,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: NkColors.brandDark,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white, width: 2),
+                          ),
+                          child: Text(me.initials,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w900,
+                                color: NkColors.gold200,
+                              )),
                         ),
                       ),
                     ),
                   ],
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '${_greeting()}, $firstName',
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
-              color: Colors.white.withValues(alpha: 0.85),
+              ],
             ),
           ),
         ],
@@ -579,7 +580,8 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen> {
     );
   }
 
-  Widget _buildConstituencySelector() {
+  /// Constituency is a fixed chip — no dropdown (assigned in admin console).
+  Widget _buildConstituencyChip() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12),
       height: 44,
@@ -590,64 +592,45 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen> {
       ),
       child: Row(
         children: [
-          const Icon(Icons.account_balance, size: 13, color: NkColors.slate500),
+          const Icon(Icons.account_balance,
+              size: 13, color: NkColors.slate500),
           const SizedBox(width: 6),
-          const Text(
-            'CONSTITUENCY',
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 1.2,
-              color: NkColors.slate500,
-            ),
-          ),
+          Text(context.tr('CONSTITUENCY'),
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 1.2,
+                color: NkColors.slate500,
+              )),
           const Spacer(),
-          DropdownButtonHideUnderline(
-            child: DropdownButton<String>(
-              value: _constituency,
-              isDense: true,
-              borderRadius: BorderRadius.circular(14),
-              icon: const Icon(Icons.keyboard_arrow_down,
-                  size: 14, color: NkColors.slate400),
+          Text(shortAC(_me.constituency),
               style: const TextStyle(
                 fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: NkColors.slate500,
-              ),
-              items: [
-                for (final c in kConstituencies)
-                  DropdownMenuItem(value: c, child: Text(shortAC(c))),
-              ],
-              onChanged: (v) {
-                if (v == null) return;
-                setState(() => _constituency = v);
-                final wards = _wardsInConstituency;
-                if (!wards.contains(_ward) && wards.isNotEmpty) {
-                  _selectWard(wards.first);
-                }
-              },
-            ),
-          ),
+                fontWeight: FontWeight.w700,
+                color: NkColors.slate700,
+              )),
+          const SizedBox(width: 6),
+          const Icon(Icons.lock_outline,
+              size: 11, color: NkColors.slate400),
         ],
       ),
     );
   }
 
   Widget _buildWardSelector() {
+    final counts = _mineCountByWard;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Padding(
+        Padding(
           padding: EdgeInsets.only(bottom: 4, left: 2),
-          child: Text(
-            'WARD',
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 1.2,
-              color: NkColors.slate400,
-            ),
-          ),
+          child: Text(context.tr('WARD'),
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 1.2,
+                color: NkColors.slate400,
+              )),
         ),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -672,7 +655,34 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen> {
               ),
               items: [
                 for (final w in _wardsInConstituency)
-                  DropdownMenuItem(value: w, child: Text('Ward $w')),
+                  DropdownMenuItem(
+                    value: w,
+                    child: Row(
+                      children: [
+                        Text('Ward $w'),
+                        if ((counts[w] ?? 0) > 0) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 1),
+                            decoration: BoxDecoration(
+                              color: NkColors.brand50,
+                              borderRadius: BorderRadius.circular(999),
+                              border: Border.all(color: NkColors.brand100),
+                            ),
+                            child: Text(
+                              '${counts[w]} assigned',
+                              style: const TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w700,
+                                color: NkColors.brand,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
               ],
               onChanged: (v) {
                 if (v != null) _selectWard(v);
@@ -685,52 +695,67 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen> {
   }
 
   Widget _buildTabs(
-      int wardCount, int mineCount, int escalatedCount, int previousCount) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+      ({List<Issue> ward, List<Issue> mine, List<Issue> escalated, List<Issue> previous}) parts) {
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: NkColors.slate200.withValues(alpha: 0.7),
+        borderRadius: BorderRadius.circular(12),
+      ),
       child: Row(
         children: [
-          for (final (idx, icon, label) in [
-            (0, Icons.groups_outlined, 'Ward ($wardCount)'),
-            (1, Icons.description_outlined, 'Mine ($mineCount)'),
-            (2, Icons.keyboard_double_arrow_up, 'Escalated ($escalatedCount)'),
-            (3, Icons.assignment_outlined, 'Previous ($previousCount)'),
+          for (final (tab, icon, label) in [
+            (CoordinatorTab.ward,
+                Icons.groups_outlined, '${context.tr('Open')} (${parts.ward.length})'),
+            (CoordinatorTab.mine,
+                Icons.description_outlined, '${context.tr('Assigned')} (${parts.mine.length})'),
+            (CoordinatorTab.escalated,
+                Icons.keyboard_double_arrow_up,
+                '${context.tr('Escalated')} (${parts.escalated.length})'),
+            (CoordinatorTab.previous,
+                Icons.assignment_outlined,
+                '${context.tr('Resolved')} (${parts.previous.length})'),
           ])
             Expanded(
               child: GestureDetector(
                 onTap: () {
                   HapticFeedback.selectionClick();
-                  setState(() => _tab = idx);
+                  setState(() => _tab = tab);
                 },
-                child: Container(
-                  padding: const EdgeInsets.only(bottom: 10),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 260),
+                  curve: NkMotion.settle,
+                  padding: const EdgeInsets.symmetric(vertical: 8),
                   decoration: BoxDecoration(
-                    border: Border(
-                      bottom: BorderSide(
-                        color: _tab == idx ? _kBlue : Colors.transparent,
-                        width: 2.5,
-                      ),
-                    ),
+                    color: _tab == tab ? Colors.white : Colors.transparent,
+                    borderRadius: BorderRadius.circular(8),
+                    boxShadow: _tab == tab
+                        ? [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.06),
+                              blurRadius: 4,
+                              offset: const Offset(0, 1),
+                            ),
+                          ]
+                        : null,
                   ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
+                  child: Column(
                     children: [
                       Icon(icon,
-                          size: 13,
-                          color: _tab == idx ? _kBlue : _kMuted),
-                      const SizedBox(width: 3),
-                      Flexible(
-                        child: Text(
-                          label,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 10,
-                            fontWeight: _tab == idx
-                                ? FontWeight.w700
-                                : FontWeight.w500,
-                            color: _tab == idx ? _kBlue : _kMuted,
-                          ),
+                          size: 12,
+                          color: _tab == tab
+                              ? NkColors.slate900
+                              : NkColors.slate500),
+                      Text(
+                        label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          color: _tab == tab
+                              ? NkColors.slate900
+                              : NkColors.slate500,
                         ),
                       ),
                     ],
@@ -745,49 +770,51 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen> {
 
   Widget _buildList(List<Issue> current) {
     final headings = [
-      'Public grievances in Ward $_ward',
-      'Verified by me',
-      'Escalated grievances',
-      'Previous reports',
+      '${context.tr('Open grievances in Ward')} $_ward',
+      context.tr('Assigned to me'),
+      context.tr('Escalated grievances'),
+      context.tr('Resolved & closed'),
     ];
     final empties = [
       'No unverified grievances in Ward $_ward.',
       'Verify grievances from the ward tab to see them here.',
-      'No escalated grievances yet.',
+      'Escalated grievances land here until resolved.',
       'Closed grievances and false petitions land here.',
     ];
+    final idx = _tab.index;
 
     return Column(
-      key: ValueKey('tab-$_tab'),
+      key: ValueKey('tab-$idx-sort-$_sort'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Expanded(
-              child: Text(
-                headings[_tab],
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w800,
-                  color: _kDarkNavy,
-                ),
-              ),
+              child: Text(headings[idx],
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                    color: NkColors.slate900,
+                  )),
             ),
+            _buildSortDropdown(),
+            const SizedBox(width: 8),
             GestureDetector(
-              onTap: _loadWard,
-              child: const Row(
+              onTap: () {
+                _loadWard();
+                _loadMine();
+              },
+              child: Row(
                 children: [
-                  Icon(Icons.refresh, size: 14, color: _kBlue),
+                  Icon(Icons.refresh, size: 12, color: NkColors.brand),
                   SizedBox(width: 4),
-                  Text(
-                    'Refresh',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: _kBlue,
-                    ),
-                  ),
+                  Text(context.tr('Refresh'),
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: NkColors.brand,
+                      )),
                 ],
               ),
             ),
@@ -800,21 +827,20 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen> {
             child: Column(
               children: [
                 Icon(
-                  switch (_tab) {
-                    0 => Icons.groups_outlined,
-                    1 => Icons.description_outlined,
-                    2 => Icons.keyboard_double_arrow_up,
-                    _ => Icons.assignment_outlined,
-                  },
+                  [
+                    Icons.groups_outlined,
+                    Icons.description_outlined,
+                    Icons.keyboard_double_arrow_up,
+                    Icons.assignment_outlined,
+                  ][idx],
                   size: 32,
                   color: NkColors.slate300,
                 ),
                 const SizedBox(height: 8),
-                Text(
-                  empties[_tab],
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(fontSize: 14, color: _kMuted),
-                ),
+                Text(empties[idx],
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                        fontSize: 14, color: NkColors.slate400)),
               ],
             ),
           )
@@ -822,25 +848,63 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen> {
           for (final issue in current)
             Padding(
               padding: const EdgeInsets.only(bottom: 8),
-              child: IssueCard(
-                issue: issue,
-                expanded: _expandedId == issue.id,
-                onToggle: () => setState(() =>
-                    _expandedId = _expandedId == issue.id ? null : issue.id),
-                distanceKm: _distanceKm(issue),
-                badge: _tab != 0
-                    ? _ActionStatusBadge(
-                        kind: _actionKinds[issue.id], status: issue.status)
-                    : null,
-                actions: switch (_tab) {
-                  0 => _wardActions(issue),
-                  1 => _mineActions(issue),
-                  2 => _mineActions(issue),
-                  _ => const SizedBox.shrink(),
-                },
+              child: _selectableCard(
+                issue,
+                IssueCard(
+                  issue: issue,
+                  expanded: _expandedId == issue.id,
+                  onToggle: () => setState(() =>
+                      _expandedId = _expandedId == issue.id ? null : issue.id),
+                  distanceKm: _distanceKm(issue),
+                  badge: _tab != CoordinatorTab.ward
+                      ? _ActionStatusBadge(
+                          status: issue.status,
+                          rejected: issue.rejectedAt != null)
+                      : null,
+                  actions: switch (_tab) {
+                    CoordinatorTab.ward => _wardActions(issue),
+                    CoordinatorTab.mine => _mineActions(issue),
+                    CoordinatorTab.escalated => _escalatedActions(issue),
+                    CoordinatorTab.previous => const SizedBox.shrink(),
+                  },
+                ),
               ),
             ),
       ],
+    );
+  }
+
+  Widget _buildSortDropdown() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: NkColors.slate200),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          value: _sort,
+          isDense: true,
+          icon: const Icon(Icons.expand_more,
+              size: 14, color: NkColors.slate500),
+          borderRadius: BorderRadius.circular(14),
+          style: const TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            color: NkColors.slate700,
+          ),
+          items: [
+            DropdownMenuItem(value: 'recent', child: Text(context.tr('Recent'))),
+            DropdownMenuItem(value: 'priority', child: Text(context.tr('Priority'))),
+          ],
+          onChanged: (v) {
+            if (v == null || v == _sort) return;
+            setState(() => _sort = v);
+            _loadWard();
+          },
+        ),
+      ),
     );
   }
 
@@ -850,7 +914,7 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen> {
       children: [
         Expanded(
           child: _actionButton(
-            label: busy ? 'Assigning…' : 'Assign Grievance',
+            label: busy ? 'Assigning…' : context.tr('Assign Grievance'),
             icon: Icons.verified_user_outlined,
             bg: NkColors.brand,
             fg: Colors.white,
@@ -860,7 +924,7 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen> {
         const SizedBox(width: 8),
         Expanded(
           child: _actionButton(
-            label: 'False Petition',
+            label: context.tr('False Petition'),
             icon: Icons.block,
             bg: Colors.white,
             fg: NkColors.rose600,
@@ -873,23 +937,58 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen> {
   }
 
   Widget _mineActions(Issue issue) {
+    // Lifecycle:
+    //   FORWARDED (dept transfer done)     → Transfer disabled + labeled Transferred
+    //   PENDING_VERIFICATION (Close done)  → hide Transfer + Escalate, replace
+    //                                        Close with a disabled "Pending
+    //                                        Verification" chip.
+    final closed = issue.status == 'PENDING_VERIFICATION';
+    final transferred = issue.status == 'FORWARDED';
+
+    if (closed) {
+      return Container(
+        height: 40,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: NkColors.amber50,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: NkColors.amber200),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.hourglass_top,
+                size: 13, color: NkColors.amber700),
+            const SizedBox(width: 6),
+            Text(context.tr('Pending Verification'),
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: NkColors.amber700,
+                )),
+          ],
+        ),
+      );
+    }
+
     return Column(
       children: [
         Row(
           children: [
             Expanded(
               child: _actionButton(
-                label: 'Dept. Transfer',
-                icon: Icons.send_outlined,
-                bg: NkColors.brand,
-                fg: Colors.white,
-                onTap: () => _transfer(issue),
+                label: transferred ? context.tr('Transferred') : context.tr('Dept. Transfer'),
+                icon:
+                    transferred ? Icons.check_circle_outline : Icons.send_outlined,
+                bg: transferred ? NkColors.slate200 : NkColors.brand,
+                fg: transferred ? NkColors.slate500 : Colors.white,
+                onTap: transferred ? null : () => _transfer(issue),
               ),
             ),
             const SizedBox(width: 8),
             Expanded(
               child: _actionButton(
-                label: 'Escalate',
+                label: context.tr('Escalate'),
                 icon: Icons.keyboard_double_arrow_up,
                 bg: NkColors.slate800,
                 fg: Colors.white,
@@ -900,13 +999,43 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen> {
         ),
         const SizedBox(height: 8),
         _actionButton(
-          label: 'Close',
+          label: context.tr('Close'),
           icon: Icons.check_circle_outline,
           bg: NkColors.emerald600,
           fg: Colors.white,
           onTap: () => _close(issue),
         ),
       ],
+    );
+  }
+
+  Widget _escalatedActions(Issue issue) {
+    final closed = issue.status == 'PENDING_VERIFICATION';
+    if (closed) {
+      return Container(
+        height: 40,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: NkColors.amber50,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: NkColors.amber200),
+        ),
+        child: Text(context.tr('Pending Verification'),
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: NkColors.amber700,
+            )),
+      );
+    }
+    // Escalated tickets can still be closed; transfer stays open in case
+    // the higher authority hands it back to a specific department.
+    return _actionButton(
+      label: context.tr('Close'),
+      icon: Icons.check_circle_outline,
+      bg: NkColors.emerald600,
+      fg: Colors.white,
+      onTap: () => _close(issue),
     );
   }
 
@@ -934,14 +1063,11 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen> {
               children: [
                 Icon(icon, size: 13, color: fg),
                 const SizedBox(width: 6),
-                Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    color: fg,
-                  ),
-                ),
+                Text(label,
+                    style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: fg)),
               ],
             ),
           ),
@@ -949,164 +1075,44 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen> {
       );
 }
 
-class _CoordWardPill extends StatelessWidget {
-  const _CoordWardPill({required this.ward, required this.constituency});
-
-  final String ward;
-  final String constituency;
-
-  @override
-  Widget build(BuildContext context) {
-    final ac = shortAC(constituency);
-    final parts = <String>['Ward $ward', ac];
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 8, 14, 0),
-      child: Align(
-        alignment: Alignment.centerLeft,
-        child: Container(
-          height: 34,
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          decoration: BoxDecoration(
-            color: const Color(0xFFF7F5F0),
-            borderRadius: BorderRadius.circular(17),
-            border: Border.all(color: const Color(0x1F1A2B46)),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.08),
-                blurRadius: 6,
-                offset: const Offset(0, 2),
-              ),
-            ],
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.place, size: 14, color: _kBlue),
-              const SizedBox(width: 6),
-              Flexible(
-                child: Text(
-                  parts.join('  ·  '),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w500,
-                    color: Color(0xFF1A2A3A),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _CoordStatsRow extends StatelessWidget {
-  const _CoordStatsRow({required this.me});
-
-  final Coordinator me;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 0),
-      child: Row(
-        children: [
-          for (final (icon, value, label, iconColor, isLast) in [
-            (Icons.star_outline, '${me.civicScore}', 'Civic Score',
-                const Color(0xFFD97706), false),
-            (Icons.assignment_outlined, '${me.reports}', 'Reports',
-                const Color(0xFF3FA8A0), false),
-            (Icons.check_circle_outline, '${me.resolved}', 'Resolved',
-                const Color(0xFF2F9E6E), false),
-            (Icons.schedule, me.tenure, 'Tenure',
-                const Color(0xFFFF9500), true),
-          ]) ...[
-            Expanded(
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 10),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.08),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: Column(
-                  children: [
-                    Container(
-                      height: 30,
-                      width: 30,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: iconColor.withValues(alpha: 0.12),
-                        shape: BoxShape.circle,
-                      ),
-                      child: Icon(icon, size: 16, color: iconColor),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      value,
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w800,
-                        color: _kDarkNavy,
-                      ),
-                    ),
-                    Text(
-                      label,
-                      style: const TextStyle(fontSize: 11, color: _kMuted),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            if (!isLast) const SizedBox(width: 10),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
 class _ActionStatusBadge extends StatelessWidget {
-  const _ActionStatusBadge({required this.kind, required this.status});
-
-  final String? kind;
+  const _ActionStatusBadge({required this.status, this.rejected = false});
   final String status;
-
+  final bool rejected;
   @override
   Widget build(BuildContext context) {
-    final (label, bg, fg) = switch ((status, kind)) {
-      ('CLOSED', _) => (
-          'Citizen approved · Closed',
-          NkColors.emerald50,
-          NkColors.emerald700
+    // Citizen-rejected closure takes visual priority — the coordinator needs
+    // to act on it fast.
+    if (rejected) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        decoration: BoxDecoration(
+          color: NkColors.rose50,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: NkColors.rose600.withValues(alpha: 0.4)),
         ),
-      ('FALSE', _) => ('False Petition', NkColors.rose50, NkColors.rose700),
-      (_, 'escalate') => (
-          'Escalated · In Progress',
-          NkColors.sky50,
-          NkColors.sky700
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.warning_amber_rounded, size: 10, color: NkColors.rose600),
+            SizedBox(width: 3),
+            Text('Rejected — review ASAP',
+                style: TextStyle(
+                    fontSize: 9,
+                    fontWeight: FontWeight.w800,
+                    color: NkColors.rose600)),
+          ],
         ),
-      (_, 'transfer') => (
-          'Transferred · In Progress',
-          NkColors.sky50,
-          NkColors.sky700
-        ),
-      (_, 'close') => (
-          'Awaiting citizen verify',
-          NkColors.amber50,
-          NkColors.amber700
-        ),
-      (_, 'false') => ('False Petition', NkColors.rose50, NkColors.rose700),
+      );
+    }
+    final (label, bg, fg) = switch (status) {
+      'CLOSED' => ('Citizen approved · Closed', NkColors.emerald50, NkColors.emerald700),
+      'FALSE' => (context.tr('False Petition'), NkColors.rose50, NkColors.rose700),
+      'FORWARDED' => ('Transferred · In Progress', NkColors.sky50, NkColors.sky700),
+      'IN_PROGRESS' => ('In Progress', NkColors.sky50, NkColors.sky700),
+      'PENDING_VERIFICATION' =>
+        ('Awaiting citizen verify', NkColors.amber50, NkColors.amber700),
+      'ACTIVE' => ('Assigned', NkColors.brand50, NkColors.brand),
       _ => ('', Colors.transparent, Colors.transparent),
     };
     if (label.isEmpty) return const SizedBox.shrink();
@@ -1117,14 +1123,9 @@ class _ActionStatusBadge extends StatelessWidget {
         borderRadius: BorderRadius.circular(999),
         border: Border.all(color: fg.withValues(alpha: 0.25)),
       ),
-      child: Text(
-        label,
-        style: TextStyle(
-          fontSize: 9,
-          fontWeight: FontWeight.w700,
-          color: fg,
-        ),
-      ),
+      child: Text(label,
+          style: TextStyle(
+              fontSize: 9, fontWeight: FontWeight.w700, color: fg)),
     );
   }
 }

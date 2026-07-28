@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/glass.dart';
 import '../../core/theme.dart';
 import '../../domain/daily_limit.dart';
 import '../../domain/models/issue.dart';
@@ -82,18 +81,21 @@ class _UpvoteSheetState extends ConsumerState<UpvoteSheet> {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-      child: GlassContainer(
-        variant: Glass.strong,
-        borderRadius: BorderRadius.circular(30),
-        boxShadow: [
-          BoxShadow(
-            color: NkColors.slate900.withValues(alpha: 0.55),
-            blurRadius: 80,
-            offset: const Offset(0, 30),
-            spreadRadius: -20,
-          ),
-        ],
+      child: Container(
+        clipBehavior: Clip.antiAlias,
         padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(30),
+          boxShadow: [
+            BoxShadow(
+              color: NkColors.slate900.withValues(alpha: 0.35),
+              blurRadius: 60,
+              offset: const Offset(0, 24),
+              spreadRadius: -16,
+            ),
+          ],
+        ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,

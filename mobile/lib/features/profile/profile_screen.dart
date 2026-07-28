@@ -8,7 +8,6 @@ import '../../domain/constituencies.dart';
 import '../../domain/coordinator_data.dart';
 import '../../domain/profile_data.dart';
 import '../../state/providers.dart';
-import 'edit_profile_screen.dart';
 
 const _kBlue = Color(0xFF1A3A8F);
 const _kDarkNavy = Color(0xFF1A2A3A);
@@ -137,9 +136,10 @@ class ProfileScreen extends ConsumerWidget {
                       GestureDetector(
                         onTap: () {
                           HapticFeedback.selectionClick();
-                          Navigator.of(context).push(
-                            MaterialPageRoute<void>(
-                              builder: (_) => const EditProfileScreen(),
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Profile editing coming soon'),
+                              duration: Duration(seconds: 2),
                             ),
                           );
                         },
@@ -182,19 +182,7 @@ class ProfileScreen extends ConsumerWidget {
                   ),
                   const SizedBox(height: 24),
 
-                  if (isCoordinator)
-                    _StatsRow(items: [
-                      (Icons.star_outline, '${coordinator.civicScore}',
-                          'Civic Score', const Color(0xFFD97706)),
-                      (Icons.assignment_outlined, '${coordinator.reports}',
-                          'Reports', const Color(0xFF3FA8A0)),
-                      (Icons.check_circle_outline,
-                          '${coordinator.resolved}', 'Resolved',
-                          const Color(0xFF2F9E6E)),
-                      (Icons.schedule, coordinator.tenure, 'Tenure',
-                          const Color(0xFFFF9500)),
-                    ])
-                  else
+                  if (!isCoordinator)
                     _StatsRow(items: [
                       (Icons.assignment_outlined, '${ProfileData.reports}',
                           'Reports', const Color(0xFF3FA8A0)),

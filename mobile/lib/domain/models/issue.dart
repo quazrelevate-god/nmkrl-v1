@@ -7,6 +7,8 @@ class Issue {
     this.imageUrl,
     this.audioUrl,
     this.transcript,
+    this.transcriptTa,
+    this.ticketNo,
     required this.latitude,
     required this.longitude,
     required this.status,
@@ -17,6 +19,9 @@ class Issue {
     this.zone,
     this.department,
     this.coordinatorMessage,
+    this.assignedCoordinator,
+    this.escalatedAt,
+    this.rejectedAt,
     this.summaryHighlights = const [],
     this.distanceM,
   });
@@ -26,6 +31,14 @@ class Issue {
   final String? imageUrl;
   final String? audioUrl;
   final String? transcript;
+
+  /// Tamil translation of the transcript (Gemini returns both). Shown in
+  /// Tamil mode; falls back to [transcript] when empty.
+  final String? transcriptTa;
+
+  /// Stored, human-friendly tracking id (FMS-XXXXXXXX) from the DB. Falls
+  /// back to the deterministic derivation when absent.
+  final String? ticketNo;
   final double latitude;
   final double longitude;
   final String status;
@@ -38,6 +51,17 @@ class Issue {
   /// AI-routed municipal department (used by the coordinator transfer flow).
   final String? department;
   final String? coordinatorMessage;
+
+  /// Username of the coordinator who took ownership (empty/null = unassigned).
+  final String? assignedCoordinator;
+
+  /// Non-null when a coordinator escalated the issue — mobile groups these
+  /// under a dedicated Escalated tab.
+  final DateTime? escalatedAt;
+
+  /// Non-null when the citizen rejected a coordinator's closure — the
+  /// coordinator app shows an alert card and keeps it in Assigned.
+  final DateTime? rejectedAt;
   final List<String> summaryHighlights;
 
   /// Present only on /nearby responses.
@@ -57,6 +81,12 @@ class Issue {
       imageUrl: json['image_url'] as String?,
       audioUrl: json['audio_url'] as String?,
       transcript: json['transcript'] as String?,
+      transcriptTa: (json['transcript_ta'] as String?)?.trim().isEmpty ?? true
+          ? null
+          : (json['transcript_ta'] as String).trim(),
+      ticketNo: (json['ticket_number'] as String?)?.trim().isEmpty ?? true
+          ? null
+          : (json['ticket_number'] as String).trim(),
       latitude: _toDouble(json['latitude']),
       longitude: _toDouble(json['longitude']),
       status: '${json['status'] ?? 'ACTIVE'}',
@@ -71,6 +101,17 @@ class Issue {
       zone: json['zone']?.toString(),
       department: json['department'] as String?,
       coordinatorMessage: json['coordinator_message'] as String?,
+      assignedCoordinator: json['assigned_coordinator'] as String?,
+      escalatedAt: () {
+        final raw = json['escalated_at'];
+        if (raw == null || raw == '') return null;
+        return DateTime.tryParse('$raw');
+      }(),
+      rejectedAt: () {
+        final raw = json['rejected_at'];
+        if (raw == null || raw == '') return null;
+        return DateTime.tryParse('$raw');
+      }(),
       summaryHighlights: rawHighlights is List
           ? rawHighlights.map((e) => '$e').toList()
           : const [],

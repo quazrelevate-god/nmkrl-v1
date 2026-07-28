@@ -6,7 +6,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart' hide Path;
 
 import '../../../core/theme.dart';
-import '../../../data/media.dart';
+import '../../../core/i18n.dart';
 import '../../../domain/constituencies.dart';
 import '../../../domain/models/boundary_data.dart';
 import '../../../domain/models/issue.dart';
@@ -35,8 +35,6 @@ class MapCard extends StatefulWidget {
     this.onJumpEgmore,
     this.onUpvote,
     this.searchHint = 'Search ticket no. or grievance nearby',
-    this.showSearch = true,
-    this.borderRadius = 26,
   });
 
   final LatLng? center;
@@ -58,8 +56,6 @@ class MapCard extends StatefulWidget {
   /// When null the selected-issue sheet hides its Upvote button.
   final ValueChanged<Issue>? onUpvote;
   final String searchHint;
-  final bool showSearch;
-  final double borderRadius;
 
   @override
   State<MapCard> createState() => _MapCardState();
@@ -172,7 +168,7 @@ class _MapCardState extends State<MapCard> {
     final hasQuery = _query.text.trim().isNotEmpty;
 
     return ClipRRect(
-      borderRadius: BorderRadius.circular(widget.borderRadius),
+      borderRadius: BorderRadius.circular(26),
       child: Stack(
         children: [
           Positioned.fill(
@@ -234,7 +230,7 @@ class _MapCardState extends State<MapCard> {
           ),
 
           // ── Search bar + results dropdown ──
-          if (widget.showSearch) Positioned(
+          Positioned(
             left: 12,
             right: 12,
             top: 8,
@@ -320,7 +316,7 @@ class _MapCardState extends State<MapCard> {
                                   child: Row(
                                     children: [
                                       Text(
-                                        ticketNumber(issue.id),
+                                        (issue.ticketNo ?? ticketNumber(issue.id)),
                                         style: const TextStyle(
                                           fontSize: 10,
                                           fontWeight: FontWeight.w600,
@@ -358,20 +354,21 @@ class _MapCardState extends State<MapCard> {
           if (!hasQuery && widget.showLocateChip)
             Positioned(
               right: 12,
-              top: widget.showSearch ? 54 : 8,
+              top: 54,
               child: _LocateChip(
                   locate: widget.locate, locating: widget.locating),
             ),
 
-          // ── Status legend (compact HUD) ──
+          // ── Status legend ──
           Positioned(
-            left: 6,
-            bottom: 6,
+            left: 8,
+            bottom: 8,
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+              padding: const EdgeInsets.all(6),
               decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.82),
-                borderRadius: BorderRadius.circular(6),
+                color: Colors.white.withValues(alpha: 0.9),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: NkColors.slate200),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -380,24 +377,23 @@ class _MapCardState extends State<MapCard> {
                   for (final entry in kStatusMeta.entries)
                     if (entry.key != 'SUBMITTED' && entry.key != 'FORWARDED')
                       Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 0.5),
+                        padding: const EdgeInsets.symmetric(vertical: 1),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Container(
-                              height: 6,
-                              width: 6,
+                              height: 8,
+                              width: 8,
                               decoration: BoxDecoration(
                                 color: entry.value.pin,
                                 shape: BoxShape.circle,
                               ),
                             ),
-                            const SizedBox(width: 3),
+                            const SizedBox(width: 4),
                             Text(
-                              entry.value.label,
-                              style: TextStyle(
-                                  fontSize: 7.5,
-                                  color: NkColors.slate700.withValues(alpha: 0.85)),
+                              context.tr(entry.value.label),
+                              style: const TextStyle(
+                                  fontSize: 9, color: NkColors.slate700),
                             ),
                           ],
                         ),
@@ -474,28 +470,9 @@ class _MapCardState extends State<MapCard> {
             ),
           ),
 
-          // ── Selected issue sheet (slides up inside the card) ──
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: AnimatedSlide(
-              duration: const Duration(milliseconds: 340),
-              curve: NkMotion.settle,
-              offset: widget.selected == null
-                  ? const Offset(0, 1)
-                  : Offset.zero,
-              child: widget.selected == null
-                  ? const SizedBox.shrink()
-                  : _SelectedSheet(
-                      issue: widget.selected!,
-                      onClose: () => widget.onSelect(null),
-                      onUpvote: widget.onUpvote == null
-                          ? null
-                          : () => widget.onUpvote!(widget.selected!),
-                    ),
-            ),
-          ),
+          // Tapping a pin no longer opens a separate sheet — the parent
+          // highlights + brings forward the matching grievance ribbon in the
+          // list below (see onSelect handling in the home screens). #6
         ],
       ),
     );
@@ -579,7 +556,7 @@ class _LocateChip extends StatelessWidget {
     final loc = locate;
     Widget inner;
     if (loc == null || locating) {
-      inner = const Row(
+      inner = Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           SizedBox(
@@ -590,7 +567,7 @@ class _LocateChip extends StatelessWidget {
           ),
           SizedBox(width: 6),
           Text(
-            'Detecting zone…',
+            context.tr('Detecting zone…'),
             style: TextStyle(
               fontSize: 10,
               fontWeight: FontWeight.w600,
@@ -600,19 +577,19 @@ class _LocateChip extends StatelessWidget {
         ],
       );
     } else if (!loc.inside) {
-      inner = const Column(
+      inner = Column(
         crossAxisAlignment: CrossAxisAlignment.end,
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(
-            'Outside GCC limits',
+            context.tr('Outside GCC limits'),
             style: TextStyle(
                 fontSize: 10,
                 fontWeight: FontWeight.w700,
                 color: NkColors.slate600),
           ),
           Text(
-            'No ward boundary here',
+            context.tr('No ward boundary here'),
             style: TextStyle(fontSize: 9, color: NkColors.slate400),
           ),
         ],
@@ -693,218 +670,3 @@ class _LocateChip extends StatelessWidget {
   }
 }
 
-/// Bottom sheet for the tapped pin, floating inside the map card.
-class _SelectedSheet extends StatelessWidget {
-  const _SelectedSheet({
-    required this.issue,
-    required this.onClose,
-    this.onUpvote,
-  });
-
-  final Issue issue;
-  final VoidCallback onClose;
-  final VoidCallback? onUpvote;
-
-  static Widget _photoFallback() => Container(
-        height: 64,
-        width: 64,
-        color: NkColors.slate100,
-        alignment: Alignment.center,
-        child: const Text('🛣️', style: TextStyle(fontSize: 24)),
-      );
-
-  @override
-  Widget build(BuildContext context) {
-    final image = mediaImage(issue.imageUrl);
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.only(
-          topLeft: Radius.circular(16),
-          topRight: Radius.circular(16),
-        ),
-        boxShadow: [
-          BoxShadow(color: Color(0x40000000), blurRadius: 24),
-        ],
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: image != null
-                    ? Image(
-                        image: image,
-                        height: 64,
-                        width: 64,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => _photoFallback(),
-                      )
-                    : _photoFallback(),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          child: Text(
-                            issue.title,
-                            style: const TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w700,
-                              height: 1.25,
-                              color: NkColors.slate900,
-                            ),
-                          ),
-                        ),
-                        GestureDetector(
-                          onTap: onClose,
-                          child: const Icon(Icons.close,
-                              size: 16, color: NkColors.slate400),
-                        ),
-                      ],
-                    ),
-                    if (issue.areaName != null)
-                      Text(
-                        issue.areaName!,
-                        style: const TextStyle(
-                            fontSize: 12, color: NkColors.slate500),
-                      ),
-                    const SizedBox(height: 4),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 4,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      children: [
-                        StatusChip(status: issue.status, fontSize: 10),
-                        if (issue.wardNo != null)
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 8, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: NkColors.violet50,
-                              borderRadius: BorderRadius.circular(999),
-                              border:
-                                  Border.all(color: NkColors.violet200),
-                            ),
-                            child: Text(
-                              'Ward no: ${issue.wardNo}',
-                              style: const TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.w600,
-                                color: NkColors.violet700,
-                              ),
-                            ),
-                          ),
-                        Text(
-                          ticketNumber(issue.id),
-                          style: const TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w600,
-                            fontFamily: 'monospace',
-                            color: NkColors.slate400,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          if (issue.summaryHighlights.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 4,
-              runSpacing: 4,
-              children: [
-                for (final h in issue.summaryHighlights)
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 8, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: NkColors.brand50,
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                    child: Text(
-                      h,
-                      style: const TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w500,
-                        color: NkColors.brand,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ],
-          const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Row(
-                children: [
-                  const Icon(Icons.thumb_up,
-                      size: 13, color: NkColors.slate700),
-                  const SizedBox(width: 4),
-                  Text(
-                    '${issue.upvotes}',
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: NkColors.slate700,
-                    ),
-                  ),
-                  if (issue.distanceM != null) ...[
-                    const SizedBox(width: 6),
-                    Text(
-                      '${issue.distanceM!.round()} m',
-                      style: const TextStyle(
-                          fontSize: 12, color: NkColors.slate400),
-                    ),
-                  ],
-                ],
-              ),
-              if (onUpvote != null)
-                GestureDetector(
-                  onTap: onUpvote,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: NkColors.brand,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Row(
-                      children: [
-                        Icon(Icons.thumb_up_outlined,
-                            size: 12, color: Colors.white),
-                        SizedBox(width: 4),
-                        Text(
-                          'Upvote',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
