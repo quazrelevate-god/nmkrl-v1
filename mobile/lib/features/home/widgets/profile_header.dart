@@ -10,12 +10,12 @@ import '../../profile/profile_screen.dart';
 import '../../shared/notification_bell.dart';
 import '../../shared/wave_mark.dart';
 
-/// Home header — a flat, full-bleed navy bar (v2). Gold brand mark + language
-/// toggle + notification bell + avatar, with the greeting always visible below.
-/// The header is a fixed-height rectangle (no rounded corners, no expansion):
-/// tapping the avatar navigates to [ProfileScreen]. The map card below overlaps
-/// the bottom edge, and the per-account stats live in [HomeStatsRow] in the
-/// body.
+/// Home header — floats directly over the full-bleed map (v3). Gold brand mark
+/// + language toggle + notification bell + avatar, with the greeting always
+/// visible below. There is no solid bar: the background is a vertical gradient
+/// running from brand blue at the status bar to fully transparent at the bottom
+/// edge, so the map reads through with no hard seam. Tapping the avatar
+/// navigates to [ProfileScreen].
 class ProfileHeader extends ConsumerWidget {
   const ProfileHeader({super.key});
 
@@ -32,10 +32,16 @@ class ProfileHeader extends ConsumerWidget {
     final topInset = MediaQuery.paddingOf(context).top;
     return Container(
       width: double.infinity,
-      // Flat full-bleed rectangle — navy runs edge to edge and up behind the
-      // status bar (topInset). The overlapping map card owns all rounding.
-      decoration: const BoxDecoration(gradient: nkNavyGradient),
-      padding: EdgeInsets.fromLTRB(16, topInset + 10, 16, 24),
+      // Brand blue at full opacity behind the status bar, fading to alpha 0 at
+      // the bottom edge so the map underneath shows through seamlessly.
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [NkColors.brand, Color(0x001A3556)],
+        ),
+      ),
+      padding: EdgeInsets.fromLTRB(16, topInset + 10, 16, 18),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -73,6 +79,12 @@ class ProfileHeader extends ConsumerWidget {
                 fontWeight: FontWeight.w800,
                 letterSpacing: -0.2,
                 color: Colors.white,
+                // The gradient is near-transparent this far down, so the
+                // greeting needs its own contrast against the map tiles.
+                shadows: [
+                  Shadow(color: Color(0x661A3556), blurRadius: 8),
+                  Shadow(color: Color(0x4D000000), blurRadius: 2),
+                ],
               ),
               overflow: TextOverflow.ellipsis,
             ),
@@ -143,101 +155,6 @@ class _ProfileAvatar extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-}
-
-/// The four per-account counters (Reports / Upvotes / Resolved / Open) as a
-/// permanent white card row in the home body (v2). `stats` is null until the
-/// first history load, so tiles show "—".
-class HomeStatsRow extends StatelessWidget {
-  const HomeStatsRow({super.key, required this.stats});
-
-  final ({int reports, int upvotes, int resolved, int open})? stats;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        for (final (icon, value, label, fg, bg) in [
-          (
-            Icons.assignment_outlined,
-            stats == null ? '—' : '${stats!.reports}',
-            'Reports',
-            NkColors.brand,
-            NkColors.brand50
-          ),
-          (
-            Icons.thumb_up_outlined,
-            stats == null ? '—' : '${stats!.upvotes}',
-            'Upvotes',
-            NkColors.teal700,
-            NkColors.teal50
-          ),
-          (
-            Icons.check_circle_outline,
-            stats == null ? '—' : '${stats!.resolved}',
-            'Resolved',
-            NkColors.emerald700,
-            NkColors.emerald50
-          ),
-          (
-            Icons.schedule,
-            stats == null ? '—' : '${stats!.open}',
-            'Open',
-            NkColors.amber700,
-            NkColors.amber50
-          ),
-        ]) ...[
-          Expanded(
-            child: Container(
-              padding: const EdgeInsets.symmetric(vertical: 10),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(18),
-                border:
-                    Border.all(color: NkColors.slate200.withValues(alpha: 0.8)),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.04),
-                    blurRadius: 8,
-                    offset: const Offset(0, 3),
-                  ),
-                ],
-              ),
-              child: Column(
-                children: [
-                  Container(
-                    height: 30,
-                    width: 30,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(color: bg, shape: BoxShape.circle),
-                    child: Icon(icon, size: 16, color: fg),
-                  ),
-                  const SizedBox(height: 5),
-                  Text(
-                    value,
-                    style: const TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w900,
-                      color: NkColors.slate900,
-                    ),
-                  ),
-                  Text(
-                    context.tr(label),
-                    style: const TextStyle(
-                      fontSize: 9.5,
-                      fontWeight: FontWeight.w600,
-                      color: NkColors.slate500,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          if (label != 'Open') const SizedBox(width: 9),
-        ],
-      ],
     );
   }
 }

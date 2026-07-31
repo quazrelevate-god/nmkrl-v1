@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
@@ -25,9 +26,35 @@ import 'widgets/profile_header.dart';
 /// mirrors DEFAULT_LOCATION in lib/hooks.js so the app stays usable.
 const kDefaultLocation = LatLng(13.0827, 80.2081);
 
-/// Home — the citizen map screen (port of the phase-1 web home): profile
-/// header, the grievance map card, and the In My Ward / My Reports lists,
-/// with the floating "+" report button.
+/// The three segments of the home sheet, in display order.
+enum _HomeTab { mine, ward, supports }
+
+/// Sheet snap fractions — collapsed shows only the pinned pills+tabs block,
+/// normal is the landing state, expanded gives the list the most room.
+const double _kSheetMin = 0.18;
+const double _kSheetNormal = 0.52;
+const double _kSheetMax = 0.78;
+
+/// Midpoints between the snaps — the band that counts as "resting at normal".
+const double _kNormalLowerEdge = (_kSheetMin + _kSheetNormal) / 2;
+const double _kNormalUpperEdge = (_kSheetNormal + _kSheetMax) / 2;
+
+/// Height of the pinned grip + filter pills + segmented tabs block.
+/// grip 8+4+10, pills 38+10, segments ~39, trailing 12 ≈ 121. Held a few
+/// px above that: the sliver extent is fixed, so slack is invisible white
+/// space whereas a short value would clip the tab row.
+const double _kSheetHeaderHeight = 126;
+
+/// Backend statuses grouped behind each filter pill.
+const Map<String, Set<String>> _kStatusBuckets = {
+  'open': {'SUBMITTED', 'ACTIVE'},
+  'progress': {'FORWARDED', 'IN_PROGRESS'},
+  'resolved': {'CLOSED'},
+};
+
+/// Home — the citizen map screen: a full-bleed map with the app bar floating
+/// over it behind a fading gradient, and every list surface living in a
+/// draggable bottom sheet with status filter pills and three segments.
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
 
@@ -59,8 +86,31 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   String? _busyId;
 
   // UI state
-  int _tab = 0; // 0 = ward, 1 = mine
+  _HomeTab _tab = _HomeTab.mine;
   String? _expandedId;
+
+  /// Active status filter pill (null = show everything).
+  String? _statusFilter;
+
+  final _sheetCtrl = DraggableScrollableController();
+
+  /// Live sheet extent, driven every drag frame. Deliberately a notifier and
+  /// not `setState` state: only the ward pill listens, so dragging never
+  /// rebuilds the map underneath.
+  final _sheetExtent = ValueNotifier<double>(_kSheetNormal);
+
+  /// True while the sheet rests at or below its normal snap — My Reports then
+  /// shows a single card. Tracked as a bool rather than the raw extent so the
+  /// drag only rebuilds when it actually crosses the threshold.
+  bool _sheetAtOrBelowNormal = true;
+
+  /// The FAB only belongs to the normal snap — collapsed it would cover the
+  /// tab row, expanded it would cover the list.
+  bool _sheetAtNormal = true;
+  bool _fabVisible = true;
+
+  /// The "no reports yet → land on My Ward" fallback only fires once.
+  bool _autoTabApplied = false;
 
   LatLng? get _coords => _override ?? _geoCoords;
 
@@ -73,6 +123,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     _locateDevice();
     _loadBoundaries();
     _loadHistory();
+  }
+
+  @override
+  void dispose() {
+    _sheetCtrl.dispose();
+    _sheetExtent.dispose();
+    super.dispose();
   }
 
   // ── Location (port of useGeolocation) ──────────────────────────────────
@@ -172,6 +229,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         setState(() {
           _history = list;
           _histLoading = false;
+          // Landing on an empty My Reports is a dead end — switch to My Ward
+          // silently the first time we learn the account has no reports.
+          if (!_autoTabApplied) {
+            _autoTabApplied = true;
+            if (_tab == _HomeTab.mine && list.isEmpty) _tab = _HomeTab.ward;
+          }
         });
       }
     } catch (e) {
@@ -194,6 +257,33 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           .fetchUserStats(ref.read(userIdProvider));
       if (mounted) setState(() => _stats = s);
     } catch (_) {/* leave previous values */}
+  }
+
+  // ── Filtering ──────────────────────────────────────────────────────────
+
+  /// The unfiltered list backing the active segment.
+  List<Issue> get _tabIssues => switch (_tab) {
+        _HomeTab.ward => _wardIssues,
+        _HomeTab.mine => _history,
+        // No endpoint exposes "grievances I upvoted" yet — the segment shows
+        // its cast-upvote count and an empty state until one exists.
+        _HomeTab.supports => const <Issue>[],
+      };
+
+  List<Issue> _applyStatusFilter(List<Issue> list) {
+    final bucket = _kStatusBuckets[_statusFilter];
+    if (bucket == null) return list;
+    return list.where((i) => bucket.contains(i.status)).toList();
+  }
+
+  int _bucketCount(List<Issue> list, String key) {
+    final bucket = _kStatusBuckets[key]!;
+    return list.where((i) => bucket.contains(i.status)).length;
+  }
+
+  void _toggleStatusFilter(String key) {
+    HapticFeedback.selectionClick();
+    setState(() => _statusFilter = _statusFilter == key ? null : key);
   }
 
   // ── Actions ────────────────────────────────────────────────────────────
@@ -306,17 +396,25 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       setState(() => _expandedId = _expandedId == id ? null : id);
 
   /// A tapped map pin highlights + brings forward the matching grievance
-  /// ribbon in the list (#6) — no separate sheet. Expands it, scrolls it into
-  /// view, and switches to the ward tab if the issue is a ward grievance.
+  /// ribbon in the sheet (#6) — no separate sheet. Expands it, lifts the sheet
+  /// to its normal snap so the card is on screen, and switches to the ward
+  /// segment if the issue is a ward grievance.
   void _onMapSelect(Issue? i) {
     setState(() {
       _selected = i;
       if (i != null) {
         _expandedId = i.id;
-        if (_wardIssues.any((w) => w.id == i.id)) _tab = 0;
+        if (_wardIssues.any((w) => w.id == i.id)) _tab = _HomeTab.ward;
       }
     });
     if (i == null) return;
+    if (_sheetCtrl.isAttached && _sheetCtrl.size < _kSheetNormal) {
+      _sheetCtrl.animateTo(
+        _kSheetNormal,
+        duration: const Duration(milliseconds: 300),
+        curve: NkMotion.settle,
+      );
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final ctx = _cardKeys[i.id]?.currentContext;
       if (ctx != null) {
@@ -364,210 +462,156 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final pendingVerify =
-        _history.where((i) => i.status == 'PENDING_VERIFICATION').toList();
+    final topInset = MediaQuery.paddingOf(context).top;
+    final screenH = MediaQuery.sizeOf(context).height;
+    final fabShown = _fabVisible && _sheetAtNormal;
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: SystemUiOverlayStyle.dark,
+      value: SystemUiOverlayStyle.light,
       child: Scaffold(
+        // The map is the background — never let the keyboard or the sheet
+        // resize it out from under the stack.
+        resizeToAvoidBottomInset: false,
         body: Stack(
           children: [
-            // Soft app background (port of .app-bg)
-            const Positioned.fill(child: _AppBackground()),
+            // ── 1. Full-bleed map, edge to edge and behind everything ──
+            Positioned.fill(
+              child: MapCard(
+                center: _coords,
+                issues: _applyStatusFilter(_wardIssues),
+                selected: _selected,
+                onSelect: _onMapSelect,
+                boundaries: _boundaries,
+                currentWard: _currentWard,
+                locate: _locate,
+                locating: _locating,
+                egmoreActive: _override != null,
+                onJumpEgmore: _jumpToEgmore,
+                onUpvote: _upvote,
+                borderRadius: 0,
+                showLegend: false,
+                showLocateChip: false,
+                // Clear the floating app bar above and the sheet below.
+                // 96 ≈ brand row (40) + gap (8) + greeting (21) + padding.
+                searchTop: topInset + 96,
+                searchHorizontal: 14,
+                controlsBottomInset: screenH * _kSheetNormal + 10,
+              ),
+            ),
 
-            // Flat full-bleed navy header pinned at the top; everything below
-            // is lifted 14px so the map card overlaps the header's bottom edge.
-            Column(
-              children: [
-                const ProfileHeader(),
-                Expanded(
-                  child: Transform.translate(
-                    offset: const Offset(0, -14),
-                    child: Column(
-                      children: [
-                  // ── Map card (separate, overlapping the header) ──
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Container(
-                          height: 300,
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(26),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.12),
-                                blurRadius: 24,
-                                offset: const Offset(0, 10),
-                              ),
-                            ],
-                          ),
-                          child: MapCard(
-                            center: _coords,
-                            issues: _wardIssues,
-                            selected: _selected,
-                            onSelect: _onMapSelect,
-                            boundaries: _boundaries,
-                            currentWard: _currentWard,
-                            locate: _locate,
-                            locating: _locating,
-                            egmoreActive: _override != null,
-                            onJumpEgmore: _jumpToEgmore,
-                            onUpvote: _upvote,
-                          ),
+            // ── 2. App bar floating over the map behind a fading gradient ──
+            const Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: ProfileHeader(),
+            ),
+
+            // ── 3. Constituency · ward pill — rides 10dp above the sheet's
+            // top edge while the sheet is at or below its normal snap, then
+            // parks there and lets the expanding sheet slide over it ──
+            if (_currentWard != null)
+              ValueListenableBuilder<double>(
+                valueListenable: _sheetExtent,
+                builder: (context, extent, child) => Positioned(
+                  left: 14,
+                  bottom: screenH *
+                          (extent > _kSheetNormal ? _kSheetNormal : extent) +
+                      10,
+                  child: child!,
+                ),
+                child: _WardPill(
+                  constituency: (_locate?.constituencies.isEmpty ?? true)
+                      ? ''
+                      : shortAC(_locate!.constituencies.first),
+                  ward: '$_currentWard',
+                ),
+              ),
+
+            // ── 4. The draggable content sheet ──
+            NotificationListener<DraggableScrollableNotification>(
+              onNotification: (n) {
+                // Drives the ward pill only — no setState, so the map does
+                // not rebuild on every drag frame.
+                _sheetExtent.value = n.extent;
+
+                // These two genuinely change content, so they do rebuild —
+                // but only when the extent crosses a threshold.
+                final atOrBelow = n.extent < _kNormalUpperEdge;
+                final atNormal =
+                    n.extent > _kNormalLowerEdge && n.extent < _kNormalUpperEdge;
+                if (atOrBelow != _sheetAtOrBelowNormal ||
+                    atNormal != _sheetAtNormal) {
+                  setState(() {
+                    _sheetAtOrBelowNormal = atOrBelow;
+                    _sheetAtNormal = atNormal;
+                  });
+                }
+                return false;
+              },
+              child: NotificationListener<UserScrollNotification>(
+                onNotification: (n) {
+                  final hide = n.direction == ScrollDirection.reverse;
+                  final show = n.direction == ScrollDirection.forward ||
+                      n.direction == ScrollDirection.idle;
+                  if (hide && _fabVisible) {
+                    setState(() => _fabVisible = false);
+                  } else if (show && !_fabVisible) {
+                    setState(() => _fabVisible = true);
+                  }
+                  return false;
+                },
+                child: DraggableScrollableSheet(
+                  controller: _sheetCtrl,
+                  initialChildSize: _kSheetNormal,
+                  minChildSize: _kSheetMin,
+                  maxChildSize: _kSheetMax,
+                  snap: true,
+                  snapSizes: const [_kSheetMin, _kSheetNormal, _kSheetMax],
+                  builder: (context, scrollController) => DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: const BorderRadius.vertical(
+                          top: Radius.circular(20)),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.16),
+                          blurRadius: 24,
+                          offset: const Offset(0, -6),
                         ),
-                        const SizedBox(height: 14),
-                        // Per-account stats (permanent row — v2)
-                        HomeStatsRow(stats: _stats),
                       ],
                     ),
-                  ),
-
-                  // ── Tab switcher (pinned) ──
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
-                    child: Container(
-                      padding: const EdgeInsets.all(4),
-                      decoration: BoxDecoration(
-                        color: NkColors.slate200.withValues(alpha: 0.7),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Row(
-                        children: [
-                          for (final (idx, icon, label) in [
-                            (
-                              0,
-                              Icons.groups_outlined,
-                              '${context.tr('In My Ward')}${_currentWard != null ? ' (${_wardIssues.length})' : ''}'
+                    child: ClipRRect(
+                      borderRadius: const BorderRadius.vertical(
+                          top: Radius.circular(20)),
+                      child: CustomScrollView(
+                        controller: scrollController,
+                        physics: const ClampingScrollPhysics(),
+                        slivers: [
+                          SliverPersistentHeader(
+                            pinned: true,
+                            delegate: _SheetHeaderDelegate(
+                              height: _kSheetHeaderHeight,
+                              child: _buildSheetHeader(),
                             ),
-                            (
-                              1,
-                              Icons.description_outlined,
-                              '${context.tr('My Reports')} (${_history.length})'
-                            ),
-                          ])
-                            Expanded(
-                              child: GestureDetector(
-                                onTap: () {
-                                  HapticFeedback.selectionClick();
-                                  setState(() => _tab = idx);
-                                },
-                                child: AnimatedContainer(
-                                  duration: const Duration(milliseconds: 260),
-                                  curve: NkMotion.settle,
-                                  padding:
-                                      const EdgeInsets.symmetric(vertical: 8),
-                                  decoration: BoxDecoration(
-                                    color: _tab == idx
-                                        ? Colors.white
-                                        : Colors.transparent,
-                                    borderRadius: BorderRadius.circular(8),
-                                    boxShadow: _tab == idx
-                                        ? [
-                                            BoxShadow(
-                                              color: Colors.black
-                                                  .withValues(alpha: 0.06),
-                                              blurRadius: 4,
-                                              offset: const Offset(0, 1),
-                                            ),
-                                          ]
-                                        : null,
-                                  ),
-                                  child: Row(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      Icon(icon,
-                                          size: 13,
-                                          color: _tab == idx
-                                              ? NkColors.slate900
-                                              : NkColors.slate500),
-                                      const SizedBox(width: 6),
-                                      Text(
-                                        label,
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w700,
-                                          color: _tab == idx
-                                              ? NkColors.slate900
-                                              : NkColors.slate500,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
+                          ),
+                          SliverPadding(
+                            padding: const EdgeInsets.fromLTRB(14, 0, 14, 118),
+                            sliver: SliverList(
+                              delegate: SliverChildListDelegate(
+                                _buildSheetBody(),
                               ),
                             ),
-                        ],
-                      ),
-                    ),
-                  ),
-
-                  // Only the grievance list scrolls; pull-to-refresh is
-                  // scoped here so the map and tabs stay pinned.
-                  Expanded(
-                    child: RefreshIndicator(
-                      color: NkColors.brand,
-                      onRefresh: () async {
-                        await Future.wait([
-                          _loadHistory(),
-                          _loadBoundaries(),
-                          if (_currentWard != null) _loadWard(_currentWard!),
-                        ]);
-                      },
-                      child: ListView(
-                        physics: const AlwaysScrollableScrollPhysics(
-                            parent: BouncingScrollPhysics()),
-                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 120),
-                        children: [
-                          if (_error != null) ...[
-                            const SizedBox(height: 12),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 12, vertical: 8),
-                              decoration: BoxDecoration(
-                                color: NkColors.rose50,
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: Row(
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      _error!,
-                                      style: const TextStyle(
-                                          fontSize: 12,
-                                          color: NkColors.rose600),
-                                    ),
-                                  ),
-                                  GestureDetector(
-                                    onTap: () => setState(() => _error = null),
-                                    child: const Icon(Icons.close,
-                                        size: 14, color: NkColors.rose600),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                          const SizedBox(height: 12),
-                          AnimatedSwitcher(
-                            duration: const Duration(milliseconds: 260),
-                            switchInCurve: NkMotion.settle,
-                            child: _tab == 0
-                                ? _buildWardList()
-                                : _buildMyReports(pendingVerify),
                           ),
                         ],
                       ),
-                    ),
-                  ),
-                      ],
                     ),
                   ),
                 ),
-              ],
+              ),
             ),
 
-            // ── Floating notification banner for status updates ──
+            // ── 5. Floating notification banner for status updates ──
             Positioned(
               top: 0, left: 0, right: 0,
               child: NotificationPoller(
@@ -581,31 +625,44 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               ),
             ),
 
-            // ── Floating "+" report button ──
+            // ── 6. Floating "+" report button (hides while scrolling down) ──
             Positioned(
               left: 0,
               right: 0,
               bottom: 24,
               child: Center(
-                child: GestureDetector(
-                  onTap: _openReport,
-                  child: Container(
-                    height: 64,
-                    width: 64,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      gradient: nkBrandGradient,
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                          color: NkColors.brand.withValues(alpha: 0.45),
-                          blurRadius: 40,
-                          offset: const Offset(0, 12),
-                          spreadRadius: -6,
+                child: IgnorePointer(
+                  ignoring: !fabShown,
+                  child: AnimatedScale(
+                    scale: fabShown ? 1 : 0.6,
+                    duration: const Duration(milliseconds: 200),
+                    curve: NkMotion.settle,
+                    child: AnimatedOpacity(
+                      opacity: fabShown ? 1 : 0,
+                      duration: const Duration(milliseconds: 200),
+                      child: GestureDetector(
+                        onTap: _openReport,
+                        child: Container(
+                          height: 64,
+                          width: 64,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            gradient: nkBrandGradient,
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: NkColors.brand.withValues(alpha: 0.45),
+                                blurRadius: 40,
+                                offset: const Offset(0, 12),
+                                spreadRadius: -6,
+                              ),
+                            ],
+                          ),
+                          child: const Icon(Icons.add,
+                              size: 32, color: Colors.white),
                         ),
-                      ],
+                      ),
                     ),
-                    child: const Icon(Icons.add, size: 32, color: Colors.white),
                   ),
                 ),
               ),
@@ -616,323 +673,635 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
-  Widget _buildWardList() {
-    return Column(
-      key: const ValueKey('ward'),
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Expanded(
-              child: Text(
-                'Public grievances ${_currentWard != null ? 'in Ward $_currentWard' : 'in your ward'}',
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w800,
-                  color: NkColors.slate900,
-                ),
-              ),
-            ),
-            GestureDetector(
-              onTap: () {
-                final w = _currentWard;
-                if (w != null) _loadWard(w);
-              },
-              child: Row(
-                children: [
-                  Icon(Icons.refresh, size: 12, color: NkColors.brand),
-                  SizedBox(width: 4),
-                  Text(
-                    context.tr('Refresh'),
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                      color: NkColors.brand,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        if (_currentWard == null)
-          Padding(
-            padding: EdgeInsets.symmetric(vertical: 32),
-            child: Text(
-              context.tr('Locating your ward…'),
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 14, color: NkColors.slate400),
-            ),
-          )
-        else if (_wardIssues.isEmpty)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 40),
-            child: Column(
-              children: [
-                const Icon(Icons.groups_outlined,
-                    size: 32, color: NkColors.slate300),
-                const SizedBox(height: 8),
-                Text(
-                  'No public grievances in Ward $_currentWard yet.',
-                  textAlign: TextAlign.center,
-                  style:
-                      const TextStyle(fontSize: 14, color: NkColors.slate400),
-                ),
-              ],
-            ),
-          )
-        else
-          for (final issue in _wardIssues)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: _selectableCard(
-                issue,
-                IssueCard(
-                  issue: issue,
-                  expanded: _expandedId == issue.id,
-                  onToggle: () => _toggleExpand(issue.id),
-                  distanceKm: _distanceKm(issue),
-                  onUpvote: _upvote,
-                ),
-              ),
-            ),
-      ],
-    );
-  }
+  // ── Sheet: pinned header (grip + filter pills + segments) ──────────────
 
-  Widget _buildMyReports(List<Issue> pendingVerify) {
-    return Column(
-      key: const ValueKey('mine'),
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        // Action-required verification cards
-        for (final issue in pendingVerify)
-          Container(
-            margin: const EdgeInsets.only(bottom: 8),
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: NkColors.slate50,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: NkColors.slate200),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Row(
-                  children: [
-                    const Icon(Icons.tune, size: 14, color: NkColors.brand),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'Action Required — ${issue.title}',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: NkColors.slate700,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                const Text(
-                  'Authority marked this issue as RESOLVED. Has it really been fixed?',
-                  style: TextStyle(fontSize: 12, color: NkColors.slate500),
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: _busyId == issue.id
-                            ? null
-                            : () => _verify(issue, 'APPROVED'),
-                        child: Opacity(
-                          opacity: _busyId == issue.id ? 0.6 : 1,
-                          child: Container(
-                            height: 38,
-                            decoration: BoxDecoration(
-                              color: NkColors.emerald600,
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: const Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(Icons.check_circle_outline,
-                                    size: 13, color: Colors.white),
-                                SizedBox(width: 4),
-                                Text(
-                                  'Approve & Close',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
-                                    color: Colors.white,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: _busyId == issue.id
-                            ? null
-                            : () => _verify(issue, 'REJECTED'),
-                        child: Opacity(
-                          opacity: _busyId == issue.id ? 0.6 : 1,
-                          child: Container(
-                            height: 38,
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(color: NkColors.slate300),
-                            ),
-                            child: const Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(Icons.cancel_outlined,
-                                    size: 13, color: NkColors.slate600),
-                                SizedBox(width: 4),
-                                Text(
-                                  'Reject / Not Fixed',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
-                                    color: NkColors.slate600,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            const Text(
-              'My Grievances',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w800,
-                color: NkColors.slate900,
-              ),
-            ),
-            GestureDetector(
-              onTap: _loadHistory,
-              child: Row(
-                children: [
-                  Icon(Icons.refresh, size: 12, color: NkColors.brand),
-                  SizedBox(width: 4),
-                  Text(
-                    context.tr('Refresh'),
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                      color: NkColors.brand,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        if (_histLoading)
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 32),
-            child: Center(
-              child: SizedBox(
-                height: 22,
-                width: 22,
-                child: CircularProgressIndicator(
-                    strokeWidth: 2.4, color: NkColors.brand),
-              ),
-            ),
-          )
-        else if (_history.isEmpty)
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 40),
-            child: Column(
-              children: [
-                Icon(Icons.place_outlined, size: 32, color: NkColors.slate300),
-                SizedBox(height: 8),
-                Text(
-                  'No reports yet. Submit one from the "+" button.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 14, color: NkColors.slate400),
-                ),
-              ],
-            ),
-          )
-        else
-          for (final issue in _history)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: _selectableCard(
-                issue,
-                IssueCard(
-                  issue: issue,
-                  expanded: _expandedId == issue.id,
-                  onToggle: () => _toggleExpand(issue.id),
-                  distanceKm: _distanceKm(issue),
-                ),
-              ),
-            ),
-      ],
-    );
-  }
-}
-
-/// Soft radial-tinted background (port of .app-bg).
-class _AppBackground extends StatelessWidget {
-  const _AppBackground();
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: const BoxDecoration(color: Color(0xFFFBFCFD)),
-      child: Stack(
+  Widget _buildSheetHeader() {
+    final source = _tabIssues;
+    return ColoredBox(
+      color: Colors.white,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Positioned(
-            top: -120,
-            left: -80,
-            child: _blob(NkColors.brand.withValues(alpha: 0.06), 420),
+          const SizedBox(height: 8),
+          Container(
+            height: 4,
+            width: 36,
+            decoration: BoxDecoration(
+              color: const Color(0xFFD0D5DD),
+              borderRadius: BorderRadius.circular(999),
+            ),
           ),
-          Positioned(
-            top: 40,
-            right: -140,
-            child: _blob(NkColors.gold300.withValues(alpha: 0.06), 360),
+          const SizedBox(height: 10),
+
+          // Status filter pills — replace the old map legend.
+          SizedBox(
+            height: 38,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              children: [
+                for (final (key, label, fg, bg) in [
+                  ('open', 'Open', NkColors.rose600, NkColors.rose50),
+                  ('progress', 'In progress', NkColors.sky700, NkColors.sky50),
+                  (
+                    'resolved',
+                    'Resolved',
+                    NkColors.emerald700,
+                    NkColors.emerald50
+                  ),
+                ])
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: _FilterPill(
+                      count: _bucketCount(source, key),
+                      label: context.tr(label),
+                      fg: fg,
+                      bg: bg,
+                      active: _statusFilter == key,
+                      onTap: () => _toggleStatusFilter(key),
+                    ),
+                  ),
+              ],
+            ),
           ),
-          Positioned(
-            bottom: -160,
-            left: 60,
-            child: _blob(NkColors.brand.withValues(alpha: 0.045), 380),
+          const SizedBox(height: 10),
+
+          // Three-segment control — the original slate/white pill styling.
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            child: Container(
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: NkColors.slate200.withValues(alpha: 0.7),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                children: [
+                  for (final (tab, icon, label, count) in [
+                    (
+                      _HomeTab.mine,
+                      Icons.description_outlined,
+                      'My Reports',
+                      _history.length
+                    ),
+                    (
+                      _HomeTab.ward,
+                      Icons.groups_outlined,
+                      'My Ward',
+                      _wardIssues.length
+                    ),
+                    (
+                      _HomeTab.supports,
+                      Icons.thumb_up_outlined,
+                      'My Supports',
+                      _stats?.upvotes ?? 0
+                    ),
+                  ])
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () {
+                          if (_tab == tab) return;
+                          HapticFeedback.selectionClick();
+                          setState(() => _tab = tab);
+                        },
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 260),
+                          curve: NkMotion.settle,
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          decoration: BoxDecoration(
+                            color:
+                                _tab == tab ? Colors.white : Colors.transparent,
+                            borderRadius: BorderRadius.circular(8),
+                            boxShadow: _tab == tab
+                                ? [
+                                    BoxShadow(
+                                      color:
+                                          Colors.black.withValues(alpha: 0.06),
+                                      blurRadius: 4,
+                                      offset: const Offset(0, 1),
+                                    ),
+                                  ]
+                                : null,
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                icon,
+                                size: 13,
+                                color: _tab == tab
+                                    ? NkColors.slate900
+                                    : NkColors.slate500,
+                              ),
+                              const SizedBox(width: 6),
+                              Flexible(
+                                child: Text(
+                                  '${context.tr(label)} $count',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    color: _tab == tab
+                                        ? NkColors.slate900
+                                        : NkColors.slate500,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
           ),
+          const SizedBox(height: 12),
         ],
       ),
     );
   }
 
-  Widget _blob(Color color, double size) => Container(
-        height: size,
-        width: size,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          gradient: RadialGradient(
-            colors: [color, color.withValues(alpha: 0)],
+  // ── Sheet: scrolling body ──────────────────────────────────────────────
+
+  List<Widget> _buildSheetBody() {
+    final out = <Widget>[];
+
+    if (_error != null) {
+      out.add(
+        Container(
+          margin: const EdgeInsets.only(bottom: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: NkColors.rose50,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  _error!,
+                  style: const TextStyle(
+                      fontSize: 12, color: NkColors.rose600),
+                ),
+              ),
+              GestureDetector(
+                onTap: () => setState(() => _error = null),
+                child: const Icon(Icons.close,
+                    size: 14, color: NkColors.rose600),
+              ),
+            ],
           ),
         ),
       );
+    }
+
+    out.add(_sectionHeader());
+    out.add(const SizedBox(height: 8));
+
+    switch (_tab) {
+      case _HomeTab.ward:
+        out.addAll(_wardCards());
+      case _HomeTab.mine:
+        out.addAll(_myReportCards());
+      case _HomeTab.supports:
+        out.addAll(_supportCards());
+    }
+    return out;
+  }
+
+  Widget _sectionHeader() {
+    final (title, onRefresh) = switch (_tab) {
+      _HomeTab.ward => (
+          'Public grievances ${_currentWard != null ? 'in Ward $_currentWard' : 'in your ward'}',
+          () {
+            final w = _currentWard;
+            if (w != null) _loadWard(w);
+          }
+        ),
+      _HomeTab.mine => ('My Grievances', _loadHistory),
+      _HomeTab.supports => ('My Supports', _loadStats),
+    };
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Expanded(
+          child: Text(
+            title,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w800,
+              color: NkColors.slate900,
+            ),
+          ),
+        ),
+        GestureDetector(
+          onTap: onRefresh,
+          child: Row(
+            children: [
+              Icon(Icons.refresh, size: 12, color: NkColors.brand),
+              SizedBox(width: 4),
+              Text(
+                context.tr('Refresh'),
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                  color: NkColors.brand,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _emptyState(IconData icon, String message) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 40),
+        child: Column(
+          children: [
+            Icon(icon, size: 32, color: NkColors.slate300),
+            const SizedBox(height: 8),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 14, color: NkColors.slate400),
+            ),
+          ],
+        ),
+      );
+
+  List<Widget> _wardCards() {
+    if (_currentWard == null) {
+      return [
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 32),
+          child: Text(
+            context.tr('Locating your ward…'),
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 14, color: NkColors.slate400),
+          ),
+        ),
+      ];
+    }
+
+    final list = _applyStatusFilter(_wardIssues);
+    if (list.isEmpty) {
+      return [
+        _emptyState(
+          Icons.groups_outlined,
+          _statusFilter != null
+              ? 'No matching grievances in Ward $_currentWard.'
+              : 'No public grievances in Ward $_currentWard yet.',
+        ),
+      ];
+    }
+
+    return [
+      for (final issue in list)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: _selectableCard(
+            issue,
+            IssueCard(
+              issue: issue,
+              expanded: _expandedId == issue.id,
+              onToggle: () => _toggleExpand(issue.id),
+              distanceKm: _distanceKm(issue),
+              onUpvote: _upvote,
+            ),
+          ),
+        ),
+    ];
+  }
+
+  List<Widget> _myReportCards() {
+    final out = <Widget>[];
+
+    // Action-required verification cards always show — they are blocking.
+    for (final issue
+        in _history.where((i) => i.status == 'PENDING_VERIFICATION')) {
+      out.add(_verifyCard(issue));
+    }
+
+    if (_histLoading) {
+      out.add(
+        const Padding(
+          padding: EdgeInsets.symmetric(vertical: 32),
+          child: Center(
+            child: SizedBox(
+              height: 22,
+              width: 22,
+              child: CircularProgressIndicator(
+                  strokeWidth: 2.4, color: NkColors.brand),
+            ),
+          ),
+        ),
+      );
+      return out;
+    }
+
+    var list = _applyStatusFilter(_history);
+    if (list.isEmpty) {
+      out.add(
+        _emptyState(
+          Icons.place_outlined,
+          _statusFilter != null
+              ? 'No matching reports.'
+              : 'No reports yet. Submit one from the "+" button.',
+        ),
+      );
+      return out;
+    }
+
+    // At the normal snap only the most recent report is shown — pulling the
+    // sheet up reveals the rest.
+    if (_sheetAtOrBelowNormal) list = list.take(1).toList();
+
+    for (final issue in list) {
+      out.add(
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: _selectableCard(
+            issue,
+            IssueCard(
+              issue: issue,
+              expanded: _expandedId == issue.id,
+              onToggle: () => _toggleExpand(issue.id),
+              distanceKm: _distanceKm(issue),
+            ),
+          ),
+        ),
+      );
+    }
+    return out;
+  }
+
+  List<Widget> _supportCards() => [
+        _emptyState(
+          Icons.thumb_up_outlined,
+          'No supported grievances yet.',
+        ),
+      ];
+
+  Widget _verifyCard(Issue issue) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: NkColors.slate50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: NkColors.slate200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.tune, size: 14, color: NkColors.brand),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Action Required — ${issue.title}',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: NkColors.slate700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Authority marked this issue as RESOLVED. Has it really been fixed?',
+            style: TextStyle(fontSize: 12, color: NkColors.slate500),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: GestureDetector(
+                  onTap: _busyId == issue.id
+                      ? null
+                      : () => _verify(issue, 'APPROVED'),
+                  child: Opacity(
+                    opacity: _busyId == issue.id ? 0.6 : 1,
+                    child: Container(
+                      height: 38,
+                      decoration: BoxDecoration(
+                        color: NkColors.emerald600,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.check_circle_outline,
+                              size: 13, color: Colors.white),
+                          SizedBox(width: 4),
+                          Text(
+                            'Approve & Close',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: GestureDetector(
+                  onTap: _busyId == issue.id
+                      ? null
+                      : () => _verify(issue, 'REJECTED'),
+                  child: Opacity(
+                    opacity: _busyId == issue.id ? 0.6 : 1,
+                    child: Container(
+                      height: 38,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: NkColors.slate300),
+                      ),
+                      child: const Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.cancel_outlined,
+                              size: 13, color: NkColors.slate600),
+                          SizedBox(width: 4),
+                          Text(
+                            'Reject / Not Fixed',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: NkColors.slate600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Fixed-height pinned block at the top of the sheet.
+class _SheetHeaderDelegate extends SliverPersistentHeaderDelegate {
+  _SheetHeaderDelegate({required this.height, required this.child});
+
+  final double height;
+  final Widget child;
+
+  @override
+  double get minExtent => height;
+
+  @override
+  double get maxExtent => height;
+
+  @override
+  Widget build(BuildContext context, double shrinkOffset, bool overlaps) =>
+      SizedBox(height: height, child: child);
+
+  @override
+  bool shouldRebuild(_SheetHeaderDelegate old) =>
+      old.height != height || old.child != child;
+}
+
+/// A status filter chip — count + label, colored per status family.
+class _FilterPill extends StatelessWidget {
+  const _FilterPill({
+    required this.count,
+    required this.label,
+    required this.fg,
+    required this.bg,
+    required this.active,
+    required this.onTap,
+  });
+
+  final int count;
+  final String label;
+  final Color fg;
+  final Color bg;
+  final bool active;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        curve: NkMotion.settle,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: active ? fg : bg,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: fg, width: 1.5),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              '$count',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+                color: active ? Colors.white : fg,
+              ),
+            ),
+            const SizedBox(width: 5),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: active ? Colors.white : fg,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Floating "Egmore | Ward 103" chip pinned to the map above the sheet.
+class _WardPill extends StatelessWidget {
+  const _WardPill({required this.constituency, required this.ward});
+
+  final String constituency;
+  final String ward;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.16),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (constituency.isNotEmpty) ...[
+            Text(
+              constituency,
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF1A2A3A),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Container(width: 1, height: 14, color: NkColors.slate300),
+            const SizedBox(width: 8),
+          ],
+          Text(
+            context.tr('Ward'),
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              color: Color(0xFF1A2A3A),
+            ),
+          ),
+          const SizedBox(width: 6),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1A2A3A),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Text(
+              ward,
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+                color: Colors.white,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }

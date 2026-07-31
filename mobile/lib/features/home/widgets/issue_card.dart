@@ -271,10 +271,6 @@ class IssueCard extends StatelessWidget {
                                 ),
                               ),
                             ),
-                            if (badge == null) ...[
-                              const SizedBox(width: 8),
-                              _PriorityChip(upvotes: issue.upvotes),
-                            ],
                           ],
                         ),
                         const SizedBox(height: 3),
@@ -642,41 +638,6 @@ class IssueCard extends StatelessWidget {
                   ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-/// Small priority pill shown top-right of a collapsed card. Derived from
-/// community support (upvotes), mirroring how the admin console ranks urgency —
-/// High (rose) / Medium (amber) / Low (emerald).
-class _PriorityChip extends StatelessWidget {
-  const _PriorityChip({required this.upvotes});
-
-  final int upvotes;
-
-  @override
-  Widget build(BuildContext context) {
-    final (label, fg, bg, border) = upvotes >= 8
-        ? ('High Priority', NkColors.rose700, NkColors.rose50, NkColors.rose200)
-        : upvotes >= 3
-            ? ('Medium', NkColors.amber700, NkColors.amber50, NkColors.amber200)
-            : ('Low', NkColors.emerald700, NkColors.emerald50,
-                NkColors.emerald100);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: border),
-      ),
-      child: Text(
-        context.tr(label),
-        style: TextStyle(
-          fontSize: 10,
-          fontWeight: FontWeight.w800,
-          color: fg,
-        ),
       ),
     );
   }

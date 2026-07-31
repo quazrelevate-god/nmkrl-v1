@@ -35,6 +35,11 @@ class MapCard extends StatefulWidget {
     this.onJumpEgmore,
     this.onUpvote,
     this.searchHint = 'Search ticket no. or grievance nearby',
+    this.borderRadius = 26,
+    this.showLegend = true,
+    this.searchTop = 8,
+    this.searchHorizontal = 12,
+    this.controlsBottomInset = 0,
   });
 
   final LatLng? center;
@@ -56,6 +61,19 @@ class MapCard extends StatefulWidget {
   /// When null the selected-issue sheet hides its Upvote button.
   final ValueChanged<Issue>? onUpvote;
   final String searchHint;
+
+  /// 0 makes the map full-bleed (citizen home); the coordinator keeps the card.
+  final double borderRadius;
+
+  /// The citizen home replaces the legend with status filter pills.
+  final bool showLegend;
+
+  /// Pushes the floating search bar down past an overlaying app bar.
+  final double searchTop;
+  final double searchHorizontal;
+
+  /// Lifts the zoom/legend/demo controls clear of an overlaying bottom sheet.
+  final double controlsBottomInset;
 
   @override
   State<MapCard> createState() => _MapCardState();
@@ -168,7 +186,7 @@ class _MapCardState extends State<MapCard> {
     final hasQuery = _query.text.trim().isNotEmpty;
 
     return ClipRRect(
-      borderRadius: BorderRadius.circular(26),
+      borderRadius: BorderRadius.circular(widget.borderRadius),
       child: Stack(
         children: [
           Positioned.fill(
@@ -231,9 +249,9 @@ class _MapCardState extends State<MapCard> {
 
           // ── Search bar + results dropdown ──
           Positioned(
-            left: 12,
-            right: 12,
-            top: 8,
+            left: widget.searchHorizontal,
+            right: widget.searchHorizontal,
+            top: widget.searchTop,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -354,15 +372,16 @@ class _MapCardState extends State<MapCard> {
           if (!hasQuery && widget.showLocateChip)
             Positioned(
               right: 12,
-              top: 54,
+              top: widget.searchTop + 46,
               child: _LocateChip(
                   locate: widget.locate, locating: widget.locating),
             ),
 
           // ── Status legend ──
+          if (widget.showLegend)
           Positioned(
             left: 8,
-            bottom: 8,
+            bottom: 8 + widget.controlsBottomInset,
             child: Container(
               padding: const EdgeInsets.all(6),
               decoration: BoxDecoration(
@@ -406,7 +425,7 @@ class _MapCardState extends State<MapCard> {
           // ── Zoom controls ──
           Positioned(
             right: 8,
-            bottom: 44,
+            bottom: 44 + widget.controlsBottomInset,
             child: Column(
               children: [
                 for (final (icon, dz) in [(Icons.add, 1.0), (Icons.remove, -1.0)])
@@ -434,7 +453,7 @@ class _MapCardState extends State<MapCard> {
           if (widget.onJumpEgmore != null)
           Positioned(
             right: 8,
-            bottom: 8,
+            bottom: 8 + widget.controlsBottomInset,
             child: GestureDetector(
               onTap: () {
                 HapticFeedback.selectionClick();
