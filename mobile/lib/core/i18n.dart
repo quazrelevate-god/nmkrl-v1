@@ -171,6 +171,18 @@ const Map<String, String> _ta = {
   'Open': 'நிலுவையில்',
   'Sign out': 'வெளியேறு',
 
+  // ── Home v4 (reference UI) ──
+  'Submit Your Grievance': 'உங்கள் குறையைச் சமர்ப்பிக்கவும்',
+  'In my Ward': 'என் வார்டில்',
+  'My Supports': 'என் ஆதரவுகள்',
+  'In-progress': 'செயலில்',
+  'Language': 'மொழி',
+  'Cancel': 'ரத்து',
+  'Search by ticket number, title or area.':
+      'டிக்கெட் எண், தலைப்பு அல்லது பகுதி மூலம் தேடுங்கள்.',
+  'No grievances match that search.':
+      'அந்தத் தேடலுக்குப் பொருந்தும் குறைகள் இல்லை.',
+
   // ── Home / map ──
   'Grievance map': 'குறை வரைபடம்',
   'Ward grievance map': 'வார்டு குறை வரைபடம்',

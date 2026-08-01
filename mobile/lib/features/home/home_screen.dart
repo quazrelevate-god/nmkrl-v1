@@ -58,9 +58,9 @@ const Color _kDeepNavy = Color(0xFF0D1F3C);
 /// The filter pills in display order — (bucket key, label, foreground, fill).
 /// They share the row width equally.
 const List<(String, String, Color, Color)> _kFilterPills = [
-  ('open', 'Open', NkColors.rose600, NkColors.rose50),
-  ('progress', 'In progress', NkColors.sky700, NkColors.sky50),
-  ('resolved', 'Resolved', NkColors.emerald700, NkColors.emerald50),
+  ('open', 'Open', Color(0xFFB4791F), Color(0xFFFBF0DA)), // sand / amber-brown
+  ('progress', 'In-progress', Color(0xFF2F6BD8), Color(0xFFE4ECFB)), // periwinkle
+  ('resolved', 'Resolved', Color(0xFF1F8A5B), Color(0xFFDFF3E7)), // mint
 ];
 
 /// Home — the citizen map screen: a full-bleed map with the app bar floating
@@ -462,11 +462,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final topInset = MediaQuery.paddingOf(context).top;
-    final screenH = MediaQuery.sizeOf(context).height;
-    final fabShown = _fabVisible && _sheetAtNormal;
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: SystemUiOverlayStyle.light,
+      // Dark glyphs — the pale basemap now runs right up under the status bar.
+      value: SystemUiOverlayStyle.dark,
       child: Scaffold(
         // The map is the background — never let the keyboard or the sheet
         // resize it out from under the stack.
@@ -490,35 +489,30 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 borderRadius: 0,
                 showLegend: false,
                 showLocateChip: false,
-                // Clear the floating app bar above and the sheet below.
-                // 96 ≈ brand row (40) + gap (8) + greeting (21) + padding.
-                searchTop: topInset + 96,
-                searchHorizontal: 14,
-                controlsBottomInset: screenH * _kSheetNormal + 10,
+                // Reference look: pale basemap, no inline search bar (search
+                // lives in the app bar), no zoom/locate chrome.
+                showSearch: false,
+                showControls: false,
+                paleTiles: true,
               ),
             ),
 
-            // ── 2. App bar floating over the map behind a fading gradient ──
-            const Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              child: ProfileHeader(),
+            // ── 2. Frosted app-bar capsule floating over the map ──
+            Positioned(
+              top: topInset + 8,
+              left: 14,
+              right: 14,
+              child: ProfileHeader(
+                searchIssues: [..._wardIssues, ..._history],
+                onUpvote: _upvote,
+              ),
             ),
 
-            // ── 3. Constituency · ward pill — rides 10dp above the sheet's
-            // top edge while the sheet is at or below its normal snap, then
-            // parks there and lets the expanding sheet slide over it ──
+            // ── 3. Constituency · ward chip, parked under the app bar ──
             if (_currentWard != null)
-              ValueListenableBuilder<double>(
-                valueListenable: _sheetExtent,
-                builder: (context, extent, child) => Positioned(
-                  left: 14,
-                  bottom: screenH *
-                          (extent > _kSheetNormal ? _kSheetNormal : extent) +
-                      10,
-                  child: child!,
-                ),
+              Positioned(
+                top: topInset + 8 + 56 + 10,
+                left: 14,
                 child: _WardPill(
                   constituency: (_locate?.constituencies.isEmpty ?? true)
                       ? ''
@@ -624,51 +618,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               ),
             ),
 
-            // ── 6. Floating "+" report button (hides while scrolling down) ──
+            // ── 6. Pinned "Submit Your Grievance" bar (replaces the + FAB) ──
             Positioned(
               left: 0,
               right: 0,
-              bottom: 24,
-              child: Center(
-                child: IgnorePointer(
-                  ignoring: !fabShown,
-                  child: AnimatedScale(
-                    scale: fabShown ? 1 : 0.6,
-                    duration: const Duration(milliseconds: 200),
-                    curve: NkMotion.settle,
-                    child: AnimatedOpacity(
-                      opacity: fabShown ? 1 : 0,
-                      duration: const Duration(milliseconds: 200),
-                      child: GestureDetector(
-                        onTap: _openReport,
-                        child: Container(
-                          height: 64,
-                          width: 64,
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            gradient: const LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                              colors: [_kRoyalBlue, _kDeepNavy],
-                            ),
-                            shape: BoxShape.circle,
-                            boxShadow: [
-                              BoxShadow(
-                                color: NkColors.brand.withValues(alpha: 0.45),
-                                blurRadius: 40,
-                                offset: const Offset(0, 12),
-                                spreadRadius: -6,
-                              ),
-                            ],
-                          ),
-                          child: const Icon(Icons.add,
-                              size: 32, color: NkColors.gold300),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
+              bottom: 0,
+              child: _SubmitBar(onTap: _openReport),
             ),
           ],
         ),
@@ -731,30 +686,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             child: Container(
               padding: const EdgeInsets.all(4),
               decoration: BoxDecoration(
-                color: NkColors.slate200.withValues(alpha: 0.7),
-                borderRadius: BorderRadius.circular(12),
+                color: const Color(0xFFEDEFF3),
+                borderRadius: BorderRadius.circular(999),
               ),
               child: Row(
                 children: [
-                  for (final (tab, icon, label, count) in [
-                    (
-                      _HomeTab.mine,
-                      Icons.description_outlined,
-                      'My Reports',
-                      _history.length
-                    ),
-                    (
-                      _HomeTab.ward,
-                      Icons.groups_outlined,
-                      'My Ward',
-                      _wardIssues.length
-                    ),
-                    (
-                      _HomeTab.supports,
-                      Icons.thumb_up_outlined,
-                      'My Supports',
-                      _stats?.upvotes ?? 0
-                    ),
+                  for (final (tab, label, count) in [
+                    (_HomeTab.mine, 'My Reports', _history.length),
+                    (_HomeTab.ward, 'In my Ward', _wardIssues.length),
+                    (_HomeTab.supports, 'My Supports', _stats?.upvotes ?? 0),
                   ])
                     Expanded(
                       child: GestureDetector(
@@ -768,24 +708,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           curve: NkMotion.settle,
                           padding: const EdgeInsets.symmetric(vertical: 8),
                           decoration: BoxDecoration(
-                            // Active fill is a royal-navy gradient; inactive
-                            // stays transparent. Geometry is unchanged.
-                            gradient: _tab == tab
-                                ? const LinearGradient(
-                                    begin: Alignment.centerLeft,
-                                    end: Alignment.centerRight,
-                                    colors: [_kRoyalBlue, _kDeepNavy],
-                                  )
-                                : null,
-                            color: _tab == tab ? null : Colors.transparent,
-                            borderRadius: BorderRadius.circular(8),
+                            // Reference: the active segment is a plain white
+                            // pill on the pale track — no navy, no gold.
+                            color: _tab == tab
+                                ? Colors.white
+                                : Colors.transparent,
+                            borderRadius: BorderRadius.circular(999),
                             boxShadow: _tab == tab
                                 ? [
                                     BoxShadow(
                                       color:
-                                          Colors.black.withValues(alpha: 0.06),
-                                      blurRadius: 4,
-                                      offset: const Offset(0, 1),
+                                          Colors.black.withValues(alpha: 0.10),
+                                      blurRadius: 6,
+                                      offset: const Offset(0, 2),
                                     ),
                                   ]
                                 : null,
@@ -793,25 +728,41 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Icon(
-                                icon,
-                                size: 13,
-                                color: _tab == tab
-                                    ? NkColors.gold300
-                                    : NkColors.slate500,
+                              // Leading grey count badge, as in the reference.
+                              Container(
+                                constraints: const BoxConstraints(
+                                    minWidth: 20, minHeight: 20),
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 4),
+                                alignment: Alignment.center,
+                                decoration: BoxDecoration(
+                                  color: _tab == tab
+                                      ? NkColors.slate100
+                                      : Colors.white
+                                          .withValues(alpha: 0.75),
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
+                                child: Text(
+                                  '$count',
+                                  style: const TextStyle(
+                                    fontSize: 10.5,
+                                    fontWeight: FontWeight.w800,
+                                    color: NkColors.slate600,
+                                  ),
+                                ),
                               ),
                               const SizedBox(width: 6),
                               Flexible(
                                 child: Text(
-                                  '${context.tr(label)} $count',
+                                  context.tr(label),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
-                                    fontSize: 12,
+                                    fontSize: 12.5,
                                     fontWeight: FontWeight.w700,
                                     color: _tab == tab
-                                        ? NkColors.gold300
-                                        : NkColors.slate500,
+                                        ? NkColors.slate900
+                                        : NkColors.slate600,
                                   ),
                                 ),
                               ),
@@ -864,8 +815,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       );
     }
 
-    out.add(_sectionHeader());
-    out.add(const SizedBox(height: 8));
+    // No section header in the reference — the segmented tabs already say
+    // which list you are looking at, and pull-to-refresh replaces the button.
+    out.add(const SizedBox(height: 4));
 
     switch (_tab) {
       case _HomeTab.ward:
@@ -876,53 +828,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         out.addAll(_supportCards());
     }
     return out;
-  }
-
-  Widget _sectionHeader() {
-    final (title, onRefresh) = switch (_tab) {
-      _HomeTab.ward => (
-          'Public grievances ${_currentWard != null ? 'in Ward $_currentWard' : 'in your ward'}',
-          () {
-            final w = _currentWard;
-            if (w != null) _loadWard(w);
-          }
-        ),
-      _HomeTab.mine => ('My Grievances', _loadHistory),
-      _HomeTab.supports => ('My Supports', _loadStats),
-    };
-
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Expanded(
-          child: Text(
-            title,
-            style: const TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w800,
-              color: NkColors.slate900,
-            ),
-          ),
-        ),
-        GestureDetector(
-          onTap: onRefresh,
-          child: Row(
-            children: [
-              Icon(Icons.refresh, size: 12, color: NkColors.brand),
-              SizedBox(width: 4),
-              Text(
-                context.tr('Refresh'),
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                  color: NkColors.brand,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
   }
 
   Widget _emptyState(IconData icon, String message) => Padding(
@@ -1176,6 +1081,55 @@ class _SheetHeaderDelegate extends SliverPersistentHeaderDelegate {
       old.height != height || old.child != child;
 }
 
+/// The pinned bottom call-to-action — a full-width deep-navy bar with a gold
+/// label. Replaces the old floating "+" FAB so the primary action is always
+/// visible above the sheet.
+class _SubmitBar extends StatelessWidget {
+  const _SubmitBar({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.paddingOf(context).bottom;
+    return GestureDetector(
+      onTap: () {
+        HapticFeedback.mediumImpact();
+        onTap();
+      },
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        width: double.infinity,
+        padding: EdgeInsets.fromLTRB(16, 18, 16, 18 + bottomInset),
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.centerLeft,
+            end: Alignment.centerRight,
+            colors: [_kRoyalBlue, _kDeepNavy],
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Color(0x40000000),
+              blurRadius: 24,
+              offset: Offset(0, -8),
+            ),
+          ],
+        ),
+        child: Text(
+          context.tr('Submit Your Grievance'),
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            fontSize: 17,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0.2,
+            color: NkColors.gold300,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// A status filter chip — count + label, colored per status family.
 class _FilterPill extends StatelessWidget {
   const _FilterPill({
@@ -1201,36 +1155,57 @@ class _FilterPill extends StatelessWidget {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
         curve: NkMotion.settle,
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        padding: const EdgeInsets.fromLTRB(4, 4, 7, 4),
         decoration: BoxDecoration(
-          color: active ? fg : bg,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: fg, width: 1.5),
+          // Soft filled pastel at rest; selecting deepens the fill and keeps
+          // the same hue family rather than inverting to a solid block.
+          color: bg,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: active ? fg : Colors.transparent,
+            width: 1.4,
+          ),
         ),
         // The pill is stretched by an Expanded parent, so centre the content
-        // and let the longest label ("In progress") ellipsise on narrow
+        // and let the longest label ("IN-PROGRESS") ellipsise on narrow
         // screens rather than overflow.
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Text(
-              '$count',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w800,
-                color: active ? Colors.white : fg,
+            // Leading circular count badge.
+            Container(
+              constraints: const BoxConstraints(minWidth: 21, minHeight: 21),
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: fg.withValues(alpha: 0.16),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                '$count',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                  color: fg,
+                ),
               ),
             ),
             const SizedBox(width: 5),
+            // Shrink rather than ellipsise — "IN-PROGRESS" is the longest
+            // label and must stay readable in full at every width.
             Flexible(
-              child: Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: active ? Colors.white : fg,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  label.toUpperCase(),
+                  maxLines: 1,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.1,
+                    color: fg,
+                  ),
                 ),
               ),
             ),
@@ -1241,7 +1216,8 @@ class _FilterPill extends StatelessWidget {
   }
 }
 
-/// Floating "Egmore | Ward 103" chip pinned to the map above the sheet.
+/// Floating "🏛 Egmore | Ward (103)" chip — frosted like the app bar, parked
+/// just under it on the top-left of the map.
 class _WardPill extends StatelessWidget {
   const _WardPill({required this.constituency, required this.ward});
 
@@ -1250,33 +1226,27 @@ class _WardPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.16),
-            blurRadius: 8,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
+    return FrostedCapsule(
+      padding: const EdgeInsets.fromLTRB(12, 6, 6, 6),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
+          const Icon(Icons.account_balance, size: 15, color: Colors.white),
+          const SizedBox(width: 8),
           if (constituency.isNotEmpty) ...[
             Text(
               constituency,
               style: const TextStyle(
                 fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF1A2A3A),
+                fontWeight: FontWeight.w700,
+                color: Colors.white,
               ),
             ),
             const SizedBox(width: 8),
-            Container(width: 1, height: 14, color: NkColors.slate300),
+            Container(
+                width: 1,
+                height: 14,
+                color: Colors.white.withValues(alpha: 0.45)),
             const SizedBox(width: 8),
           ],
           Text(
@@ -1284,15 +1254,17 @@ class _WardPill extends StatelessWidget {
             style: const TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w500,
-              color: Color(0xFF1A2A3A),
+              color: Colors.white,
             ),
           ),
-          const SizedBox(width: 6),
+          const SizedBox(width: 7),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
+            padding: const EdgeInsets.symmetric(horizontal: 7),
+            alignment: Alignment.center,
             decoration: BoxDecoration(
-              color: const Color(0xFF1A2A3A),
-              borderRadius: BorderRadius.circular(10),
+              color: const Color(0xFF16233A),
+              borderRadius: BorderRadius.circular(999),
             ),
             child: Text(
               ward,

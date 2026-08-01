@@ -15,6 +15,17 @@ import '../../../domain/status_meta.dart';
 import '../../../domain/ticket.dart';
 import '../../shared/status_chip.dart';
 
+/// Desaturate + blue-tint matrix for the pale reference basemap. Luma-weighted
+/// saturation pulled down to 0.18, then a cool lift on the offsets so the
+/// tiles read as a soft blue-grey with near-white roads instead of full-colour
+/// OSM (yellow arterials / green parks).
+const List<double> _kPaleTileMatrix = <double>[
+  0.27559, 0.65798, 0.06642, 0, 14, //
+  0.19559, 0.73798, 0.06642, 0, 20, //
+  0.19559, 0.65798, 0.14642, 0, 40, //
+  0, 0, 0, 1, 0, //
+];
+
 /// The grievance map card — OSM tiles + real GCC boundaries + status pins,
 /// with the search bar, zone/ward chip, legend, Egmore demo jump and the
 /// selected-issue bottom sheet floating inside the rounded card
@@ -40,6 +51,9 @@ class MapCard extends StatefulWidget {
     this.searchTop = 8,
     this.searchHorizontal = 12,
     this.controlsBottomInset = 0,
+    this.showSearch = true,
+    this.showControls = true,
+    this.paleTiles = false,
   });
 
   final LatLng? center;
@@ -74,6 +88,16 @@ class MapCard extends StatefulWidget {
 
   /// Lifts the zoom/legend/demo controls clear of an overlaying bottom sheet.
   final double controlsBottomInset;
+
+  /// Show the inline search bar. The citizen home hides it — search lives in
+  /// the floating app bar and opens a full-screen overlay instead.
+  final bool showSearch;
+
+  /// Show the zoom +/- and locate buttons.
+  final bool showControls;
+
+  /// Desaturate + blue-tint the basemap tiles for the pale reference look.
+  final bool paleTiles;
 
   @override
   State<MapCard> createState() => _MapCardState();
@@ -204,11 +228,21 @@ class _MapCardState extends State<MapCard> {
                 onTap: (_, __) => widget.onSelect(null),
               ),
               children: [
-                TileLayer(
-                  urlTemplate:
-                      'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                  userAgentPackageName: 'com.nammakural.app',
-                ),
+                if (widget.paleTiles)
+                  ColorFiltered(
+                    colorFilter: const ColorFilter.matrix(_kPaleTileMatrix),
+                    child: TileLayer(
+                      urlTemplate:
+                          'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                      userAgentPackageName: 'com.nammakural.app',
+                    ),
+                  )
+                else
+                  TileLayer(
+                    urlTemplate:
+                        'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                    userAgentPackageName: 'com.nammakural.app',
+                  ),
                 PolygonLayer(polygons: [..._wardPolygons(), ..._zonePolygons()]),
                 // "You are here" dot
                 CircleLayer(
@@ -248,6 +282,7 @@ class _MapCardState extends State<MapCard> {
           ),
 
           // ── Search bar + results dropdown ──
+          if (widget.showSearch)
           Positioned(
             left: widget.searchHorizontal,
             right: widget.searchHorizontal,
@@ -423,6 +458,7 @@ class _MapCardState extends State<MapCard> {
           ),
 
           // ── Zoom controls ──
+          if (widget.showControls)
           Positioned(
             right: 8,
             bottom: 44 + widget.controlsBottomInset,
@@ -450,7 +486,7 @@ class _MapCardState extends State<MapCard> {
           ),
 
           // ── Egmore demo jump (citizen only) ──
-          if (widget.onJumpEgmore != null)
+          if (widget.onJumpEgmore != null && widget.showControls)
           Positioned(
             right: 8,
             bottom: 8 + widget.controlsBottomInset,

@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/theme.dart';
+import '../../core/i18n.dart';
 import '../../domain/constituencies.dart';
 import '../../domain/coordinator_data.dart';
 import '../../domain/profile_data.dart';
@@ -214,6 +215,42 @@ class ProfileScreen extends ConsumerWidget {
                       children: isCoordinator
                           ? _coordTiles(coordinator)
                           : _citizenTiles(prefs, ref),
+                    ),
+                  ),
+
+                  // Language — moved off the home app bar so that bar matches
+                  // the reference (wordmark + search + bell + avatar only).
+                  const SizedBox(height: 16),
+                  Container(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.06),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.translate,
+                            size: 18, color: NkColors.slate500),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            context.tr('Language'),
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: NkColors.slate800,
+                            ),
+                          ),
+                        ),
+                        const LangToggle(),
+                      ],
                     ),
                   ),
                 ],
