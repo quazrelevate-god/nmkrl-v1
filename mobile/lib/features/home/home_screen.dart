@@ -10,7 +10,6 @@ import 'package:latlong2/latlong.dart';
 import '../../core/theme.dart';
 import '../../core/i18n.dart';
 import '../../domain/constituencies.dart';
-import '../../domain/geo_utils.dart';
 import '../../domain/models/boundary_data.dart';
 import '../../domain/models/issue.dart';
 import '../../domain/models/locate_result.dart';
@@ -18,7 +17,7 @@ import '../../state/providers.dart';
 import '../report/report_sheet.dart';
 import '../shared/notification_banner.dart';
 import '../upvote/upvote_sheet.dart';
-import 'widgets/issue_card.dart';
+import 'widgets/grievance_card.dart';
 import 'widgets/map_card.dart';
 import 'widgets/profile_header.dart';
 
@@ -51,6 +50,18 @@ const Map<String, Set<String>> _kStatusBuckets = {
   'progress': {'FORWARDED', 'IN_PROGRESS'},
   'resolved': {'CLOSED'},
 };
+
+/// Royal-navy accent pair, shared by the active segment and the report FAB.
+const Color _kRoyalBlue = Color(0xFF1A3A8F);
+const Color _kDeepNavy = Color(0xFF0D1F3C);
+
+/// The filter pills in display order — (bucket key, label, foreground, fill).
+/// They share the row width equally.
+const List<(String, String, Color, Color)> _kFilterPills = [
+  ('open', 'Open', NkColors.rose600, NkColors.rose50),
+  ('progress', 'In progress', NkColors.sky700, NkColors.sky50),
+  ('resolved', 'Resolved', NkColors.emerald700, NkColors.emerald50),
+];
 
 /// Home — the citizen map screen: a full-bleed map with the app bar floating
 /// over it behind a fading gradient, and every list surface living in a
@@ -87,7 +98,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   // UI state
   _HomeTab _tab = _HomeTab.mine;
-  String? _expandedId;
 
   /// Active status filter pill (null = show everything).
   String? _statusFilter;
@@ -385,26 +395,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
-  double? _distanceKm(Issue issue) {
-    final c = _coords;
-    if (c == null) return null;
-    return haversineKm(
-        c.latitude, c.longitude, issue.latitude, issue.longitude);
-  }
-
-  void _toggleExpand(String id) =>
-      setState(() => _expandedId = _expandedId == id ? null : id);
-
   /// A tapped map pin highlights + brings forward the matching grievance
-  /// ribbon in the sheet (#6) — no separate sheet. Expands it, lifts the sheet
-  /// to its normal snap so the card is on screen, and switches to the ward
-  /// segment if the issue is a ward grievance.
+  /// ribbon in the sheet (#6). Lifts the sheet to its normal snap so the card
+  /// is on screen, and switches to the ward segment if the issue is a ward
+  /// grievance. Tapping the card itself opens the detail dialog.
   void _onMapSelect(Issue? i) {
     setState(() {
       _selected = i;
-      if (i != null) {
-        _expandedId = i.id;
-        if (_wardIssues.any((w) => w.id == i.id)) _tab = _HomeTab.ward;
+      if (i != null && _wardIssues.any((w) => w.id == i.id)) {
+        _tab = _HomeTab.ward;
       }
     });
     if (i == null) return;
@@ -647,7 +646,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           width: 64,
                           alignment: Alignment.center,
                           decoration: BoxDecoration(
-                            gradient: nkBrandGradient,
+                            gradient: const LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [_kRoyalBlue, _kDeepNavy],
+                            ),
                             shape: BoxShape.circle,
                             boxShadow: [
                               BoxShadow(
@@ -659,7 +662,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                             ],
                           ),
                           child: const Icon(Icons.add,
-                              size: 32, color: Colors.white),
+                              size: 32, color: NkColors.gold300),
                         ),
                       ),
                     ),
@@ -693,35 +696,31 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ),
           const SizedBox(height: 10),
 
-          // Status filter pills — replace the old map legend.
-          SizedBox(
-            height: 38,
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 14),
-              children: [
-                for (final (key, label, fg, bg) in [
-                  ('open', 'Open', NkColors.rose600, NkColors.rose50),
-                  ('progress', 'In progress', NkColors.sky700, NkColors.sky50),
-                  (
-                    'resolved',
-                    'Resolved',
-                    NkColors.emerald700,
-                    NkColors.emerald50
-                  ),
-                ])
-                  Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: _FilterPill(
-                      count: _bucketCount(source, key),
-                      label: context.tr(label),
-                      fg: fg,
-                      bg: bg,
-                      active: _statusFilter == key,
-                      onTap: () => _toggleStatusFilter(key),
+          // Status filter pills — replace the old map legend. They split the
+          // row evenly rather than scrolling, so there is no dead space.
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            child: SizedBox(
+              height: 38,
+              child: Row(
+                children: [
+                  for (var i = 0; i < _kFilterPills.length; i++) ...[
+                    Expanded(
+                      child: _FilterPill(
+                        count: _bucketCount(source, _kFilterPills[i].$1),
+                        label: context.tr(_kFilterPills[i].$2),
+                        fg: _kFilterPills[i].$3,
+                        bg: _kFilterPills[i].$4,
+                        active: _statusFilter == _kFilterPills[i].$1,
+                        onTap: () =>
+                            _toggleStatusFilter(_kFilterPills[i].$1),
+                      ),
                     ),
-                  ),
-              ],
+                    if (i < _kFilterPills.length - 1)
+                      const SizedBox(width: 8),
+                  ],
+                ],
+              ),
             ),
           ),
           const SizedBox(height: 10),
@@ -769,8 +768,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           curve: NkMotion.settle,
                           padding: const EdgeInsets.symmetric(vertical: 8),
                           decoration: BoxDecoration(
-                            color:
-                                _tab == tab ? Colors.white : Colors.transparent,
+                            // Active fill is a royal-navy gradient; inactive
+                            // stays transparent. Geometry is unchanged.
+                            gradient: _tab == tab
+                                ? const LinearGradient(
+                                    begin: Alignment.centerLeft,
+                                    end: Alignment.centerRight,
+                                    colors: [_kRoyalBlue, _kDeepNavy],
+                                  )
+                                : null,
+                            color: _tab == tab ? null : Colors.transparent,
                             borderRadius: BorderRadius.circular(8),
                             boxShadow: _tab == tab
                                 ? [
@@ -790,7 +797,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                 icon,
                                 size: 13,
                                 color: _tab == tab
-                                    ? NkColors.slate900
+                                    ? NkColors.gold300
                                     : NkColors.slate500,
                               ),
                               const SizedBox(width: 6),
@@ -803,7 +810,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                     fontSize: 12,
                                     fontWeight: FontWeight.w700,
                                     color: _tab == tab
-                                        ? NkColors.slate900
+                                        ? NkColors.gold300
                                         : NkColors.slate500,
                                   ),
                                 ),
@@ -965,13 +972,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           padding: const EdgeInsets.only(bottom: 8),
           child: _selectableCard(
             issue,
-            IssueCard(
-              issue: issue,
-              expanded: _expandedId == issue.id,
-              onToggle: () => _toggleExpand(issue.id),
-              distanceKm: _distanceKm(issue),
-              onUpvote: _upvote,
-            ),
+            GrievanceCard(issue: issue, onUpvote: _upvote),
           ),
         ),
     ];
@@ -1026,12 +1027,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           padding: const EdgeInsets.only(bottom: 8),
           child: _selectableCard(
             issue,
-            IssueCard(
-              issue: issue,
-              expanded: _expandedId == issue.id,
-              onToggle: () => _toggleExpand(issue.id),
-              distanceKm: _distanceKm(issue),
-            ),
+            GrievanceCard(issue: issue),
           ),
         ),
       );
@@ -1205,14 +1201,17 @@ class _FilterPill extends StatelessWidget {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
         curve: NkMotion.settle,
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         decoration: BoxDecoration(
           color: active ? fg : bg,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(color: fg, width: 1.5),
         ),
+        // The pill is stretched by an Expanded parent, so centre the content
+        // and let the longest label ("In progress") ellipsise on narrow
+        // screens rather than overflow.
         child: Row(
-          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Text(
               '$count',
@@ -1223,12 +1222,16 @@ class _FilterPill extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 5),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: active ? Colors.white : fg,
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: active ? Colors.white : fg,
+                ),
               ),
             ),
           ],

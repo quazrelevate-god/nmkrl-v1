@@ -32,13 +32,16 @@ class ProfileHeader extends ConsumerWidget {
     final topInset = MediaQuery.paddingOf(context).top;
     return Container(
       width: double.infinity,
-      // Brand blue at full opacity behind the status bar, fading to alpha 0 at
-      // the bottom edge so the map underneath shows through seamlessly.
+      // Deep navy holds full opacity behind the wordmark and greeting, then
+      // releases to alpha 0 over the last quarter so the bar reads as a solid
+      // block with a soft bottom edge rather than a long wash. The transparent
+      // stop keeps the same RGB so the fade does not shift hue on the way out.
       decoration: const BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [NkColors.brand, Color(0x001A3556)],
+          colors: [Color(0xFF0D1F3C), Color(0xFF0D1F3C), Color(0x000D1F3C)],
+          stops: [0.0, 0.75, 1.0],
         ),
       ),
       padding: EdgeInsets.fromLTRB(16, topInset + 10, 16, 18),

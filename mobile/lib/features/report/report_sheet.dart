@@ -200,7 +200,7 @@ class _ReportSheetState extends ConsumerState<ReportSheet> {
       child: Container(
         clipBehavior: Clip.antiAlias,
         decoration: BoxDecoration(
-          color: Colors.white,
+          gradient: nkBrandGradient,
           borderRadius: BorderRadius.circular(30),
           boxShadow: [
             BoxShadow(
@@ -223,148 +223,23 @@ class _ReportSheetState extends ConsumerState<ReportSheet> {
                   height: 4,
                   width: 40,
                   decoration: BoxDecoration(
-                    color: NkColors.slate300.withValues(alpha: 0.8),
+                    color: Colors.white.withValues(alpha: 0.35),
                     borderRadius: BorderRadius.circular(999),
                   ),
                 ),
               ),
               const SizedBox(height: 10),
 
-              // Header
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          context.tr('Report Street Issue'),
-                          style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: -0.3,
-                            color: NkColors.slate900,
-                          ),
-                        ),
-                        Text(
-                          context.tr('Help us build better and safer streets'),
-                          style: TextStyle(
-                              fontSize: 12, color: NkColors.slate500),
-                        ),
-                      ],
-                    ),
-                  ),
-                  GestureDetector(
-                    onTap: () => Navigator.of(context).pop(),
-                    child: Container(
-                      height: 32,
-                      width: 32,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: NkColors.slate200.withValues(alpha: 0.7),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(Icons.close,
-                          size: 17, color: NkColors.slate500),
-                    ),
-                  ),
-                ],
-              ),
-
-              // Fair-use policy card (navy)
+              // Capture panel — the two white pills on a lighter navy inset.
               const SizedBox(height: 14),
               Container(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  gradient: nkBrandGradient,
-                  borderRadius: BorderRadius.circular(20),
-                  boxShadow: [
-                    BoxShadow(
-                      color: NkColors.brand.withValues(alpha: 0.28),
-                      blurRadius: 18,
-                      offset: const Offset(0, 8),
-                      spreadRadius: -6,
-                    ),
-                  ],
+                  color: Colors.white.withValues(alpha: 0.07),
+                  borderRadius: BorderRadius.circular(34),
                 ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Container(
-                      height: 46,
-                      width: 46,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                            color: Colors.white.withValues(alpha: 0.35),
-                            width: 1.5),
-                      ),
-                      child: const Icon(Icons.shield_outlined,
-                          size: 22, color: Colors.white),
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            context.tr('Fair use policy'),
-                            style: const TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w800,
-                              color: Colors.white,
-                            ),
-                          ),
-                          const SizedBox(height: 3),
-                          Text.rich(
-                            TextSpan(
-                              style: TextStyle(
-                                fontSize: 12.5,
-                                height: 1.4,
-                                color: Colors.white.withValues(alpha: 0.82),
-                              ),
-                              children: [
-                                TextSpan(
-                                    text:
-                                        '${context.tr('You can report 1 grievance per day.')} '),
-                                TextSpan(
-                                  text:
-                                      '${_limit.remaining} of ${_limit.max} ${context.tr('remaining today')}.',
-                                  style: const TextStyle(
-                                      fontWeight: FontWeight.w800,
-                                      color: Colors.white),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Container(
-                      height: 44,
-                      width: 38,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(9),
-                        border: Border.all(
-                            color: Colors.white.withValues(alpha: 0.15)),
-                      ),
-                      child: Icon(Icons.checklist_rounded,
-                          size: 20,
-                          color: Colors.white.withValues(alpha: 0.9)),
-                    ),
-                  ],
-                ),
-              ),
-
-              // Capture row: camera + voice
-              const SizedBox(height: 12),
-              IntrinsicHeight(
-                child: Row(
+                child: IntrinsicHeight(
+                  child: Row(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   // Camera column
@@ -417,19 +292,24 @@ class _ReportSheetState extends ConsumerState<ReportSheet> {
                           ),
                           const SizedBox(height: 8),
                         ],
-                        _CaptureTile(
-                          icon: Icons.photo_camera_outlined,
-                          title: _images.isNotEmpty
-                              ? 'Added (${_images.length})'
-                              : context.tr('Upload Photo'),
-                          subtitle:
-                              context.tr('Add clear photos of the issue'),
-                          onTap: _capturePhoto,
+                        // Expanded so both tiles fill the row's intrinsic
+                        // height and stay the same size even though their
+                        // subtitles wrap to a different number of lines.
+                        Expanded(
+                          child: _CaptureTile(
+                            icon: Icons.photo_camera_outlined,
+                            title: _images.isNotEmpty
+                                ? 'Added (${_images.length})'
+                                : context.tr('Upload Photo'),
+                            subtitle:
+                                context.tr('Add clear photos of the issue'),
+                            onTap: _capturePhoto,
+                          ),
                         ),
                       ],
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 9),
                   // Voice column
                   Expanded(
                     child: Column(
@@ -440,25 +320,29 @@ class _ReportSheetState extends ConsumerState<ReportSheet> {
                           _AudioPill(recorder: _recorder),
                           const SizedBox(height: 8),
                         ],
-                        _recorder.isRecording
-                            ? _RecordingTile(recorder: _recorder)
-                            : _CaptureTile(
-                                icon: Icons.mic_none,
-                                title: _recorder.file != null
-                                    ? 'Re-record'
-                                    : context.tr('Record Voice'),
-                                subtitle: context
-                                    .tr('Describe the issue in your voice'),
-                                onTap: () {
-                                  HapticFeedback.selectionClick();
-                                  _recorder.start();
-                                },
-                              ),
+                        Expanded(
+                          child: _recorder.isRecording
+                              ? _RecordingTile(recorder: _recorder)
+                              : _CaptureTile(
+                                  icon: Icons.mic_none,
+                                  title: _recorder.file != null
+                                      ? 'Re-record'
+                                      : context.tr('Record Voice'),
+                                  subtitle: context
+                                      .tr('Describe the issue in your voice'),
+                                  onTap: () {
+                                    HapticFeedback.selectionClick();
+                                    _recorder.start();
+                                  },
+                                ),
+                        ),
                       ],
                     ),
                   ),
-                ],
-              )),
+                  ],
+                  ),
+                ),
+              ),
               if (_recorder.error != null) ...[
                 const SizedBox(height: 8),
                 Text(
@@ -486,33 +370,36 @@ class _ReportSheetState extends ConsumerState<ReportSheet> {
                 ),
               ],
 
+              // Fair use policy — one line.
+              const SizedBox(height: 14),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.verified_user_outlined,
+                      size: 15, color: Colors.white.withValues(alpha: 0.7)),
+                  const SizedBox(width: 7),
+                  Flexible(
+                    child: Text(
+                      '${context.tr('Fair use policy')}: '
+                      '${context.tr('you can report')} ${_limit.max} '
+                      '${context.tr('grievance per day')}',
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        color: Colors.white.withValues(alpha: 0.8),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+
               // Swipe to submit
-              const SizedBox(height: 16),
+              const SizedBox(height: 14),
               SwipeToConfirm(
                 label: context.tr('Swipe to submit grievance'),
                 busyLabel: 'Submitting…',
                 busy: _submitting,
                 resetToken: _resetToken,
                 onConfirm: _submit,
-              ),
-
-              // Footer reassurance
-              const SizedBox(height: 12),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.verified_user_outlined,
-                      size: 13, color: NkColors.slate400),
-                  const SizedBox(width: 6),
-                  Flexible(
-                    child: Text(
-                      context.tr(
-                          'Your report helps us build better communities'),
-                      style: const TextStyle(
-                          fontSize: 11.5, color: NkColors.slate400),
-                    ),
-                  ),
-                ],
               ),
             ],
           ),
@@ -541,41 +428,48 @@ class _CaptureTile extends StatelessWidget {
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
       child: Container(
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 11),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: NkColors.slate200),
+          borderRadius: BorderRadius.circular(34),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             Container(
-              height: 40,
-              width: 40,
+              height: 38,
+              width: 38,
               alignment: Alignment.center,
               decoration: const BoxDecoration(
                 color: NkColors.slate100,
                 shape: BoxShape.circle,
               ),
-              child: Icon(icon, size: 20, color: NkColors.brand),
+              child: Icon(icon, size: 19, color: NkColors.brand),
             ),
-            const SizedBox(height: 10),
-            Text(
-              title,
-              style: const TextStyle(
-                fontSize: 13.5,
-                fontWeight: FontWeight.w800,
-                color: NkColors.slate900,
-              ),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              subtitle,
-              style: const TextStyle(
-                fontSize: 11.5,
-                height: 1.3,
-                color: NkColors.slate500,
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                      color: NkColors.slate900,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(
+                      fontSize: 11.5,
+                      height: 1.25,
+                      color: NkColors.slate500,
+                    ),
+                  ),
+                ],
               ),
             ),
           ],
