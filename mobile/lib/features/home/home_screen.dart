@@ -1119,18 +1119,18 @@ class _SubmitBar extends StatelessWidget {
       // A FLAT footer plate: edge to edge, perfectly flat top edge, no radius
       // anywhere. It is the bottom layer of the stack and the white sheet
       // overlaps it — the rounded corners in the design belong to that sheet.
+      // A FLAT footer plate of a FIXED height. Its top [_kSheetCornerRadius]
+      // strip sits UNDER the sheet's rounded bottom; the label is then centred
+      // in the band that stays visible, above the home-indicator inset — so it
+      // reads as evenly spaced instead of crammed against the sheet's curve.
       child: Container(
         width: double.infinity,
-        // Label sits in the band left visible below the overlapping sheet.
-        padding: EdgeInsets.only(
-          top: _kSheetCornerRadius + 10,
-          bottom: 14 + bottomInset,
-        ),
+        height: _kCtaContentHeight,
         decoration: const BoxDecoration(
           color: NkColors.refBlueDeep,
           gradient: RadialGradient(
-            // Bloom centred on the visible band, below the sheet's edge.
-            center: Alignment(0, 0.35),
+            // Bloom centred on the visible label band, not the whole plate.
+            center: Alignment(0, -0.12),
             radius: 1.1,
             colors: [
               NkColors.refBlueGlow,
@@ -1138,16 +1138,29 @@ class _SubmitBar extends StatelessWidget {
             ],
           ),
         ),
-        child: Text(
-          context.tr('Submit Your Grievance'),
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-            fontSize: 17,
-            fontWeight: FontWeight.w800,
-            letterSpacing: 0.2,
-            // Cream-gold, sampled from the wordmark gradient in the logo SVG.
-            color: Color(0xFFFFEEB8),
-          ),
+        child: Column(
+          children: [
+            // Hidden strip the sheet's rounded bottom overlaps.
+            const SizedBox(height: _kSheetCornerRadius),
+            // Visible band: centre the label in whatever is left once the
+            // home-indicator inset below is reserved.
+            Expanded(
+              child: Center(
+                child: Text(
+                  context.tr('Submit Your Grievance'),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.2,
+                    // Cream-gold, sampled from the wordmark gradient in the SVG.
+                    color: Color(0xFFFFEEB8),
+                  ),
+                ),
+              ),
+            ),
+            SizedBox(height: bottomInset),
+          ],
         ),
       ),
     );
