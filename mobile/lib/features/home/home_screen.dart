@@ -1,8 +1,9 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_map/flutter_map.dart' show LatLngBounds;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
@@ -28,15 +29,16 @@ const kDefaultLocation = LatLng(13.0827, 80.2081);
 /// The three segments of the home sheet, in display order.
 enum _HomeTab { mine, ward, supports }
 
-/// Sheet snap fractions — collapsed shows only the pinned pills+tabs block,
-/// normal is the landing state, expanded gives the list the most room.
-const double _kSheetMin = 0.18;
-const double _kSheetNormal = 0.52;
-const double _kSheetMax = 0.78;
+/// Sheet snap fractions. The FLOOR (min == landing) is computed per-device so
+/// it shows the pinned pills+tabs header plus exactly ~2 grievance cards, and
+/// the user can never collapse below it — see [_sheetFloorFraction]. Above the
+/// floor there is a comfortable mid snap and a near-full expanded snap.
+const double _kSheetMid = 0.62;
+const double _kSheetMax = 0.86;
 
-/// Midpoints between the snaps — the band that counts as "resting at normal".
-const double _kNormalLowerEdge = (_kSheetMin + _kSheetNormal) / 2;
-const double _kNormalUpperEdge = (_kSheetNormal + _kSheetMax) / 2;
+/// Rough on-screen footprint of one grievance card (thumbnail row + selection
+/// border + inter-card gap), used to size the sheet floor to ~2 cards.
+const double _kCardFootprint = 96;
 
 /// Height of the pinned grip + filter pills + segmented tabs block.
 /// grip 8+4+10, pills 30+10, segments ~39, trailing 12 ≈ 113. Held a few
@@ -109,21 +111,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   final _sheetCtrl = DraggableScrollableController();
 
-  /// Live sheet extent, driven every drag frame. Deliberately a notifier and
-  /// not `setState` state: only the ward pill listens, so dragging never
-  /// rebuilds the map underneath.
-  final _sheetExtent = ValueNotifier<double>(_kSheetNormal);
-
-  /// True while the sheet rests at or below its normal snap — My Reports then
-  /// shows a single card. Tracked as a bool rather than the raw extent so the
-  /// drag only rebuilds when it actually crosses the threshold.
-  bool _sheetAtOrBelowNormal = true;
-
-  /// The FAB only belongs to the normal snap — collapsed it would cover the
-  /// tab row, expanded it would cover the list.
-  bool _sheetAtNormal = true;
-  bool _fabVisible = true;
-
   /// The "no reports yet → land on My Ward" fallback only fires once.
   bool _autoTabApplied = false;
 
@@ -131,6 +118,52 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   int? get _currentWard =>
       (_locate?.inside ?? false) ? _locate?.wardNumber : null;
+
+  /// Bounding box of the detected ward's polygon(s), or null when no ward is
+  /// resolved yet (outside GCC, or before /api/locate returns). Drives the
+  /// map's camera lock — the user can pan/zoom only within this.
+  LatLngBounds? get _wardBounds {
+    final w = _currentWard;
+    final b = _boundaries;
+    if (w == null || b == null) return null;
+    final target = '$w';
+    final pts = <LatLng>[];
+    for (final f in b.wards) {
+      if (f.ward != target) continue;
+      for (final part in f.parts) {
+        if (part.isNotEmpty) pts.addAll(part.first); // outer ring only
+      }
+    }
+    if (pts.length < 3) return null;
+    return LatLngBounds.fromPoints(pts);
+  }
+
+  /// Sheet floor fraction: the pinned header + ~2 grievance cards, as a
+  /// fraction of the sheet's parent height. This is BOTH the landing size and
+  /// the minimum — the sheet can be pulled up but never collapsed below it.
+  double _sheetFloorFraction(double parentHeight) {
+    const px = _kSheetHeaderHeight + 8 + 2 * _kCardFootprint;
+    return (px / parentHeight).clamp(0.28, 0.5);
+  }
+
+  /// Web-Mercator zoom at which [b] just fills [viewport] — used as the map's
+  /// zoom floor while locked, so the user can't pull back past the whole ward.
+  static double _fitZoom(LatLngBounds b, Size viewport) {
+    if (viewport.width <= 0 || viewport.height <= 0) return 12;
+    const worldPx = 256.0;
+    double mercY(double latDeg) {
+      final s = (math.sin(latDeg * math.pi / 180)).clamp(-0.9999, 0.9999);
+      return 0.5 * math.log((1 + s) / (1 - s));
+    }
+
+    final yFrac = (mercY(b.north) - mercY(b.south)).abs() / (2 * math.pi);
+    final xFrac = (b.east - b.west).abs() / 360.0;
+    if (yFrac <= 0 || xFrac <= 0) return 12;
+    final zx = math.log(viewport.width / (worldPx * xFrac)) / math.ln2;
+    final zy = math.log(viewport.height / (worldPx * yFrac)) / math.ln2;
+    // A hair below the exact fit so the opening (whole-ward) view is valid.
+    return (math.min(zx, zy) - 0.15).clamp(1.0, 18.0);
+  }
 
   @override
   void initState() {
@@ -143,7 +176,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   @override
   void dispose() {
     _sheetCtrl.dispose();
-    _sheetExtent.dispose();
     super.dispose();
   }
 
@@ -412,9 +444,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       }
     });
     if (i == null) return;
-    if (_sheetCtrl.isAttached && _sheetCtrl.size < _kSheetNormal) {
+    if (_sheetCtrl.isAttached && _sheetCtrl.size < _kSheetMid) {
       _sheetCtrl.animateTo(
-        _kSheetNormal,
+        _kSheetMid,
         duration: const Duration(milliseconds: 300),
         curve: NkMotion.settle,
       );
@@ -467,6 +499,35 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final topInset = MediaQuery.paddingOf(context).top;
+    final screenH = MediaQuery.sizeOf(context).height;
+
+    // The sheet lives in a Positioned(top:0, bottom: CTA overlap), so its
+    // fractions are relative to this height.
+    final sheetParentH = screenH - (_kCtaContentHeight - _kSheetCornerRadius);
+    final sheetFloor = _sheetFloorFraction(sheetParentH);
+
+    // Lock the map to the detected ward, fitting it into the band that stays
+    // visible above the sheet at its floor (so the ward reads centred near the
+    // top). Bottom padding = everything the sheet + CTA cover at the floor.
+    final lockBounds = _wardBounds;
+    final sheetCoverPx =
+        (_kCtaContentHeight - _kSheetCornerRadius) + sheetFloor * sheetParentH;
+    final lockPadding = EdgeInsets.only(
+      top: topInset + 96,
+      bottom: sheetCoverPx + 16,
+      left: 28,
+      right: 28,
+    );
+    // Zoom-out floor = the ward filling the band visible above the sheet.
+    final lockMinZoom = lockBounds == null
+        ? 12.0
+        : _fitZoom(
+            lockBounds,
+            Size(
+              MediaQuery.sizeOf(context).width - lockPadding.horizontal,
+              screenH - lockPadding.vertical,
+            ),
+          );
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       // Dark glyphs — the pale basemap now runs right up under the status bar.
@@ -488,8 +549,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 currentWard: _currentWard,
                 locate: _locate,
                 locating: _locating,
-                egmoreActive: _override != null,
-                onJumpEgmore: _jumpToEgmore,
                 onUpvote: _upvote,
                 borderRadius: 0,
                 showLegend: false,
@@ -499,6 +558,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 showSearch: false,
                 showControls: false,
                 paleTiles: true,
+                // Once a ward is detected the map is locked to it: opens fitted
+                // to the ward, pan/zoom stay inside, no roaming outside.
+                lockBounds: lockBounds,
+                lockPadding: lockPadding,
+                lockMinZoom: lockMinZoom,
               ),
             ),
 
@@ -528,6 +592,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 ),
               ),
 
+            // ── 3b. Sneaky demo button: jump the detected location to Egmore
+            // Ward 108 so ward-level data + the camera lock can be tested when
+            // real GPS is outside GCC limits. ──
+            Positioned(
+              key: const ValueKey('home-demojump'),
+              top: topInset + 8 + 56 + 10,
+              right: 14,
+              child: _DemoJumpButton(
+                active: _override != null,
+                onTap: _jumpToEgmore,
+              ),
+            ),
+
             // ── 4. Bottom CTA — the flat footer PLATE, edge to edge with a
             // perfectly flat top edge and no radius of its own. It is the
             // bottom layer: the white sheet above overlaps it, and the only
@@ -549,87 +626,54 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               right: 0,
               top: 0,
               bottom: _kCtaContentHeight - _kSheetCornerRadius,
-              child: NotificationListener<DraggableScrollableNotification>(
-              onNotification: (n) {
-                // Drives the ward pill only — no setState, so the map does
-                // not rebuild on every drag frame.
-                _sheetExtent.value = n.extent;
-
-                // These two genuinely change content, so they do rebuild —
-                // but only when the extent crosses a threshold.
-                final atOrBelow = n.extent < _kNormalUpperEdge;
-                final atNormal =
-                    n.extent > _kNormalLowerEdge && n.extent < _kNormalUpperEdge;
-                if (atOrBelow != _sheetAtOrBelowNormal ||
-                    atNormal != _sheetAtNormal) {
-                  setState(() {
-                    _sheetAtOrBelowNormal = atOrBelow;
-                    _sheetAtNormal = atNormal;
-                  });
-                }
-                return false;
-              },
-              child: NotificationListener<UserScrollNotification>(
-                onNotification: (n) {
-                  final hide = n.direction == ScrollDirection.reverse;
-                  final show = n.direction == ScrollDirection.forward ||
-                      n.direction == ScrollDirection.idle;
-                  if (hide && _fabVisible) {
-                    setState(() => _fabVisible = false);
-                  } else if (show && !_fabVisible) {
-                    setState(() => _fabVisible = true);
-                  }
-                  return false;
-                },
-                child: DraggableScrollableSheet(
-                  controller: _sheetCtrl,
-                  initialChildSize: _kSheetNormal,
-                  minChildSize: _kSheetMin,
-                  maxChildSize: _kSheetMax,
-                  snap: true,
-                  snapSizes: const [_kSheetMin, _kSheetNormal, _kSheetMax],
-                  builder: (context, scrollController) => DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      // Every rounded corner in this composition lives here —
-                      // the CTA behind stays perfectly flat.
-                      borderRadius: BorderRadius.circular(_kSheetCornerRadius),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.16),
-                          blurRadius: 24,
-                          offset: const Offset(0, -6),
+              child: DraggableScrollableSheet(
+                controller: _sheetCtrl,
+                // Landing == floor == minimum: opens showing the header + ~2
+                // grievance cards and can never be collapsed below that.
+                initialChildSize: sheetFloor,
+                minChildSize: sheetFloor,
+                maxChildSize: _kSheetMax,
+                snap: true,
+                snapSizes: [sheetFloor, _kSheetMid, _kSheetMax],
+                builder: (context, scrollController) => DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    // Every rounded corner in this composition lives here —
+                    // the CTA behind stays perfectly flat.
+                    borderRadius: BorderRadius.circular(_kSheetCornerRadius),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.16),
+                        blurRadius: 24,
+                        offset: const Offset(0, -6),
+                      ),
+                    ],
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(_kSheetCornerRadius),
+                    child: CustomScrollView(
+                      controller: scrollController,
+                      physics: const ClampingScrollPhysics(),
+                      slivers: [
+                        SliverPersistentHeader(
+                          pinned: true,
+                          delegate: _SheetHeaderDelegate(
+                            height: _kSheetHeaderHeight,
+                            child: _buildSheetHeader(),
+                          ),
+                        ),
+                        SliverPadding(
+                          padding: const EdgeInsets.fromLTRB(14, 0, 14, 40),
+                          sliver: SliverList(
+                            delegate: SliverChildListDelegate(
+                              _buildSheetBody(),
+                            ),
+                          ),
                         ),
                       ],
                     ),
-                    child: ClipRRect(
-                      borderRadius:
-                          BorderRadius.circular(_kSheetCornerRadius),
-                      child: CustomScrollView(
-                        controller: scrollController,
-                        physics: const ClampingScrollPhysics(),
-                        slivers: [
-                          SliverPersistentHeader(
-                            pinned: true,
-                            delegate: _SheetHeaderDelegate(
-                              height: _kSheetHeaderHeight,
-                              child: _buildSheetHeader(),
-                            ),
-                          ),
-                          SliverPadding(
-                            padding: const EdgeInsets.fromLTRB(14, 0, 14, 40),
-                            sliver: SliverList(
-                              delegate: SliverChildListDelegate(
-                                _buildSheetBody(),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
                   ),
                 ),
-              ),
               ),
             ),
 
@@ -927,7 +971,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       return out;
     }
 
-    var list = _applyStatusFilter(_history);
+    final list = _applyStatusFilter(_history);
     if (list.isEmpty) {
       out.add(
         _emptyState(
@@ -939,10 +983,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       );
       return out;
     }
-
-    // At the normal snap only the most recent report is shown — pulling the
-    // sheet up reveals the rest.
-    if (_sheetAtOrBelowNormal) list = list.take(1).toList();
 
     for (final issue in list) {
       out.add(
@@ -1241,6 +1281,35 @@ class _FilterPill extends StatelessWidget {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Sneaky demo shortcut — a small frosted circle on the top-right of the map
+/// that jumps the detected location to Egmore Ward 108 for testing when real
+/// GPS falls outside GCC limits. Turns gold while the override is active.
+class _DemoJumpButton extends StatelessWidget {
+  const _DemoJumpButton({required this.active, required this.onTap});
+
+  final bool active;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () {
+        HapticFeedback.selectionClick();
+        onTap();
+      },
+      behavior: HitTestBehavior.opaque,
+      child: FrostedCapsule(
+        padding: const EdgeInsets.all(9),
+        child: Icon(
+          Icons.account_balance,
+          size: 16,
+          color: active ? NkColors.gold300 : Colors.white,
         ),
       ),
     );

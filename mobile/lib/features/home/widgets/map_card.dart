@@ -54,6 +54,9 @@ class MapCard extends StatefulWidget {
     this.showSearch = true,
     this.showControls = true,
     this.paleTiles = false,
+    this.lockBounds,
+    this.lockPadding = EdgeInsets.zero,
+    this.lockMinZoom = 12,
   });
 
   final LatLng? center;
@@ -99,6 +102,21 @@ class MapCard extends StatefulWidget {
   /// Desaturate + blue-tint the basemap tiles for the pale reference look.
   final bool paleTiles;
 
+  /// When set, the map is LOCKED to this boundary: it opens fitted to it and
+  /// the camera can never be dragged or zoomed so its edges leave these bounds
+  /// (flutter_map's [CameraConstraint.contain]). Panning + zoom stay live
+  /// inside it. Null → the map roams freely (coordinator + pre-ward citizen).
+  final LatLngBounds? lockBounds;
+
+  /// Padding applied when fitting [lockBounds], so the boundary lands in the
+  /// visible band above the bottom sheet rather than dead-centre of the screen.
+  final EdgeInsets lockPadding;
+
+  /// Zoom floor while locked — the level at which the whole ward fills the
+  /// visible band. Zooming out below this is blocked so the user can't reveal
+  /// neighbouring wards. Computed by the caller from the ward span + viewport.
+  final double lockMinZoom;
+
   @override
   State<MapCard> createState() => _MapCardState();
 }
@@ -117,8 +135,12 @@ class _MapCardState extends State<MapCard> {
   @override
   void didUpdateWidget(MapCard old) {
     super.didUpdateWidget(old);
-    // Recenter only when the effective location actually changes.
-    if (_mapReady &&
+    // While locked the map uses its own internal controller (so a ward change
+    // rebuilds it fitted + constrained without tripping flutter_map's
+    // options-change assert) — the external [_map] is not attached, so never
+    // drive it here. Recenter only in the free-roaming (unlocked) mode.
+    if (widget.lockBounds == null &&
+        _mapReady &&
         widget.center != null &&
         (old.center?.latitude != widget.center!.latitude ||
             old.center?.longitude != widget.center!.longitude)) {
@@ -209,16 +231,47 @@ class _MapCardState extends State<MapCard> {
     final filtered = _filtered;
     final hasQuery = _query.text.trim().isNotEmpty;
 
+    final lock = widget.lockBounds;
+    final locked = lock != null;
+
     return ClipRRect(
       borderRadius: BorderRadius.circular(widget.borderRadius),
       child: Stack(
         children: [
           Positioned.fill(
             child: FlutterMap(
-              mapController: _map,
+              // Locked mode rebuilds a FRESH map (new key → its own internal
+              // controller) whenever the ward changes, so it starts already
+              // fitted + constrained. Free mode reuses [_map] and never
+              // recreates, so GPS drift just recenters.
+              key: ValueKey(
+                  locked ? 'map-lock-${widget.currentWard}' : 'map-free'),
+              mapController: locked ? null : _map,
               options: MapOptions(
-                initialCenter: center,
-                initialZoom: 15,
+                // Start inside the boundary at a valid zoom so the constraint
+                // is satisfied from frame one (the fit below refines it).
+                initialCenter: locked ? lock.center : center,
+                initialZoom: locked ? widget.lockMinZoom : 15,
+                // [minZoom] caps zoom-OUT at "the whole ward fills the visible
+                // band" — you can't pull back to reveal neighbouring wards.
+                minZoom: locked ? widget.lockMinZoom : 0,
+                maxZoom: locked ? 19 : double.infinity,
+                // Open showing the whole ward, biased up into the band left
+                // visible above the sheet.
+                initialCameraFit: locked
+                    ? CameraFit.bounds(
+                        bounds: lock,
+                        padding: widget.lockPadding,
+                      )
+                    : null,
+                // Keep the camera CENTRE inside the ward: you can pan around it
+                // and zoom in freely, but never drift the map off the ward.
+                // (containCenter rather than contain so gestures stay live —
+                // contain would freeze the map once the padded full-screen view
+                // exceeds the bounds.)
+                cameraConstraint: locked
+                    ? CameraConstraint.containCenter(bounds: lock)
+                    : const CameraConstraint.unconstrained(),
                 interactionOptions: const InteractionOptions(
                   flags: InteractiveFlag.pinchZoom |
                       InteractiveFlag.drag |
