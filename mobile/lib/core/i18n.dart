@@ -176,6 +176,7 @@ const Map<String, String> _ta = {
   'In my Ward': 'என் வார்டில்',
   'My Supports': 'என் ஆதரவுகள்',
   'In-progress': 'செயலில்',
+  'Pending': 'நிலுவை',
   'Language': 'மொழி',
   'Cancel': 'ரத்து',
   'Search by ticket number, title or area.':

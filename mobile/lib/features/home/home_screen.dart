@@ -39,10 +39,10 @@ const double _kNormalLowerEdge = (_kSheetMin + _kSheetNormal) / 2;
 const double _kNormalUpperEdge = (_kSheetNormal + _kSheetMax) / 2;
 
 /// Height of the pinned grip + filter pills + segmented tabs block.
-/// grip 8+4+10, pills 38+10, segments ~39, trailing 12 ≈ 121. Held a few
+/// grip 8+4+10, pills 30+10, segments ~39, trailing 12 ≈ 113. Held a few
 /// px above that: the sliver extent is fixed, so slack is invisible white
 /// space whereas a short value would clip the tab row.
-const double _kSheetHeaderHeight = 126;
+const double _kSheetHeaderHeight = 118;
 
 /// Backend statuses grouped behind each filter pill.
 const Map<String, Set<String>> _kStatusBuckets = {
@@ -51,14 +51,10 @@ const Map<String, Set<String>> _kStatusBuckets = {
   'resolved': {'CLOSED'},
 };
 
-/// Royal-navy accent pair, shared by the active segment and the report FAB.
-const Color _kRoyalBlue = Color(0xFF1A3A8F);
-const Color _kDeepNavy = Color(0xFF0D1F3C);
-
 /// The filter pills in display order — (bucket key, label, foreground, fill).
 /// They share the row width equally.
 const List<(String, String, Color, Color)> _kFilterPills = [
-  ('open', 'Open', Color(0xFFB4791F), Color(0xFFFBF0DA)), // sand / amber-brown
+  ('open', 'Pending', Color(0xFFB4791F), Color(0xFFFBF0DA)), // sand / amber-brown
   ('progress', 'In-progress', Color(0xFF2F6BD8), Color(0xFFE4ECFB)), // periwinkle
   ('resolved', 'Resolved', Color(0xFF1F8A5B), Color(0xFFDFF3E7)), // mint
 ];
@@ -656,7 +652,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 14),
             child: SizedBox(
-              height: 38,
+              // Reference pills are compact — badge (20) + 4px padding either
+              // side. The row height drives the pill height via Expanded.
+              height: 30,
               child: Row(
                 children: [
                   for (var i = 0; i < _kFilterPills.length; i++) ...[
@@ -1098,31 +1096,46 @@ class _SubmitBar extends StatelessWidget {
         onTap();
       },
       behavior: HitTestBehavior.opaque,
+      // Flat deep navy plate carries the rounded top edge + the home-indicator
+      // padding; the glow lives in an inner box sized to the label row, so the
+      // bloom always lands behind the text instead of drifting into the inset.
       child: Container(
         width: double.infinity,
-        padding: EdgeInsets.fromLTRB(16, 18, 16, 18 + bottomInset),
+        clipBehavior: Clip.antiAlias,
+        padding: EdgeInsets.only(bottom: bottomInset),
         decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.centerLeft,
-            end: Alignment.centerRight,
-            colors: [_kRoyalBlue, _kDeepNavy],
-          ),
+          color: Color(0xFF121C33),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
           boxShadow: [
             BoxShadow(
-              color: Color(0x40000000),
-              blurRadius: 24,
-              offset: Offset(0, -8),
+              color: Color(0x33000000),
+              blurRadius: 20,
+              offset: Offset(0, -6),
             ),
           ],
         ),
-        child: Text(
-          context.tr('Submit Your Grievance'),
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-            fontSize: 17,
-            fontWeight: FontWeight.w800,
-            letterSpacing: 0.2,
-            color: NkColors.gold300,
+        child: Container(
+          height: 58,
+          alignment: Alignment.center,
+          decoration: const BoxDecoration(
+            gradient: RadialGradient(
+              center: Alignment.center,
+              radius: 1.0,
+              // Fades to a transparent version of the SAME navy so the bloom
+              // dissolves without shifting hue.
+              colors: [Color(0xFF2A4370), Color(0x00121C33)],
+            ),
+          ),
+          child: Text(
+            context.tr('Submit Your Grievance'),
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 17,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.2,
+              // Lighter cream-gold than the brand gold — matches the reference.
+              color: Color(0xFFE9C87E),
+            ),
           ),
         ),
       ),
@@ -1155,7 +1168,7 @@ class _FilterPill extends StatelessWidget {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
         curve: NkMotion.settle,
-        padding: const EdgeInsets.fromLTRB(4, 4, 7, 4),
+        padding: const EdgeInsets.fromLTRB(4, 3, 8, 3),
         decoration: BoxDecoration(
           // Soft filled pastel at rest; selecting deepens the fill and keeps
           // the same hue family rather than inverting to a solid block.
@@ -1174,7 +1187,7 @@ class _FilterPill extends StatelessWidget {
           children: [
             // Leading circular count badge.
             Container(
-              constraints: const BoxConstraints(minWidth: 21, minHeight: 21),
+              constraints: const BoxConstraints(minWidth: 20, minHeight: 20),
               padding: const EdgeInsets.symmetric(horizontal: 4),
               alignment: Alignment.center,
               decoration: BoxDecoration(
