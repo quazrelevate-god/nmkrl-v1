@@ -504,6 +504,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
             // ── 2. Frosted app-bar capsule floating over the map ──
             Positioned(
+              key: const ValueKey('home-appbar'),
               top: topInset + 8,
               left: 14,
               right: 14,
@@ -516,6 +517,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             // ── 3. Constituency · ward chip, parked under the app bar ──
             if (_currentWard != null)
               Positioned(
+                key: const ValueKey('home-wardpill'),
                 top: topInset + 8 + 56 + 10,
                 left: 14,
                 child: _WardPill(
@@ -531,6 +533,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             // bottom layer: the white sheet above overlaps it, and the only
             // rounded corners in the composition belong to that sheet. ──
             Positioned(
+              key: const ValueKey('home-cta'),
               left: 0,
               right: 0,
               bottom: 0,
@@ -541,6 +544,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             // down the CTA — its rounded bottom corners then sit ON the blue,
             // which is what produces the reference's overlap. ──
             Positioned(
+              key: const ValueKey('home-sheet'),
               left: 0,
               right: 0,
               top: 0,
@@ -629,8 +633,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               ),
             ),
 
-            // ── 5. Floating notification banner for status updates ──
+            // ── 6. Floating notification banner for status updates ──
             Positioned(
+              key: const ValueKey('home-notif'),
               top: 0, left: 0, right: 0,
               child: NotificationPoller(
                 recipientType: 'citizen',
@@ -641,14 +646,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   if (w != null) _loadWard(w);
                 },
               ),
-            ),
-
-            // ── 6. Pinned "Submit Your Grievance" bar (replaces the + FAB) ──
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: _SubmitBar(onTap: _openReport),
             ),
           ],
         ),
