@@ -14,16 +14,18 @@ class NkColors {
   static const brand700 = Color(0xFF132844);
   static const brandDark = Color(0xFF0D1D34);
 
-  /// The brand blue, sampled straight from the supplied logo SVG (the signal
-  /// arcs are filled `#004AAD`). This is the single source of truth for every
-  /// blue accent — chips, avatar ring, buttons and labels — so nothing
-  /// approximates it any more.
-  static const refBlue = Color(0xFF004AAD);
+  /// The single blue used across the whole UI — chips, status pins, avatar,
+  /// ward badge, CTA and the report sheet. Deep navy #1a2744 per the reference.
+  static const refBlue = Color(0xFF1A2744);
 
-  /// Darkened brand blue for the bottom CTA plate, and the lighter tone its
-  /// centre glow blooms to. Both sit on the same hue line as [refBlue].
-  static const refBlueDeep = Color(0xFF0A1F45);
-  static const refBlueGlow = Color(0xFF12356E);
+  /// The report-sheet / CTA layer tones, on the same navy line as [refBlue]:
+  /// [refBlueDeep] is the flat plate; [refBlueGlow] the slightly lighter bloom /
+  /// inner container.
+  static const refBlueDeep = Color(0xFF1A2744);
+  static const refBlueGlow = Color(0xFF283A5E);
+
+  /// Slightly lighter navy for the report sheet's inner container (layer 2).
+  static const refBlueInner = Color(0xFF25365A);
 
   // Gold accent (cover emblem tone)
   static const gold100 = Color(0xFFF2E4BC);

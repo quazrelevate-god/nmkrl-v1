@@ -234,6 +234,11 @@ const Map<String, String> _ta = {
   'Add clear photos of the issue': 'பிரச்சினையின் தெளிவான புகைப்படங்களைச் சேர்க்கவும்',
   'Record Voice': 'குரல் பதிவு',
   'Describe the issue in your voice': 'பிரச்சினையை உங்கள் குரலில் விவரிக்கவும்',
+  'Fair use policy: you can report 1 grievance per day':
+      'நியாயமான பயன்பாட்டுக் கொள்கை: ஒரு நாளைக்கு 1 குறை மட்டுமே',
+  'Tap to add another': 'மற்றொன்றைச் சேர்க்க தட்டவும்',
+  'Tap to stop': 'நிறுத்த தட்டவும்',
+  'Photo added': 'புகைப்படம் சேர்க்கப்பட்டது',
   'Your report helps us build better communities':
       'உங்கள் புகார் சிறந்த சமூகங்களை உருவாக்க உதவுகிறது',
   'Capture photo': 'புகைப்படம் எடு',

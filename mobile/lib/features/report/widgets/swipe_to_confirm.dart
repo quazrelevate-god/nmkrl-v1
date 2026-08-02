@@ -6,9 +6,12 @@ import 'package:flutter/services.dart';
 import '../../../core/theme.dart';
 
 /// iOS "slide to answer"-style confirmation (port of SwipeToConfirm.js).
-/// Drag the knob past ~85% and it settles into the end, fires haptics +
+/// Drag the thumb past ~85% and it settles into the end, fires haptics +
 /// [onConfirm]; otherwise it eases back to the start. Pass a changing
 /// [resetToken] to snap back (e.g. after a failed submit).
+///
+/// Styling is fully parametrised so the same control serves the navy report
+/// sheet (light track + cream thumb) and the emerald upvote sheet.
 class SwipeToConfirm extends StatefulWidget {
   const SwipeToConfirm({
     super.key,
@@ -19,6 +22,16 @@ class SwipeToConfirm extends StatefulWidget {
     this.disabled = false,
     this.emerald = false,
     this.resetToken = 0,
+    this.height = 58,
+    this.radius = 16,
+    this.thumbWidth = 48,
+    this.trackColor,
+    this.thumbColor = Colors.white,
+    this.thumbIconColor = NkColors.brand,
+    this.labelColor = Colors.white,
+    this.hintColor = Colors.white,
+    this.fillColor,
+    this.uppercaseLabel = false,
   });
 
   final String label;
@@ -29,28 +42,40 @@ class SwipeToConfirm extends StatefulWidget {
   final bool emerald;
   final int resetToken;
 
+  final double height;
+  final double radius;
+  final double thumbWidth;
+
+  /// Flat track colour. When null the track is the navy (or emerald) gradient.
+  final Color? trackColor;
+  final Color thumbColor;
+  final Color thumbIconColor;
+  final Color labelColor;
+  final Color hintColor;
+
+  /// The soft progress fill that tracks the thumb. Defaults to a translucent
+  /// white on dark tracks; pass a darker tint for light tracks.
+  final Color? fillColor;
+  final bool uppercaseLabel;
+
   @override
   State<SwipeToConfirm> createState() => _SwipeToConfirmState();
 }
 
 class _SwipeToConfirmState extends State<SwipeToConfirm>
     with TickerProviderStateMixin {
-  static const _knob = 48.0;
   static const _pad = 4.0;
-  static const _radius = 16.0;
 
-  /// Knob offset in px. A ValueNotifier (not setState) so pointer moves
-  /// repaint only this control's subtree — 1:1 with the finger, no
-  /// build-frame lag.
+  double get _thumbW => widget.thumbWidth;
+  double get _thumbH => widget.height - _pad * 2;
+
+  /// Thumb offset in px. A ValueNotifier (not setState) so pointer moves
+  /// repaint only this control's subtree — 1:1 with the finger, no lag.
   final ValueNotifier<double> _pos = ValueNotifier(0);
   double _maxX = 1;
   bool _confirmed = false;
 
-  // Created eagerly in initState — a late-final first touched in dispose()
-  // (possible when the control is busy from the first frame) would crash.
   late final AnimationController _hint;
-
-  /// Drives release animations (ease back to start / settle into the end).
   late final AnimationController _settle;
   VoidCallback? _settleTick;
 
@@ -93,8 +118,6 @@ class _SwipeToConfirmState extends State<SwipeToConfirm>
     }
   }
 
-  /// Animate the knob from its current offset to [to] with an ease-out
-  /// curve; [onDone] fires only when the run completes uninterrupted.
   void _animateTo(double to,
       {required Duration duration, VoidCallback? onDone}) {
     _stopSettle();
@@ -118,7 +141,6 @@ class _SwipeToConfirmState extends State<SwipeToConfirm>
 
   void _onRelease() {
     if (_pos.value >= _maxX * 0.85) {
-      // Lock in before animating so jittery follow-up motion can't retrigger.
       HapticFeedback.mediumImpact();
       setState(() => _confirmed = true);
       _animateTo(_maxX,
@@ -129,64 +151,50 @@ class _SwipeToConfirmState extends State<SwipeToConfirm>
     }
   }
 
-  /// Fill width behind the knob: collapsed at rest, meets the track's inner
-  /// right edge exactly at full extension (the trailing pad is blended in
-  /// with drag progress so there's no end gap and no overflow).
   double _fillWidth(double pos) {
     if (pos <= 0 && !_confirmed) return 0;
     final frac = (pos / _maxX).clamp(0.0, 1.0);
-    return _pad + pos + _knob + _pad * frac;
+    return _pad + pos + _thumbW + _pad * frac;
   }
 
   @override
   Widget build(BuildContext context) {
+    final fill = widget.fillColor ?? Colors.white.withValues(alpha: 0.14);
     return LayoutBuilder(
       builder: (context, constraints) {
-        _maxX = (constraints.maxWidth - _knob - _pad * 2)
+        _maxX = (constraints.maxWidth - _thumbW - _pad * 2)
             .clamp(1.0, double.infinity);
         final active = !widget.disabled && !widget.busy && !_confirmed;
 
         return Opacity(
           opacity: widget.disabled ? 0.5 : 1,
           child: Container(
-            height: 58,
+            height: widget.height,
             decoration: BoxDecoration(
-              gradient: widget.emerald
-                  ? const LinearGradient(
-                      colors: [NkColors.emerald500, NkColors.emerald600])
-                  : nkBrandGradient,
-              borderRadius: BorderRadius.circular(_radius),
-              boxShadow: [
-                BoxShadow(
-                  color: (widget.emerald ? NkColors.emerald600 : NkColors.brand)
-                      .withValues(alpha: 0.3),
-                  blurRadius: 16,
-                  offset: const Offset(0, 8),
-                  spreadRadius: -6,
-                ),
-              ],
+              color: widget.trackColor,
+              gradient: widget.trackColor != null
+                  ? null
+                  : (widget.emerald
+                      ? const LinearGradient(
+                          colors: [NkColors.emerald500, NkColors.emerald600])
+                      : nkBrandGradient),
+              borderRadius: BorderRadius.circular(widget.radius),
             ),
-            // Everything that moves is hard-clipped to the pill so the fill
-            // can never poke past the rounded corners, mid-drag or settled.
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(_radius),
+              borderRadius: BorderRadius.circular(widget.radius),
               child: ValueListenableBuilder<double>(
                 valueListenable: _pos,
                 builder: (context, x, _) {
                   final pct = (x / _maxX).clamp(0.0, 1.0);
                   return Stack(
                     children: [
-                      // Progress sheen — a soft white fill tracking the knob
-                      // over the navy track (the track itself is already navy).
                       Positioned(
                         left: 0,
                         top: 0,
                         bottom: 0,
                         child: Container(
                           width: _fillWidth(x),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.14),
-                          ),
+                          decoration: BoxDecoration(color: fill),
                         ),
                       ),
 
@@ -194,30 +202,26 @@ class _SwipeToConfirmState extends State<SwipeToConfirm>
                       Positioned.fill(
                         child: Center(
                           child: Padding(
-                            padding: const EdgeInsets.only(left: 40),
-                            child: AnimatedDefaultTextStyle(
-                              duration: const Duration(milliseconds: 200),
-                              style: const TextStyle(
-                                fontSize: 14,
+                            padding: EdgeInsets.only(left: _thumbW + 12),
+                            child: Text(
+                              (widget.busy
+                                      ? widget.busyLabel
+                                      : _confirmed
+                                          ? 'Confirmed'
+                                          : widget.label)
+                                  .let(widget.uppercaseLabel),
+                              style: TextStyle(
+                                fontSize: widget.uppercaseLabel ? 12 : 13.5,
                                 fontWeight: FontWeight.w700,
-                                color: Colors.white,
-                              ),
-                              child: Text(
-                                widget.busy
-                                    ? widget.busyLabel
-                                    : _confirmed
-                                        ? 'Confirmed'
-                                        : widget.label,
+                                letterSpacing: widget.uppercaseLabel ? 0.3 : 0.2,
+                                color: widget.labelColor,
                               ),
                             ),
                           ),
                         ),
                       ),
 
-                      // Hint chevrons — faded out instead of removed: taking
-                      // them out of the Stack mid-drag would shift the knob's
-                      // element index and dispose its recognizer, killing the
-                      // in-flight gesture (the pointer-up would never arrive).
+                      // Hint chevrons
                       Positioned(
                         right: 20,
                         top: 0,
@@ -241,8 +245,8 @@ class _SwipeToConfirmState extends State<SwipeToConfirm>
                                         fontSize: 20,
                                         fontWeight: FontWeight.w800,
                                         height: 1,
-                                        color: Colors.white.withValues(
-                                            alpha: 0.3 + 0.55 * wave),
+                                        color: widget.hintColor.withValues(
+                                            alpha: 0.25 + 0.55 * wave),
                                       ),
                                     ),
                                   );
@@ -253,11 +257,7 @@ class _SwipeToConfirmState extends State<SwipeToConfirm>
                         ),
                       ),
 
-                      // Knob — follows the raw drag delta 1:1; GestureDetector
-                      // supplies the platform touch slop so incidental touches
-                      // don't start a drag. Keyed so future structural edits
-                      // to this Stack can never re-bind (and dispose) the
-                      // element that owns the live drag recognizer.
+                      // Thumb
                       Positioned(
                         key: const ValueKey('swipe-knob'),
                         left: _pad + x,
@@ -273,12 +273,13 @@ class _SwipeToConfirmState extends State<SwipeToConfirm>
                               active ? (_) => _onRelease() : null,
                           onHorizontalDragCancel: active ? _onRelease : null,
                           child: Container(
-                            height: _knob,
-                            width: _knob,
+                            height: _thumbH,
+                            width: _thumbW,
                             alignment: Alignment.center,
                             decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(12),
+                              color: widget.thumbColor,
+                              borderRadius:
+                                  BorderRadius.circular(widget.radius - 4),
                               boxShadow: [
                                 BoxShadow(
                                   color: Colors.black.withValues(alpha: 0.12),
@@ -288,22 +289,20 @@ class _SwipeToConfirmState extends State<SwipeToConfirm>
                               ],
                             ),
                             child: widget.busy
-                                ? const SizedBox(
+                                ? SizedBox(
                                     height: 20,
                                     width: 20,
                                     child: CircularProgressIndicator(
                                       strokeWidth: 2.4,
-                                      color: NkColors.brand,
+                                      color: widget.thumbIconColor,
                                     ),
                                   )
                                 : Icon(
                                     _confirmed
                                         ? Icons.check
-                                        : Icons.keyboard_double_arrow_right,
-                                    size: 22,
-                                    color: widget.emerald
-                                        ? NkColors.emerald600
-                                        : NkColors.brand,
+                                        : Icons.chevron_right,
+                                    size: 24,
+                                    color: widget.thumbIconColor,
                                   ),
                           ),
                         ),
@@ -318,4 +317,8 @@ class _SwipeToConfirmState extends State<SwipeToConfirm>
       },
     );
   }
+}
+
+extension _Upper on String {
+  String let(bool up) => up ? toUpperCase() : this;
 }

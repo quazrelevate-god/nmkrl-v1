@@ -20,6 +20,10 @@ import 'widgets/voice_recorder.dart';
 
 const _kDailyMax = 1;
 
+/// Upload tiles are a FIXED height so the sheet never reflows when a photo is
+/// added or audio is recorded — only the tile's inner content changes.
+const double _kTileHeight = 82;
+
 /// "Report Street Issue" floating glass sheet (port of ReportModal.js):
 /// location card, camera + voice capture side by side, fair-use banner and
 /// the swipe-to-submit control. Handles the backend's duplicate check with a
@@ -86,12 +90,10 @@ class _ReportSheetState extends ConsumerState<ReportSheet> {
   bool _submitting = false;
   String? _error;
   int _resetToken = 0;
-  late DailyState _limit;
 
   @override
   void initState() {
     super.initState();
-    _limit = ref.read(dailyLimitProvider).state(kGrievanceLimitKey, _kDailyMax);
     _recorder.addListener(() => setState(() {}));
   }
 
@@ -194,439 +196,246 @@ class _ReportSheetState extends ConsumerState<ReportSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
-    return Padding(
-      padding: EdgeInsets.fromLTRB(16, 0, 16, 16 + bottomInset),
-      child: Container(
-        clipBehavior: Clip.antiAlias,
-        decoration: BoxDecoration(
-          gradient: nkBrandGradient,
-          borderRadius: BorderRadius.circular(30),
-          boxShadow: [
-            BoxShadow(
-              color: NkColors.slate900.withValues(alpha: 0.35),
-              blurRadius: 60,
-              offset: const Offset(0, 24),
-              spreadRadius: -16,
-            ),
-          ],
-        ),
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(16, 10, 16, 20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // Grab handle
-              Center(
-                child: Container(
-                  height: 4,
-                  width: 40,
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.35),
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 10),
-
-              // Capture panel — the two white pills on a lighter navy inset.
-              const SizedBox(height: 14),
-              Container(
-                padding: const EdgeInsets.all(8),
+    final viewInset = MediaQuery.of(context).viewInsets.bottom;
+    final safeBottom = MediaQuery.paddingOf(context).bottom;
+    return Container(
+      width: double.infinity,
+      decoration: const BoxDecoration(
+        // Layer 1 — flat navy outer, only the top corners rounded so it reads
+        // as a bottom-attached sheet, not a floating card.
+        color: NkColors.refBlue,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      padding: EdgeInsets.only(bottom: safeBottom + viewInset),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 10, 14, 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                height: 4,
+                width: 42,
                 decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.07),
-                  borderRadius: BorderRadius.circular(34),
-                ),
-                child: IntrinsicHeight(
-                  child: Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  // Camera column
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        if (_images.isNotEmpty) ...[
-                          Wrap(
-                            spacing: 6,
-                            runSpacing: 6,
-                            children: [
-                              for (final img in _images)
-                                Stack(
-                                  clipBehavior: Clip.none,
-                                  children: [
-                                    ClipRRect(
-                                      borderRadius:
-                                          BorderRadius.circular(8),
-                                      child: Image.file(
-                                        File(img.path),
-                                        height: 44,
-                                        width: 44,
-                                        fit: BoxFit.cover,
-                                      ),
-                                    ),
-                                    Positioned(
-                                      top: -6,
-                                      right: -6,
-                                      child: GestureDetector(
-                                        onTap: () => setState(
-                                            () => _images.remove(img)),
-                                        child: Container(
-                                          height: 20,
-                                          width: 20,
-                                          alignment: Alignment.center,
-                                          decoration: const BoxDecoration(
-                                            color: NkColors.slate800,
-                                            shape: BoxShape.circle,
-                                          ),
-                                          child: const Icon(Icons.close,
-                                              size: 11,
-                                              color: Colors.white),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                        ],
-                        // Expanded so both tiles fill the row's intrinsic
-                        // height and stay the same size even though their
-                        // subtitles wrap to a different number of lines.
-                        Expanded(
-                          child: _CaptureTile(
-                            icon: Icons.photo_camera_outlined,
-                            title: _images.isNotEmpty
-                                ? 'Added (${_images.length})'
-                                : context.tr('Upload Photo'),
-                            subtitle:
-                                context.tr('Add clear photos of the issue'),
-                            onTap: _capturePhoto,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 9),
-                  // Voice column
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        if (_recorder.file != null &&
-                            !_recorder.isRecording) ...[
-                          _AudioPill(recorder: _recorder),
-                          const SizedBox(height: 8),
-                        ],
-                        Expanded(
-                          child: _recorder.isRecording
-                              ? _RecordingTile(recorder: _recorder)
-                              : _CaptureTile(
-                                  icon: Icons.mic_none,
-                                  title: _recorder.file != null
-                                      ? 'Re-record'
-                                      : context.tr('Record Voice'),
-                                  subtitle: context
-                                      .tr('Describe the issue in your voice'),
-                                  onTap: () {
-                                    HapticFeedback.selectionClick();
-                                    _recorder.start();
-                                  },
-                                ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  ],
-                  ),
+                  color: Colors.white.withValues(alpha: 0.28),
+                  borderRadius: BorderRadius.circular(999),
                 ),
               ),
-              if (_recorder.error != null) ...[
-                const SizedBox(height: 8),
-                Text(
-                  _recorder.error!,
-                  style:
-                      const TextStyle(fontSize: 12, color: NkColors.rose500),
-                ),
-              ],
+            ),
+            const SizedBox(height: 16),
 
-              if (_error != null) ...[
-                const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 12, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: NkColors.rose50,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: NkColors.rose200),
-                  ),
-                  child: Text(
-                    _error!,
-                    style: const TextStyle(
-                        fontSize: 13, color: NkColors.rose600),
-                  ),
-                ),
-              ],
-
-              // Fair use policy — one line.
-              const SizedBox(height: 14),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
+            // Layer 2 — slightly lighter inner container wrapping the two white
+            // upload tiles (layer 3). Tiles are fixed height, so adding a photo
+            // or recording audio swaps only their contents — never resizes.
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: NkColors.refBlueInner,
+                borderRadius: BorderRadius.circular(30),
+              ),
+              child: Row(
                 children: [
-                  Icon(Icons.verified_user_outlined,
-                      size: 15, color: Colors.white.withValues(alpha: 0.7)),
-                  const SizedBox(width: 7),
-                  Flexible(
-                    child: Text(
-                      '${context.tr('Fair use policy')}: '
-                      '${context.tr('you can report')} ${_limit.max} '
-                      '${context.tr('grievance per day')}',
-                      style: TextStyle(
-                        fontSize: 12.5,
-                        color: Colors.white.withValues(alpha: 0.8),
-                      ),
-                    ),
-                  ),
+                  Expanded(child: _cameraTile()),
+                  const SizedBox(width: 8),
+                  Expanded(child: _voiceTile()),
                 ],
               ),
+            ),
 
-              // Swipe to submit
-              const SizedBox(height: 14),
-              SwipeToConfirm(
-                label: context.tr('Swipe to submit grievance'),
-                busyLabel: 'Submitting…',
-                busy: _submitting,
-                resetToken: _resetToken,
-                onConfirm: _submit,
+            if (_error != null || _recorder.error != null) ...[
+              const SizedBox(height: 10),
+              Text(
+                _error ?? _recorder.error!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 12, color: Color(0xFFFFB4B4)),
               ),
             ],
-          ),
+
+            // Fair use policy row — aligned with the tiles above.
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.verified_user_outlined,
+                    size: 16, color: Colors.white.withValues(alpha: 0.66)),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    context.tr(
+                        'Fair use policy: you can report 1 grievance per day'),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Colors.white.withValues(alpha: 0.8),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+
+            // Swipe to submit.
+            const SizedBox(height: 16),
+            SwipeToConfirm(
+              label: context.tr('Swipe to submit grievance'),
+              uppercaseLabel: true,
+              busyLabel: 'Submitting…',
+              busy: _submitting,
+              resetToken: _resetToken,
+              onConfirm: _submit,
+              height: 62,
+              radius: 22,
+              thumbWidth: 84,
+              trackColor: const Color(0xFFDFDDD6),
+              thumbColor: const Color(0xFFEBE2CB),
+              thumbIconColor: NkColors.refBlue,
+              labelColor: const Color(0xFF8B90A0),
+              hintColor: const Color(0xFF8B90A0),
+              fillColor: NkColors.refBlue.withValues(alpha: 0.08),
+            ),
+          ],
         ),
       ),
     );
   }
-}
 
-class _CaptureTile extends StatelessWidget {
-  const _CaptureTile({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.onTap,
-  });
+  // ── Upload tiles — fixed height, content swaps per state ──────────────────
 
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final VoidCallback onTap;
+  Widget _iconCircle(IconData icon,
+          {Color bg = NkColors.slate100, Color fg = NkColors.refBlue}) =>
+      Container(
+        height: 44,
+        width: 44,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(color: bg, shape: BoxShape.circle),
+        child: Icon(icon, size: 22, color: fg),
+      );
 
-  @override
-  Widget build(BuildContext context) {
+  Widget _tile({
+    required Widget leading,
+    required String title,
+    required String subtitle,
+    Widget? trailing,
+    VoidCallback? onTap,
+  }) {
     return GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 11),
+        height: _kTileHeight,
+        padding: const EdgeInsets.fromLTRB(8, 10, 8, 10),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(34),
+          borderRadius: BorderRadius.circular(24),
         ),
         child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            Container(
-              height: 38,
-              width: 38,
-              alignment: Alignment.center,
-              decoration: const BoxDecoration(
-                color: NkColors.slate100,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(icon, size: 19, color: NkColors.brand),
-            ),
+            leading,
             const SizedBox(width: 8),
             Expanded(
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w800,
+                      height: 1.1,
                       color: NkColors.slate900,
                     ),
                   ),
                   const SizedBox(height: 2),
                   Text(
                     subtitle,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       fontSize: 11.5,
-                      height: 1.25,
+                      height: 1.2,
                       color: NkColors.slate500,
                     ),
                   ),
                 ],
               ),
             ),
+            if (trailing != null) trailing,
           ],
         ),
       ),
     );
   }
-}
 
-/// Rose pulsing tile while recording, with the live timer.
-class _RecordingTile extends StatefulWidget {
-  const _RecordingTile({required this.recorder});
-
-  final VoiceRecorderController recorder;
-
-  @override
-  State<_RecordingTile> createState() => _RecordingTileState();
-}
-
-class _RecordingTileState extends State<_RecordingTile>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _pulse = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 1400),
-  )..repeat();
-
-  @override
-  void dispose() {
-    _pulse.dispose();
-    super.dispose();
+  Widget _cameraTile() {
+    if (_images.isNotEmpty) {
+      return _tile(
+        onTap: _capturePhoto,
+        leading: ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: Image.file(File(_images.first.path),
+              height: 44, width: 44, fit: BoxFit.cover),
+        ),
+        title:
+            _images.length > 1 ? 'Added (${_images.length})' : 'Photo added',
+        subtitle: context.tr('Tap to add another'),
+        trailing: GestureDetector(
+          onTap: () => setState(() => _images.clear()),
+          child: const Icon(Icons.delete_outline,
+              size: 18, color: NkColors.slate400),
+        ),
+      );
+    }
+    return _tile(
+      onTap: _capturePhoto,
+      leading: _iconCircle(Icons.photo_camera_outlined),
+      title: context.tr('Upload Photo'),
+      subtitle: context.tr('Add clear photos of the issue'),
+    );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _pulse,
-      builder: (context, child) => Container(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: const Color(0xFFEF4444)
-                  .withValues(alpha: 0.5 * (1 - _pulse.value)),
-              spreadRadius: 18 * _pulse.value,
-            ),
-          ],
-        ),
-        child: child,
-      ),
-      child: GestureDetector(
+  Widget _voiceTile() {
+    final r = _recorder;
+    if (r.isRecording) {
+      return _tile(
         onTap: () {
           HapticFeedback.mediumImpact();
-          widget.recorder.stop();
+          r.stop();
         },
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 14),
-          decoration: BoxDecoration(
-            color: NkColors.rose500,
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: Column(
-            children: [
-              const Icon(Icons.stop, size: 20, color: Colors.white),
-              const SizedBox(height: 4),
-              Text(
-                '${widget.recorder.clock} · Stop',
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  fontFamily: 'monospace',
-                  color: Colors.white,
-                ),
-              ),
-            ],
-          ),
+        leading: _iconCircle(Icons.stop,
+            bg: NkColors.rose100, fg: NkColors.rose600),
+        title: r.clock,
+        subtitle: context.tr('Tap to stop'),
+      );
+    }
+    if (r.file != null) {
+      return _tile(
+        leading: GestureDetector(
+          onTap: r.togglePlayback,
+          child: _iconCircle(r.isPlaying ? Icons.pause : Icons.play_arrow,
+              bg: NkColors.refBlue, fg: Colors.white),
         ),
-      ),
-    );
-  }
-}
-
-/// Compact playback pill above the recorder tile (port of AudioPill).
-class _AudioPill extends StatelessWidget {
-  const _AudioPill({required this.recorder});
-
-  final VoiceRecorderController recorder;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-      decoration: BoxDecoration(
-        color: NkColors.brand50,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: NkColors.brand100),
-      ),
-      child: Row(
-        children: [
-          GestureDetector(
-            onTap: recorder.togglePlayback,
-            child: Container(
-              height: 28,
-              width: 28,
-              alignment: Alignment.center,
-              decoration: const BoxDecoration(
-                color: NkColors.brand,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                recorder.isPlaying ? Icons.pause : Icons.play_arrow,
-                size: 15,
-                color: Colors.white,
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          // Static waveform bars
-          Expanded(
-            child: SizedBox(
-              height: 16,
-              child: Row(
-                children: [
-                  for (var i = 0; i < 14; i++)
-                    Expanded(
-                      child: Center(
-                        child: Container(
-                          height: 16 * (0.3 + ((i * 37) % 70) / 100),
-                          width: 2,
-                          decoration: BoxDecoration(
-                            color: NkColors.brand.withValues(alpha: 0.4),
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          Text(
-            recorder.clock,
-            style: const TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              fontFamily: 'monospace',
-              color: NkColors.brand,
-            ),
-          ),
-          const SizedBox(width: 8),
-          GestureDetector(
-            onTap: recorder.reset,
-            child: const Icon(Icons.delete_outline,
-                size: 14, color: NkColors.slate400),
-          ),
-        ],
-      ),
+        title: context.tr('Voice note'),
+        subtitle: r.clock,
+        trailing: GestureDetector(
+          onTap: r.reset,
+          child: const Icon(Icons.delete_outline,
+              size: 18, color: NkColors.slate400),
+        ),
+      );
+    }
+    return _tile(
+      onTap: () {
+        HapticFeedback.selectionClick();
+        r.start();
+      },
+      leading: _iconCircle(Icons.mic_none),
+      title: context.tr('Record Voice'),
+      subtitle: context.tr('Describe the issue in your voice'),
     );
   }
 }

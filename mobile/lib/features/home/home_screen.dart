@@ -680,29 +680,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           // row evenly rather than scrolling, so there is no dead space.
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 14),
-            child: SizedBox(
-              // Reference pills are compact — badge (20) + 4px padding either
-              // side. The row height drives the pill height via Expanded.
-              height: 30,
-              child: Row(
-                children: [
-                  for (var i = 0; i < _kFilterPills.length; i++) ...[
-                    Expanded(
-                      child: _FilterPill(
-                        count: _bucketCount(source, _kFilterPills[i].$1),
-                        label: context.tr(_kFilterPills[i].$2),
-                        fg: _kFilterPills[i].$3,
-                        bg: _kFilterPills[i].$4,
-                        active: _statusFilter == _kFilterPills[i].$1,
-                        onTap: () =>
-                            _toggleStatusFilter(_kFilterPills[i].$1),
-                      ),
-                    ),
-                    if (i < _kFilterPills.length - 1)
-                      const SizedBox(width: 8),
-                  ],
+            // Independent chips that hug their own content and sit centred as a
+            // group — not a full-width segmented control.
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                for (var i = 0; i < _kFilterPills.length; i++) ...[
+                  _FilterPill(
+                    count: _bucketCount(source, _kFilterPills[i].$1),
+                    label: context.tr(_kFilterPills[i].$2),
+                    fg: _kFilterPills[i].$3,
+                    bg: _kFilterPills[i].$4,
+                    active: _statusFilter == _kFilterPills[i].$1,
+                    onTap: () => _toggleStatusFilter(_kFilterPills[i].$1),
+                  ),
+                  if (i < _kFilterPills.length - 1) const SizedBox(width: 8),
                 ],
-              ),
+              ],
             ),
           ),
           const SizedBox(height: 10),
@@ -1199,11 +1193,11 @@ class _FilterPill extends StatelessWidget {
             width: 1.4,
           ),
         ),
-        // Content is LEFT aligned (reference) and every pill shares one font
-        // size — no FittedBox, which would scale the longest label and drop
-        // its baseline a pixel or two below the other two.
+        // Each pill hugs its own content; every pill shares one font size — no
+        // FittedBox, which would scale the longest label and drop its baseline
+        // a pixel or two below the other two.
         child: Row(
-          mainAxisAlignment: MainAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             // Leading circular count badge.
@@ -1225,18 +1219,15 @@ class _FilterPill extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 6),
-            Flexible(
-              child: Text(
-                label.toUpperCase(),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 10.5,
-                  height: 1.0,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 0.1,
-                  color: fg,
-                ),
+            Text(
+              label.toUpperCase(),
+              maxLines: 1,
+              style: TextStyle(
+                fontSize: 10.5,
+                height: 1.0,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.1,
+                color: fg,
               ),
             ),
           ],
@@ -1293,7 +1284,7 @@ class _WardPill extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 7),
             alignment: Alignment.center,
             decoration: BoxDecoration(
-              color: NkColors.refBlue,
+              color: NkColors.refBlue.withValues(alpha: 0.62),
               borderRadius: BorderRadius.circular(999),
             ),
             child: Text(
