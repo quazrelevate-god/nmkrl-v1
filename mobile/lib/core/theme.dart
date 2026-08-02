@@ -14,6 +14,17 @@ class NkColors {
   static const brand700 = Color(0xFF132844);
   static const brandDark = Color(0xFF0D1D34);
 
+  /// The brand blue, sampled straight from the supplied logo SVG (the signal
+  /// arcs are filled `#004AAD`). This is the single source of truth for every
+  /// blue accent — chips, avatar ring, buttons and labels — so nothing
+  /// approximates it any more.
+  static const refBlue = Color(0xFF004AAD);
+
+  /// Darkened brand blue for the bottom CTA plate, and the lighter tone its
+  /// centre glow blooms to. Both sit on the same hue line as [refBlue].
+  static const refBlueDeep = Color(0xFF0A1F45);
+  static const refBlueGlow = Color(0xFF12356E);
+
   // Gold accent (cover emblem tone)
   static const gold100 = Color(0xFFF2E4BC);
   static const gold200 = Color(0xFFDDC689);

@@ -44,6 +44,14 @@ const double _kNormalUpperEdge = (_kSheetNormal + _kSheetMax) / 2;
 /// space whereas a short value would clip the tab row.
 const double _kSheetHeaderHeight = 118;
 
+/// Height of the CTA's label row (the safe-area inset is added on top of it).
+/// The sheet is inset by this minus [_kSheetCornerRadius] so its rounded bottom
+/// corners land ON the blue plate — the overlap seen in the reference.
+const double _kCtaContentHeight = 96;
+
+/// The one corner radius in the composition — it belongs to the white sheet.
+const double _kSheetCornerRadius = 22;
+
 /// Backend statuses grouped behind each filter pill.
 const Map<String, Set<String>> _kStatusBuckets = {
   'open': {'SUBMITTED', 'ACTIVE'},
@@ -55,7 +63,8 @@ const Map<String, Set<String>> _kStatusBuckets = {
 /// They share the row width equally.
 const List<(String, String, Color, Color)> _kFilterPills = [
   ('open', 'Pending', Color(0xFFB4791F), Color(0xFFFBF0DA)), // sand / amber-brown
-  ('progress', 'In-progress', Color(0xFF2F6BD8), Color(0xFFE4ECFB)), // periwinkle
+  // Blue is the exact #004AAD sampled from the logo SVG, on its own pale tint.
+  ('progress', 'In-progress', NkColors.refBlue, Color(0xFFE2EAF7)),
   ('resolved', 'Resolved', Color(0xFF1F8A5B), Color(0xFFDFF3E7)), // mint
 ];
 
@@ -517,8 +526,26 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 ),
               ),
 
-            // ── 4. The draggable content sheet ──
-            NotificationListener<DraggableScrollableNotification>(
+            // ── 4. Bottom CTA — the flat footer PLATE, edge to edge with a
+            // perfectly flat top edge and no radius of its own. It is the
+            // bottom layer: the white sheet above overlaps it, and the only
+            // rounded corners in the composition belong to that sheet. ──
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: _SubmitBar(onTap: _openReport),
+            ),
+
+            // ── 5. The draggable content sheet, inset so it stops partway
+            // down the CTA — its rounded bottom corners then sit ON the blue,
+            // which is what produces the reference's overlap. ──
+            Positioned(
+              left: 0,
+              right: 0,
+              top: 0,
+              bottom: _kCtaContentHeight - _kSheetCornerRadius,
+              child: NotificationListener<DraggableScrollableNotification>(
               onNotification: (n) {
                 // Drives the ward pill only — no setState, so the map does
                 // not rebuild on every drag frame.
@@ -560,8 +587,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   builder: (context, scrollController) => DecoratedBox(
                     decoration: BoxDecoration(
                       color: Colors.white,
-                      borderRadius: const BorderRadius.vertical(
-                          top: Radius.circular(20)),
+                      // Every rounded corner in this composition lives here —
+                      // the CTA behind stays perfectly flat.
+                      borderRadius: BorderRadius.circular(_kSheetCornerRadius),
                       boxShadow: [
                         BoxShadow(
                           color: Colors.black.withValues(alpha: 0.16),
@@ -571,8 +599,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       ],
                     ),
                     child: ClipRRect(
-                      borderRadius: const BorderRadius.vertical(
-                          top: Radius.circular(20)),
+                      borderRadius:
+                          BorderRadius.circular(_kSheetCornerRadius),
                       child: CustomScrollView(
                         controller: scrollController,
                         physics: const ClampingScrollPhysics(),
@@ -585,7 +613,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                             ),
                           ),
                           SliverPadding(
-                            padding: const EdgeInsets.fromLTRB(14, 0, 14, 118),
+                            padding: const EdgeInsets.fromLTRB(14, 0, 14, 40),
                             sliver: SliverList(
                               delegate: SliverChildListDelegate(
                                 _buildSheetBody(),
@@ -597,6 +625,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     ),
                   ),
                 ),
+              ),
               ),
             ),
 
@@ -1096,46 +1125,37 @@ class _SubmitBar extends StatelessWidget {
         onTap();
       },
       behavior: HitTestBehavior.opaque,
-      // Flat deep navy plate carries the rounded top edge + the home-indicator
-      // padding; the glow lives in an inner box sized to the label row, so the
-      // bloom always lands behind the text instead of drifting into the inset.
+      // A FLAT footer plate: edge to edge, perfectly flat top edge, no radius
+      // anywhere. It is the bottom layer of the stack and the white sheet
+      // overlaps it — the rounded corners in the design belong to that sheet.
       child: Container(
         width: double.infinity,
-        clipBehavior: Clip.antiAlias,
-        padding: EdgeInsets.only(bottom: bottomInset),
-        decoration: const BoxDecoration(
-          color: Color(0xFF121C33),
-          borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
-          boxShadow: [
-            BoxShadow(
-              color: Color(0x33000000),
-              blurRadius: 20,
-              offset: Offset(0, -6),
-            ),
-          ],
+        // Label sits in the band left visible below the overlapping sheet.
+        padding: EdgeInsets.only(
+          top: _kSheetCornerRadius + 10,
+          bottom: 14 + bottomInset,
         ),
-        child: Container(
-          height: 58,
-          alignment: Alignment.center,
-          decoration: const BoxDecoration(
-            gradient: RadialGradient(
-              center: Alignment.center,
-              radius: 1.0,
-              // Fades to a transparent version of the SAME navy so the bloom
-              // dissolves without shifting hue.
-              colors: [Color(0xFF2A4370), Color(0x00121C33)],
-            ),
+        decoration: const BoxDecoration(
+          color: NkColors.refBlueDeep,
+          gradient: RadialGradient(
+            // Bloom centred on the visible band, below the sheet's edge.
+            center: Alignment(0, 0.35),
+            radius: 1.1,
+            colors: [
+              NkColors.refBlueGlow,
+              NkColors.refBlueDeep,
+            ],
           ),
-          child: Text(
-            context.tr('Submit Your Grievance'),
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              fontSize: 17,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 0.2,
-              // Lighter cream-gold than the brand gold — matches the reference.
-              color: Color(0xFFE9C87E),
-            ),
+        ),
+        child: Text(
+          context.tr('Submit Your Grievance'),
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            fontSize: 17,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0.2,
+            // Cream-gold, sampled from the wordmark gradient in the logo SVG.
+            color: Color(0xFFFFEEB8),
           ),
         ),
       ),
@@ -1179,11 +1199,12 @@ class _FilterPill extends StatelessWidget {
             width: 1.4,
           ),
         ),
-        // The pill is stretched by an Expanded parent, so centre the content
-        // and let the longest label ("IN-PROGRESS") ellipsise on narrow
-        // screens rather than overflow.
+        // Content is LEFT aligned (reference) and every pill shares one font
+        // size — no FittedBox, which would scale the longest label and drop
+        // its baseline a pixel or two below the other two.
         child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisAlignment: MainAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             // Leading circular count badge.
             Container(
@@ -1203,22 +1224,18 @@ class _FilterPill extends StatelessWidget {
                 ),
               ),
             ),
-            const SizedBox(width: 5),
-            // Shrink rather than ellipsise — "IN-PROGRESS" is the longest
-            // label and must stay readable in full at every width.
+            const SizedBox(width: 6),
             Flexible(
-              child: FittedBox(
-                fit: BoxFit.scaleDown,
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  label.toUpperCase(),
-                  maxLines: 1,
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 0.1,
-                    color: fg,
-                  ),
+              child: Text(
+                label.toUpperCase(),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 10.5,
+                  height: 1.0,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.1,
+                  color: fg,
                 ),
               ),
             ),
@@ -1276,7 +1293,7 @@ class _WardPill extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 7),
             alignment: Alignment.center,
             decoration: BoxDecoration(
-              color: const Color(0xFF16233A),
+              color: NkColors.refBlue,
               borderRadius: BorderRadius.circular(999),
             ),
             child: Text(

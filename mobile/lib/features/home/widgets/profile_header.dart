@@ -36,7 +36,7 @@ class ProfileHeader extends ConsumerWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          const BrandMark(color: NkColors.gold300, fontSize: 20),
+          const BrandLogo(height: 30),
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -157,7 +157,8 @@ class _ProfileAvatar extends StatelessWidget {
           width: 34,
           alignment: Alignment.center,
           decoration: const BoxDecoration(
-            color: NkColors.brandDark,
+            // Brand blue from the logo SVG, not an approximated navy.
+            color: NkColors.refBlue,
             shape: BoxShape.circle,
           ),
           child: Text(

@@ -1,8 +1,31 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../core/theme.dart';
+
+/// The supplied நம்குரல் wordmark, rendered from its ORIGINAL vector asset —
+/// cream gradient lettering plus the `#004AAD` signal arcs. Never redraw this
+/// with text/fonts: the asset is the source of truth for the brand mark.
+///
+/// The artwork's own aspect ratio is ~782:230, so callers size it by [height]
+/// and the width follows.
+class BrandLogo extends StatelessWidget {
+  const BrandLogo({super.key, this.height = 30});
+
+  final double height;
+
+  @override
+  Widget build(BuildContext context) {
+    return SvgPicture.asset(
+      'assets/brand/nammakural_wordmark.svg',
+      height: height,
+      fit: BoxFit.contain,
+      alignment: Alignment.centerLeft,
+    );
+  }
+}
 
 /// The gold "signal wave" brand mark — a dot with three concentric arcs
 /// opening up-and-right (port of the WaveMark SVG used on splash/login/home).

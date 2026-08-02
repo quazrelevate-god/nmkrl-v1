@@ -42,18 +42,18 @@ const Map<String, StatusMeta> kStatusMeta = {
   'FORWARDED': StatusMeta(
     // Coordinator's "Dept. Transfer" → combined "In Progress" working state.
     label: 'In Progress',
-    badgeBg: NkColors.sky50,
-    badgeFg: NkColors.sky700,
-    badgeBorder: NkColors.sky100,
-    pin: Color(0xFF0284C7),
+    badgeBg: Color(0xFFE2EAF7),
+    badgeFg: NkColors.refBlue,
+    badgeBorder: Color(0xFFCBD9F0),
+    pin: NkColors.refBlue,
     open: true,
   ),
   'IN_PROGRESS': StatusMeta(
     label: 'In Progress',
-    badgeBg: NkColors.sky50,
-    badgeFg: NkColors.sky700,
-    badgeBorder: NkColors.sky100,
-    pin: Color(0xFF0284C7),
+    badgeBg: Color(0xFFE2EAF7),
+    badgeFg: NkColors.refBlue,
+    badgeBorder: Color(0xFFCBD9F0),
+    pin: NkColors.refBlue,
     open: true,
   ),
   'PENDING_VERIFICATION': StatusMeta(
