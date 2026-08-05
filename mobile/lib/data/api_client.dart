@@ -110,6 +110,19 @@ abstract class ApiClient {
     required String recipientId,
     String since = '',
   });
+
+  /// Bind this device's FCM token to the signed-in account so the backend can
+  /// push while the app is backgrounded or closed.
+  Future<void> registerDeviceToken({
+    required String token,
+    required String recipientType,
+    required String recipientId,
+    String platform = 'android',
+  });
+
+  /// Drop the token on sign-out, so the next account on this device does not
+  /// inherit the previous one's alerts.
+  Future<void> unregisterDeviceToken(String token);
 }
 
 /// Friendly error carrying the FastAPI `detail` message when present.

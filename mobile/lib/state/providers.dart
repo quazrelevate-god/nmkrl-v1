@@ -5,6 +5,7 @@ import '../data/api_client.dart';
 import '../data/coordinator_store.dart';
 import '../data/dio_api_client.dart';
 import '../data/prefs.dart';
+import '../data/push_service.dart';
 import '../domain/coordinator_data.dart';
 import '../domain/daily_limit.dart';
 import '../domain/models/citizen_user.dart';
@@ -49,10 +50,18 @@ class AuthNotifier extends Notifier<bool> {
         .citizenLogin(name: name, phone: phone, otp: otp);
     await ref.read(prefsProvider).saveAccount(user);
     state = true;
+    await PushService.instance.bind(
+      api: ref.read(apiClientProvider),
+      recipientType: 'citizen',
+      recipientId: ref.read(prefsProvider).userId,
+    );
     return user;
   }
 
   Future<void> signOut() async {
+    // Release the device first — once prefs are cleared we lose the identity
+    // this token is bound to, and the next account here would inherit alerts.
+    await PushService.instance.unbind(ref.read(apiClientProvider));
     await ref.read(prefsProvider).clearSession();
     state = false;
   }
@@ -81,10 +90,16 @@ class CoordinatorAuthNotifier extends Notifier<Coordinator?> {
         );
     await ref.read(coordinatorStoreProvider).saveSession(c);
     state = c;
+    await PushService.instance.bind(
+      api: ref.read(apiClientProvider),
+      recipientType: 'coordinator',
+      recipientId: c.username,
+    );
     return c;
   }
 
   Future<void> signOut() async {
+    await PushService.instance.unbind(ref.read(apiClientProvider));
     await ref.read(coordinatorStoreProvider).clearSession();
     state = null;
   }

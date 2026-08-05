@@ -6,3 +6,6 @@ google-genai==1.2.0
 python-dotenv==1.0.1
 shapely>=2.1.0
 httpx>=0.27.0
+# Mints the OAuth2 bearer for the FCM HTTP v1 API (push.py). The legacy
+# server-key API was retired in 2024, so a service account is required.
+google-auth>=2.35.0

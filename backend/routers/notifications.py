@@ -15,8 +15,9 @@ and routers/coordinator.py).
 
 import json
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Body, Depends
 
+import push
 from database import get_db
 from utils import new_id, now_iso
 
@@ -39,6 +40,17 @@ def _insert(conn, *, recipient_type: str, recipient_id: str,
             json.dumps(data or {}),
             now_iso(),
         ),
+    )
+    # Second delivery channel: reaches the device when the app is backgrounded
+    # or closed, where the 15s poller cannot. No-ops when FCM is unconfigured,
+    # and never raises — a failed push must not fail the action behind it.
+    push.send_to_recipient(
+        conn,
+        recipient_type=recipient_type,
+        recipient_id=str(recipient_id),
+        title=title or "நம்குரல்",
+        body=message or "",
+        data={**(data or {}), "kind": kind, "issue_id": issue_id},
     )
 
 
@@ -126,3 +138,51 @@ def list_notifications(
             d["data"] = {}
         out.append(d)
     return {"count": len(out), "notifications": out, "server_time": now_iso()}
+
+
+@router.post("/register")
+def register_device(
+    payload: dict = Body(...),
+    conn=Depends(get_db),
+):
+    """Store an FCM token against the signed-in account.
+
+    Upsert on the token itself: reinstalling or switching accounts on the same
+    device rebinds the row rather than leaving a stale one behind, so a device
+    is never registered to two accounts at once.
+    """
+    token = (payload.get("token") or "").strip()
+    recipient_type = (payload.get("recipient_type") or "").strip()
+    recipient_id = str(payload.get("recipient_id") or "").strip()
+    platform = (payload.get("platform") or "android").strip()
+    if not token or not recipient_type or not recipient_id:
+        return {"ok": False, "error": "token, recipient_type, recipient_id required"}
+    conn.execute(
+        """INSERT INTO device_tokens
+               (token, recipient_type, recipient_id, platform, updated_at)
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(token) DO UPDATE SET
+               recipient_type = excluded.recipient_type,
+               recipient_id   = excluded.recipient_id,
+               platform       = excluded.platform,
+               updated_at     = excluded.updated_at""",
+        (token, recipient_type, recipient_id, platform, now_iso()),
+    )
+    conn.commit()
+    return {"ok": True}
+
+
+@router.post("/unregister")
+def unregister_device(payload: dict = Body(...), conn=Depends(get_db)):
+    """Drop a token on sign-out.
+
+    Without this a device keeps receiving the previous account's alerts — which
+    matters here because one phone switches between the citizen and coordinator
+    roles.
+    """
+    token = (payload.get("token") or "").strip()
+    if not token:
+        return {"ok": False, "error": "token required"}
+    conn.execute("DELETE FROM device_tokens WHERE token = ?", (token,))
+    conn.commit()
+    return {"ok": True}

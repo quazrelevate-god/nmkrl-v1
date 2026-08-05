@@ -137,6 +137,20 @@ CREATE TABLE IF NOT EXISTS notifications (
 CREATE INDEX IF NOT EXISTS idx_notif_recipient
     ON notifications (recipient_type, recipient_id, created_at DESC);
 
+-- FCM registration tokens, one row per (device, signed-in account). Mirrors the
+-- notifications recipient shape so a push target is a straight lookup. Rows are
+-- deleted on sign-out and whenever FCM reports a token as UNREGISTERED, so a
+-- device never keeps receiving alerts for an account that left it.
+CREATE TABLE IF NOT EXISTS device_tokens (
+    token          TEXT PRIMARY KEY,
+    recipient_type TEXT NOT NULL,
+    recipient_id   TEXT NOT NULL,
+    platform       TEXT DEFAULT 'android',
+    updated_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_devtok_recipient
+    ON device_tokens (recipient_type, recipient_id);
+
 -- Responsible-officer contacts for the department taxonomy, entered in the
 -- admin Departmental Configuration page. Keyed by "<Dept>||<SubDept>||<Officer>"
 -- (mirrors the frontend contactKey), one name + mobile per officer slot.

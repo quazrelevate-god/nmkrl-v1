@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1049132190520",
+    "project_id": "nammakural-2927f",
+    "storage_bucket": "nammakural-2927f.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1049132190520:android:80ea4ec73c33a83c6c4fcd",
+        "android_client_info": {
+          "package_name": "com.nammakural.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDPwMOc2-Wy5h1FbfB2no2xPTr5DPoJ3co"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

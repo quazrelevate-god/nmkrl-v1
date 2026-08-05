@@ -345,6 +345,38 @@ class DioApiClient implements ApiClient {
   }
 
   @override
+  Future<void> registerDeviceToken({
+    required String token,
+    required String recipientType,
+    required String recipientId,
+    String platform = 'android',
+  }) async {
+    // Push is a best-effort extra on top of polling — never surface a failure
+    // here to the user or block the sign-in that triggered it.
+    try {
+      await _dio.post<Map<String, dynamic>>(
+        '/api/notifications/register',
+        data: {
+          'token': token,
+          'recipient_type': recipientType,
+          'recipient_id': recipientId,
+          'platform': platform,
+        },
+      );
+    } catch (_) {}
+  }
+
+  @override
+  Future<void> unregisterDeviceToken(String token) async {
+    try {
+      await _dio.post<Map<String, dynamic>>(
+        '/api/notifications/unregister',
+        data: {'token': token},
+      );
+    } catch (_) {}
+  }
+
+  @override
   Future<String> reverseGeocode(double lat, double lng) async {
     try {
       final res = await _dio.get<Map<String, dynamic>>(
