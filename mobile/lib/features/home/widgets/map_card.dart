@@ -467,48 +467,11 @@ class _MapCardState extends State<MapCard> {
 
           // ── Status legend ──
           if (widget.showLegend)
-          Positioned(
-            left: 8,
-            bottom: 8 + widget.controlsBottomInset,
-            child: Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.9),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: NkColors.slate200),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  for (final entry in kStatusMeta.entries)
-                    if (entry.key != 'SUBMITTED' && entry.key != 'FORWARDED')
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 1),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Container(
-                              height: 8,
-                              width: 8,
-                              decoration: BoxDecoration(
-                                color: entry.value.pin,
-                                shape: BoxShape.circle,
-                              ),
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              context.tr(entry.value.label),
-                              style: const TextStyle(
-                                  fontSize: 9, color: NkColors.slate700),
-                            ),
-                          ],
-                        ),
-                      ),
-                ],
-              ),
+            Positioned(
+              left: 8,
+              bottom: 8 + widget.controlsBottomInset,
+              child: const MapStatusLegend(),
             ),
-          ),
 
           // ── Zoom controls ──
           if (widget.showControls)
@@ -778,3 +741,53 @@ class _LocateChip extends StatelessWidget {
   }
 }
 
+
+/// The status-dot legend drawn over the map. Extracted from [MapCard] so a
+/// screen that needs to drive its opacity (the coordinator home fades it as
+/// its sheet rises) can position it itself, without every opacity tick
+/// rebuilding the whole map. Content and colours are unchanged.
+class MapStatusLegend extends StatelessWidget {
+  const MapStatusLegend({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(6),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.9),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: NkColors.slate200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (final entry in kStatusMeta.entries)
+            if (entry.key != 'SUBMITTED' && entry.key != 'FORWARDED')
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 1),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      height: 8,
+                      width: 8,
+                      decoration: BoxDecoration(
+                        color: entry.value.pin,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      context.tr(entry.value.label),
+                      style: const TextStyle(
+                          fontSize: 9, color: NkColors.slate700),
+                    ),
+                  ],
+                ),
+              ),
+        ],
+      ),
+    );
+  }
+}
