@@ -34,7 +34,18 @@ class AuthNotifier extends Notifier<bool> {
   @override
   bool build() {
     final prefs = ref.read(prefsProvider);
-    return prefs.authed && (prefs.accountId?.isNotEmpty ?? false);
+    final signedIn = prefs.authed && (prefs.accountId?.isNotEmpty ?? false);
+    // Re-bind the push token on a warm start. signIn() only runs on a fresh
+    // login, so without this an already-signed-in user would never register a
+    // token and would silently receive no push at all.
+    if (signedIn) {
+      Future.microtask(() => PushService.instance.bind(
+            api: ref.read(apiClientProvider),
+            recipientType: 'citizen',
+            recipientId: prefs.userId,
+          ));
+    }
+    return signedIn;
   }
 
   /// Phase-1 login: verify [otp], then check-or-create the (name, phone)
@@ -80,7 +91,18 @@ final coordinatorStoreProvider = Provider<CoordinatorStore>(
 /// backend `coordinators` table — the mobile side no longer ships demo seeds.
 class CoordinatorAuthNotifier extends Notifier<Coordinator?> {
   @override
-  Coordinator? build() => ref.read(coordinatorStoreProvider).session;
+  Coordinator? build() {
+    final session = ref.read(coordinatorStoreProvider).session;
+    // Same warm-start rebind as the citizen side — see AuthNotifier.build().
+    if (session != null) {
+      Future.microtask(() => PushService.instance.bind(
+            api: ref.read(apiClientProvider),
+            recipientType: 'coordinator',
+            recipientId: session.username,
+          ));
+    }
+    return session;
+  }
 
   /// Throws [ApiException] on wrong credentials (message is user-friendly).
   Future<Coordinator> signIn(String username, String password) async {
