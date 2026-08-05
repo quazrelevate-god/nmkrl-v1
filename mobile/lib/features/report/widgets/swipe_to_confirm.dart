@@ -198,11 +198,12 @@ class _SwipeToConfirmState extends State<SwipeToConfirm>
                         ),
                       ),
 
-                      // Label
+                      // Label — centred on the FULL track, not on the space
+                      // left of the thumb, and painted before the thumb so the
+                      // knob slides over it rather than pushing it around.
                       Positioned.fill(
-                        child: Center(
-                          child: Padding(
-                            padding: EdgeInsets.only(left: _thumbW + 12),
+                        child: IgnorePointer(
+                          child: Center(
                             child: Text(
                               (widget.busy
                                       ? widget.busyLabel

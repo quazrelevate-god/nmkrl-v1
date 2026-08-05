@@ -542,7 +542,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             Positioned.fill(
               child: MapCard(
                 center: _coords,
-                issues: _applyStatusFilter(_wardIssues),
+                // Pins follow the active segment, same source the pills count
+                // and the list renders. Feeding the ward feed here regardless
+                // of tab made the map contradict them — 0 in every pill while
+                // ward pins were still plotted.
+                issues: _applyStatusFilter(_tabIssues),
                 selected: _selected,
                 onSelect: _onMapSelect,
                 boundaries: _boundaries,

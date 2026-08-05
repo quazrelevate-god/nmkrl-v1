@@ -6,26 +6,31 @@ import 'package:flutter/material.dart';
 class NkColors {
   NkColors._();
 
+  /// THE brand navy — Royal Navy #1A3556, the single authoritative value.
+  /// Every navy surface in the app resolves to this: splash, app bars, CTAs,
+  /// active tabs, role pills, ward badges. Do not introduce a new navy literal
+  /// anywhere; point at this instead.
+  static const navyPrimary = Color(0xFF1A3556);
+
   // Brand (royal navy)
   static const brand50 = Color(0xFFEEF2F7);
   static const brand100 = Color(0xFFD0DBE6);
   static const brand200 = Color(0xFF8FA5BE);
-  static const brand = Color(0xFF1A3556);
-  static const brand700 = Color(0xFF132844);
-  static const brandDark = Color(0xFF0D1D34);
+  static const brand = navyPrimary;
+  static const brand700 = Color(0xFF142943);
+  static const brandDark = Color(0xFF0E1D2F);
 
-  /// The single blue used across the whole UI — chips, status pins, avatar,
-  /// ward badge, CTA and the report sheet. Deep navy #1a2744 per the reference.
-  static const refBlue = Color(0xFF1A2744);
+  /// Alias kept so existing call sites keep reading naturally — same navy.
+  static const refBlue = navyPrimary;
 
-  /// The report-sheet / CTA layer tones, on the same navy line as [refBlue]:
-  /// [refBlueDeep] is the flat plate; [refBlueGlow] the slightly lighter bloom /
-  /// inner container.
-  static const refBlueDeep = Color(0xFF1A2744);
-  static const refBlueGlow = Color(0xFF283A5E);
+  /// Gradient companions on the same navy line. They exist only so plates and
+  /// CTAs can have depth; both are derived from [navyPrimary], not separate
+  /// brand colours.
+  static const refBlueDeep = navyPrimary;
+  static const refBlueGlow = Color(0xFF27507F);
 
   /// Slightly lighter navy for the report sheet's inner container (layer 2).
-  static const refBlueInner = Color(0xFF25365A);
+  static const refBlueInner = Color(0xFF234874);
 
   // Gold accent (cover emblem tone)
   static const gold100 = Color(0xFFF2E4BC);
@@ -92,11 +97,13 @@ class NkMotion {
   static const spring = Cubic(0.34, 1.56, 0.64, 1);
 }
 
-/// Login/splash navy wash — linear-gradient(165deg, #1e3a5f, #12233f, #0b1626).
+/// Login/splash navy wash. Anchored on [NkColors.navyPrimary] so the login and
+/// splash surfaces read as the same navy as the rest of the app, with the two
+/// darker stops only providing depth.
 const nkNavyGradient = LinearGradient(
   begin: Alignment.topLeft,
   end: Alignment.bottomRight,
-  colors: [Color(0xFF1E3A5F), Color(0xFF12233F), Color(0xFF0B1626)],
+  colors: [NkColors.navyPrimary, Color(0xFF142943), Color(0xFF0B1724)],
   stops: [0.0, 0.55, 1.0],
 );
 

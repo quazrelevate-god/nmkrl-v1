@@ -414,7 +414,8 @@ class GrievanceDialog extends StatelessWidget {
                           height: 48,
                           alignment: Alignment.center,
                           decoration: BoxDecoration(
-                            color: _kInk,
+                            // Brand navy, not the card's text ink.
+                            color: NkColors.navyPrimary,
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Text(

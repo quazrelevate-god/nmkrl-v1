@@ -10,9 +10,9 @@ import '../../domain/coordinator_data.dart';
 import '../../domain/profile_data.dart';
 import '../../state/providers.dart';
 
-const _kBlue = Color(0xFF1A3A8F);
+/// App bar + role pill + coordinator avatar — the app's one brand navy.
+const _kBlue = NkColors.navyPrimary;
 const _kDarkNavy = Color(0xFF1A2A3A);
-const _kMuted = Color(0xFF7A8799);
 
 class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
@@ -182,20 +182,6 @@ class ProfileScreen extends ConsumerWidget {
                     ),
                   ),
                   const SizedBox(height: 24),
-
-                  if (!isCoordinator)
-                    _StatsRow(items: [
-                      (Icons.assignment_outlined, '${ProfileData.reports}',
-                          'Reports', const Color(0xFF3FA8A0)),
-                      (Icons.thumb_up_outlined, '${ProfileData.upvotes}',
-                          'Upvotes', const Color(0xFF2F9E6E)),
-                      (Icons.check_circle_outline,
-                          '${ProfileData.resolved}', 'Resolved',
-                          const Color(0xFF2F9E6E)),
-                      (Icons.schedule, '${ProfileData.open}', 'Open',
-                          const Color(0xFFFF9500)),
-                    ]),
-                  const SizedBox(height: 20),
 
                   Container(
                     padding: const EdgeInsets.symmetric(
@@ -367,64 +353,4 @@ class ProfileScreen extends ConsumerWidget {
 
   Widget _div() =>
       Divider(height: 1, color: NkColors.slate200.withValues(alpha: 0.7));
-}
-
-class _StatsRow extends StatelessWidget {
-  const _StatsRow({required this.items});
-
-  final List<(IconData, String, String, Color)> items;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        for (var i = 0; i < items.length; i++) ...[
-          Expanded(
-            child: Container(
-              padding: const EdgeInsets.symmetric(vertical: 10),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.08),
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: Column(
-                children: [
-                  Container(
-                    height: 30,
-                    width: 30,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: items[i].$4.withValues(alpha: 0.12),
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(items[i].$1, size: 16, color: items[i].$4),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    items[i].$2,
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w800,
-                      color: _kDarkNavy,
-                    ),
-                  ),
-                  Text(
-                    items[i].$3,
-                    style: const TextStyle(fontSize: 11, color: _kMuted),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          if (i < items.length - 1) const SizedBox(width: 10),
-        ],
-      ],
-    );
-  }
 }

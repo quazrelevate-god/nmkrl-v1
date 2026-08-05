@@ -7,10 +7,13 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/theme.dart';
 import '../../state/providers.dart';
 import 'tamil_nadu_outline.dart';
 
-const _navy = Color(0xFF16324F);
+/// The splash navy is the app's authoritative brand navy — it now lives in the
+/// theme as [NkColors.navyPrimary] so every other surface can match it exactly.
+const _navy = NkColors.navyPrimary;
 const _gold = Color(0xFFD4A537);
 // Light-beige palette for the solid wordmark gradient.
 const _beigeLight = Color(0xFFFBF3DC);
