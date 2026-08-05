@@ -14,6 +14,7 @@ and routers/coordinator.py).
 """
 
 import json
+import os
 
 from fastapi import APIRouter, Body, Depends
 
@@ -138,6 +139,35 @@ def list_notifications(
             d["data"] = {}
         out.append(d)
     return {"count": len(out), "notifications": out, "server_time": now_iso()}
+
+
+@router.get("/push-status")
+def push_status(
+    recipient_type: str = "",
+    recipient_id: str = "",
+    conn=Depends(get_db),
+):
+    """Diagnostics for the push path — never exposes the credential itself.
+
+    Reports whether FCM is configured on this deploy and how many device
+    tokens are registered, so 'no notification arrived' can be narrowed to a
+    missing variable vs a device that never registered.
+    """
+    total = conn.execute("SELECT COUNT(*) c FROM device_tokens").fetchone()["c"]
+    mine = None
+    if recipient_type and recipient_id:
+        mine = conn.execute(
+            "SELECT COUNT(*) c FROM device_tokens "
+            "WHERE recipient_type = ? AND recipient_id = ?",
+            (recipient_type, recipient_id),
+        ).fetchone()["c"]
+    return {
+        "project_id_set": bool(push._project_id()),
+        "service_account_set": bool(os.environ.get("FCM_SERVICE_ACCOUNT_JSON")),
+        "access_token_ok": push._access_token() is not None,
+        "tokens_total": total,
+        "tokens_for_recipient": mine,
+    }
 
 
 @router.post("/register")

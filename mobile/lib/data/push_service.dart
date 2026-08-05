@@ -71,6 +71,9 @@ class PushService {
       );
 
       _token = await FirebaseMessaging.instance.getToken();
+      debugPrint(_token == null
+          ? '[push] init OK but getToken() returned null'
+          : '[push] token acquired (${_token!.substring(0, 12)}…)');
 
       // A token can rotate at any time (app restore, cache clear). Re-bind it
       // to whoever is signed in, or the device silently stops receiving push.
@@ -98,7 +101,10 @@ class PushService {
     required String recipientType,
     required String recipientId,
   }) async {
-    if (!_ready || recipientId.isEmpty) return;
+    if (!_ready || recipientId.isEmpty) {
+      debugPrint('[push] bind skipped (ready=$_ready, id="$recipientId")');
+      return;
+    }
     _rebind = (t) => api.registerDeviceToken(
           token: t,
           recipientType: recipientType,
@@ -106,7 +112,13 @@ class PushService {
           platform: Platform.isIOS ? 'ios' : 'android',
         );
     final t = _token;
-    if (t != null) await _rebind!(t);
+    if (t == null) {
+      debugPrint('[push] bind skipped: no token yet');
+      return;
+    }
+    debugPrint('[push] registering $recipientType/$recipientId');
+    await _rebind!(t);
+    debugPrint('[push] register call returned');
   }
 
   /// Release this device on sign-out, so the next account signing in here does
