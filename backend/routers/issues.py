@@ -246,6 +246,24 @@ def user_history(user_id: str, conn=Depends(get_db)):
     return {"count": len(rows), "issues": [serialize_issue(r) for r in rows]}
 
 
+@router.get("/supported/{user_id}")
+def user_supported(user_id: str, conn=Depends(get_db)):
+    """Return the public grievances ``user_id`` has upvoted — the citizen app's
+    "My Supports" filter inside the ward feed. SUBMITTED items stay hidden for
+    the same reason they are hidden everywhere else: not yet admin-verified.
+
+    ``sort`` mirrors the ward feed: 'recent' (default) or 'priority'.
+    """
+    rows = conn.execute(
+        """SELECT i.* FROM issues i
+           JOIN upvotes u ON u.issue_id = i.id
+           WHERE u.user_id = ? AND i.status != 'SUBMITTED'
+           ORDER BY i.created_at DESC""",
+        (user_id,),
+    ).fetchall()
+    return {"count": len(rows), "issues": [serialize_issue(r) for r in rows]}
+
+
 @router.get("/stats/{user_id}")
 def user_stats(user_id: str, conn=Depends(get_db)):
     """Real per-account profile counters shown on the citizen profile:

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -251,7 +252,9 @@ class _CitizenLoginFormState extends ConsumerState<_CitizenLoginForm> {
         hintStyle: const TextStyle(color: NkColors.slate400, fontSize: 14),
         isDense: true,
         filled: true,
-        fillColor: Colors.white,
+        // Brighter than the frosted panel behind it, so the field reads as a
+        // lit inset in the glass rather than a flat white block on white.
+        fillColor: Colors.white.withValues(alpha: 0.92),
         contentPadding:
             const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         enabledBorder: OutlineInputBorder(
@@ -268,7 +271,9 @@ class _CitizenLoginFormState extends ConsumerState<_CitizenLoginForm> {
         padding: const EdgeInsets.only(bottom: 6),
         child: Row(
           children: [
-            Icon(icon, size: 12, color: NkColors.slate500),
+            // slate700, not slate500: the frosted panel is translucent over
+            // navy, so mid-grey labels lose contrast against it.
+            Icon(icon, size: 12, color: NkColors.slate700),
             const SizedBox(width: 6),
             Text(
               text.toUpperCase(),
@@ -276,7 +281,7 @@ class _CitizenLoginFormState extends ConsumerState<_CitizenLoginForm> {
                 fontSize: 11,
                 fontWeight: FontWeight.w700,
                 letterSpacing: 0.6,
-                color: NkColors.slate500,
+                color: NkColors.slate700,
               ),
             ),
           ],
@@ -335,20 +340,7 @@ class _CitizenLoginFormState extends ConsumerState<_CitizenLoginForm> {
           ),
         ),
         const SizedBox(height: 28),
-        Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.95),
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.4)),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.35),
-                blurRadius: 40,
-                offset: const Offset(0, 18),
-              ),
-            ],
-          ),
+        _GlassCard(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -562,8 +554,10 @@ class _CitizenLoginFormState extends ConsumerState<_CitizenLoginForm> {
                       'New numbers are registered automatically on first login',
                       style: TextStyle(
                         fontSize: 10,
-                        fontWeight: FontWeight.w500,
-                        color: NkColors.slate400,
+                        fontWeight: FontWeight.w600,
+                        // slate600 on the translucent panel; slate400 was
+                        // legible on solid white but not on frosted glass.
+                        color: NkColors.slate600,
                       ),
                     ),
                   ),
@@ -632,7 +626,9 @@ class _CoordinatorLoginFormState extends ConsumerState<_CoordinatorLoginForm> {
         hintStyle: const TextStyle(color: NkColors.slate400, fontSize: 14),
         isDense: true,
         filled: true,
-        fillColor: Colors.white,
+        // Brighter than the frosted panel behind it, so the field reads as a
+        // lit inset in the glass rather than a flat white block on white.
+        fillColor: Colors.white.withValues(alpha: 0.92),
         contentPadding:
             const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         enabledBorder: OutlineInputBorder(
@@ -700,20 +696,7 @@ class _CoordinatorLoginFormState extends ConsumerState<_CoordinatorLoginForm> {
           ),
         ),
         const SizedBox(height: 28),
-        Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.95),
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.4)),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.35),
-                blurRadius: 40,
-                offset: const Offset(0, 18),
-              ),
-            ],
-          ),
+        _GlassCard(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -846,6 +829,52 @@ class _CoordinatorLoginFormState extends ConsumerState<_CoordinatorLoginForm> {
         ),
         const SizedBox(height: 32),
       ],
+    );
+  }
+}
+
+/// The sign-in panel: a frosted glass card over the navy wash.
+///
+/// A real backdrop blur under a translucent white fill, so the gradient behind
+/// reads through the panel instead of being hidden by a flat white block. The
+/// fill stays high enough that the dark labels and inputs inside keep their
+/// contrast — frosted, not see-through.
+class _GlassCard extends StatelessWidget {
+  const _GlassCard({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(24),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+        child: Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(24),
+            // Top-lit: brighter at the top edge, as glass catches light.
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Colors.white.withValues(alpha: 0.82),
+                Colors.white.withValues(alpha: 0.70),
+              ],
+            ),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.55)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.35),
+                blurRadius: 40,
+                offset: const Offset(0, 18),
+              ),
+            ],
+          ),
+          child: child,
+        ),
+      ),
     );
   }
 }

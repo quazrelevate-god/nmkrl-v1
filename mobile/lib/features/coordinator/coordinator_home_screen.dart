@@ -495,7 +495,10 @@ class _CoordinatorHomeScreenState
                         top: Radius.circular(_kSheetCornerRadius)),
                     child: CustomScrollView(
                       controller: scrollController,
-                      physics: const ClampingScrollPhysics(),
+                      // Rubber-band overscroll, matching the citizen sheet.
+                      physics: const BouncingScrollPhysics(
+                        parent: AlwaysScrollableScrollPhysics(),
+                      ),
                       slivers: [
                         SliverPersistentHeader(
                           pinned: true,

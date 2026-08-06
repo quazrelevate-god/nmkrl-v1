@@ -85,6 +85,22 @@ const Map<String, StatusMeta> kStatusMeta = {
 StatusMeta statusMeta(String? status) =>
     kStatusMeta[status] ?? kStatusMeta['ACTIVE']!;
 
+/// The citizen app shows exactly three states — the same three the home filter
+/// pills offer — so its map pins use those three colours and nothing else.
+/// Anything outside them (FALSE petitions, PENDING_VERIFICATION) returns null
+/// and is simply not plotted: a citizen has no use for a red "false petition"
+/// pin, and it read as an error state on the map.
+const Color kCitizenPinPending = Color(0xFFB4791F); // sand / amber-brown
+const Color kCitizenPinProgress = NkColors.refBlue; // navy
+const Color kCitizenPinResolved = Color(0xFF1F8A5B); // green
+
+Color? citizenPinColor(String? status) => switch (status) {
+      'SUBMITTED' || 'ACTIVE' => kCitizenPinPending,
+      'FORWARDED' || 'IN_PROGRESS' => kCitizenPinProgress,
+      'CLOSED' => kCitizenPinResolved,
+      _ => null,
+    };
+
 /// Lifecycle tracker steps (merged Inspection + Repair → "In Progress").
 const kLifecycle = [
   'Submitted',
