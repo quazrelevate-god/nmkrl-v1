@@ -270,6 +270,13 @@ const Map<String, String> _ta = {
   'Close': 'மூடு',
   'Assigning…': 'ஒதுக்குகிறது…',
   'Recent': 'சமீபத்தியது',
+  'Show': 'காட்டு',
+  'Sort by': 'வரிசைப்படுத்து',
+  'All': 'அனைத்தும்',
+  'You have not supported any grievance yet.':
+      'நீங்கள் இதுவரை எந்த புகாருக்கும் ஆதரவு அளிக்கவில்லை.',
+  'No matching grievances among your supports.':
+      'உங்கள் ஆதரவுகளில் பொருந்தும் புகார்கள் இல்லை.',
   'Priority': 'முன்னுரிமை',
   'Rejected — review ASAP': 'நிராகரிக்கப்பட்டது — உடனே பரிசீலி',
 

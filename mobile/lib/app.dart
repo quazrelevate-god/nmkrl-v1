@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -22,12 +23,33 @@ class NammaKuralApp extends ConsumerWidget {
       debugShowCheckedModeBanner: false,
       theme: buildNkTheme(),
       routerConfig: router,
+      // Rubber-band overscroll everywhere — including pushed routes like the
+      // profile and the search overlay — so no list stops dead at its end.
+      scrollBehavior: const _NkScrollBehavior(),
       // Carry the current language above every route so `context.tr(...)`
       // works anywhere and re-translates the whole tree on toggle.
       builder: (context, child) =>
           AppL10n(lang: lang, child: child ?? const SizedBox.shrink()),
     );
   }
+}
+
+/// App-wide scroll feel: iOS-style rubber band on every platform, and drags
+/// that also work from a mouse/trackpad (handy in the simulator and on web).
+class _NkScrollBehavior extends MaterialScrollBehavior {
+  const _NkScrollBehavior();
+
+  @override
+  ScrollPhysics getScrollPhysics(BuildContext context) =>
+      const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics());
+
+  @override
+  Set<PointerDeviceKind> get dragDevices => {
+        PointerDeviceKind.touch,
+        PointerDeviceKind.mouse,
+        PointerDeviceKind.trackpad,
+        PointerDeviceKind.stylus,
+      };
 }
 
 final _routerProvider = Provider<GoRouter>((ref) {

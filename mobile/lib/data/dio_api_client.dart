@@ -139,6 +139,10 @@ class DioApiClient implements ApiClient {
       _get('/api/issues/history/$userId', parse: _issueList);
 
   @override
+  Future<List<Issue>> fetchSupported(String userId) =>
+      _get('/api/issues/supported/$userId', parse: _issueList);
+
+  @override
   Future<({int reports, int upvotes, int resolved, int open})> fetchUserStats(
           String userId) =>
       _get('/api/issues/stats/$userId', parse: (d) {

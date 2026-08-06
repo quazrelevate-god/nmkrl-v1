@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart' show CupertinoPageTransitionsBuilder;
 import 'package:flutter/material.dart';
 
 /// Design tokens ported 1:1 from the web app's tailwind.config.js +
@@ -131,6 +132,14 @@ ThemeData buildNkTheme() {
     ),
     scaffoldBackgroundColor: const Color(0xFFFBFCFD),
     splashFactory: InkSparkle.splashFactory,
+    // Pushed routes (profile, search) slide in with the same iOS-style ease
+    // the go_router transitions use, instead of Android's default snap.
+    pageTransitionsTheme: const PageTransitionsTheme(
+      builders: {
+        TargetPlatform.android: CupertinoPageTransitionsBuilder(),
+        TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
+      },
+    ),
   );
   return base.copyWith(
     textTheme: base.textTheme.apply(

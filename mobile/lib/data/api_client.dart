@@ -34,6 +34,10 @@ abstract class ApiClient {
 
   Future<List<Issue>> fetchHistory(String userId);
 
+  /// Public grievances this user has upvoted — the "My Supports" filter in the
+  /// ward feed.
+  Future<List<Issue>> fetchSupported(String userId);
+
   /// Real per-account profile counters (reports / upvotes cast / resolved /
   /// open-unassigned) from GET /api/issues/stats/{userId}.
   Future<({int reports, int upvotes, int resolved, int open})> fetchUserStats(

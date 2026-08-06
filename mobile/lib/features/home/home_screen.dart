@@ -26,8 +26,15 @@ import 'widgets/profile_header.dart';
 /// mirrors DEFAULT_LOCATION in lib/hooks.js so the app stays usable.
 const kDefaultLocation = LatLng(13.0827, 80.2081);
 
-/// The three segments of the home sheet, in display order.
-enum _HomeTab { mine, ward, supports }
+/// The two destinations of the bottom nav bar, in display order. "My Supports"
+/// is no longer a destination — it became a scope filter inside [_HomeTab.ward].
+enum _HomeTab { mine, ward }
+
+/// Scope of the ward feed, chosen from the feed's dropdown.
+enum _WardScope { all, supports }
+
+/// Ordering of the ward feed, chosen from the same dropdown.
+enum _WardSort { recent, priority }
 
 /// Sheet snap fractions. The FLOOR (min == landing) is computed per-device so
 /// it shows the pinned pills+tabs header plus exactly ~2 grievance cards, and
@@ -46,10 +53,10 @@ const double _kCardFootprint = 96;
 /// space whereas a short value would clip the tab row.
 const double _kSheetHeaderHeight = 118;
 
-/// Height of the CTA's label row (the safe-area inset is added on top of it).
-/// The sheet is inset by this minus [_kSheetCornerRadius] so its rounded bottom
-/// corners land ON the blue plate — the overlap seen in the reference.
-const double _kCtaContentHeight = 96;
+/// Height of the floating bottom nav bar (its "+" rises above the track, so
+/// this is the tallest point) and the gap it keeps from the safe-area edge.
+const double _kNavBarHeight = 68;
+const double _kNavBarBottomGap = 12;
 
 /// The one corner radius in the composition — it belongs to the white sheet.
 const double _kSheetCornerRadius = 22;
@@ -105,6 +112,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   // UI state
   _HomeTab _tab = _HomeTab.mine;
+
+  /// Ward-feed scope + ordering, driven by the feed's dropdown.
+  _WardScope _wardScope = _WardScope.all;
+  _WardSort _wardSort = _WardSort.recent;
+
+  /// Grievances this account has upvoted — the "My Supports" scope. Loaded
+  /// lazily the first time that scope is chosen.
+  List<Issue> _supported = [];
+  bool _supportedLoading = false;
 
   /// Active status filter pill (null = show everything).
   String? _statusFilter;
@@ -306,16 +322,56 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     } catch (_) {/* leave previous values */}
   }
 
+  /// Grievances this account has upvoted. Loaded on demand — the ward feed only
+  /// needs it once the user actually picks the "My Supports" scope.
+  Future<void> _loadSupported() async {
+    if (_supportedLoading) return;
+    setState(() => _supportedLoading = true);
+    try {
+      final list = await ref
+          .read(apiClientProvider)
+          .fetchSupported(ref.read(userIdProvider));
+      if (mounted) setState(() => _supported = list);
+    } catch (_) {/* empty state covers it */} finally {
+      if (mounted) setState(() => _supportedLoading = false);
+    }
+  }
+
   // ── Filtering ──────────────────────────────────────────────────────────
 
-  /// The unfiltered list backing the active segment.
+  /// The unfiltered list backing the active destination. In the ward feed the
+  /// dropdown's scope picks the source and its sort orders the result.
   List<Issue> get _tabIssues => switch (_tab) {
-        _HomeTab.ward => _wardIssues,
         _HomeTab.mine => _history,
-        // No endpoint exposes "grievances I upvoted" yet — the segment shows
-        // its cast-upvote count and an empty state until one exists.
-        _HomeTab.supports => const <Issue>[],
+        _HomeTab.ward => _sortWard(
+            _wardScope == _WardScope.supports ? _supported : _wardIssues,
+          ),
       };
+
+  /// Ward-feed ordering. 'priority' is most-supported first (matching the
+  /// coordinator's sort); 'recent' is newest first.
+  List<Issue> _sortWard(List<Issue> list) {
+    final out = [...list];
+    switch (_wardSort) {
+      case _WardSort.priority:
+        out.sort((a, b) {
+          final byVotes = b.upvotes.compareTo(a.upvotes);
+          if (byVotes != 0) return byVotes;
+          return _newestFirst(a, b);
+        });
+      case _WardSort.recent:
+        out.sort(_newestFirst);
+    }
+    return out;
+  }
+
+  static int _newestFirst(Issue a, Issue b) {
+    final ad = a.createdAt, bd = b.createdAt;
+    if (ad == null && bd == null) return 0;
+    if (ad == null) return 1;
+    if (bd == null) return -1;
+    return bd.compareTo(ad);
+  }
 
   List<Issue> _applyStatusFilter(List<Issue> list) {
     final bucket = _kStatusBuckets[_statusFilter];
@@ -331,6 +387,25 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   void _toggleStatusFilter(String key) {
     HapticFeedback.selectionClick();
     setState(() => _statusFilter = _statusFilter == key ? null : key);
+  }
+
+  void _selectTab(_HomeTab tab) {
+    if (_tab == tab) return;
+    HapticFeedback.selectionClick();
+    setState(() => _tab = tab);
+  }
+
+  void _setWardScope(_WardScope scope) {
+    if (_wardScope == scope) return;
+    HapticFeedback.selectionClick();
+    setState(() => _wardScope = scope);
+    if (scope == _WardScope.supports && _supported.isEmpty) _loadSupported();
+  }
+
+  void _setWardSort(_WardSort sort) {
+    if (_wardSort == sort) return;
+    HapticFeedback.selectionClick();
+    setState(() => _wardSort = sort);
   }
 
   // ── Actions ────────────────────────────────────────────────────────────
@@ -380,6 +455,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ];
           if (_selected?.id == updated.id) _selected = updated;
         });
+        // The grievance just joined "My Supports" — refresh that scope and the
+        // counters behind it so the dropdown badge is not stale.
+        _loadSupported();
+        _loadStats();
       },
     );
   }
@@ -499,19 +578,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final topInset = MediaQuery.paddingOf(context).top;
+    final bottomInset = MediaQuery.paddingOf(context).bottom;
     final screenH = MediaQuery.sizeOf(context).height;
 
-    // The sheet lives in a Positioned(top:0, bottom: CTA overlap), so its
-    // fractions are relative to this height.
-    final sheetParentH = screenH - (_kCtaContentHeight - _kSheetCornerRadius);
+    // The sheet now runs to the bottom of the screen — the nav bar floats over
+    // it — so its fractions are relative to the full height.
+    final sheetParentH = screenH;
     final sheetFloor = _sheetFloorFraction(sheetParentH);
 
-    // Lock the map to the detected ward, fitting it into the band that stays
-    // visible above the sheet at its floor (so the ward reads centred near the
-    // top). Bottom padding = everything the sheet + CTA cover at the floor.
+    // Everything the sheet covers at its floor, used to bias the ward fit into
+    // the band that stays visible above it.
     final lockBounds = _wardBounds;
-    final sheetCoverPx =
-        (_kCtaContentHeight - _kSheetCornerRadius) + sheetFloor * sheetParentH;
+    final sheetCoverPx = sheetFloor * sheetParentH;
     final lockPadding = EdgeInsets.only(
       top: topInset + 96,
       bottom: sheetCoverPx + 16,
@@ -562,6 +640,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 showSearch: false,
                 showControls: false,
                 paleTiles: true,
+                // Three-colour pins matching the filter pills; FALSE petitions
+                // are not plotted at all in the citizen app.
+                citizenPins: true,
                 // Once a ward is detected the map is locked to it: opens fitted
                 // to the ward, pan/zoom stay inside, no roaming outside.
                 lockBounds: lockBounds,
@@ -582,17 +663,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               ),
             ),
 
-            // ── 3. Constituency · ward chip, parked under the app bar ──
+            // ── 3. Constituency · ward chip, centred under the app bar. Same
+            // y as before; only the x anchoring changed (left → centred). ──
             if (_currentWard != null)
               Positioned(
                 key: const ValueKey('home-wardpill'),
                 top: topInset + 8 + 56 + 10,
-                left: 14,
-                child: _WardPill(
-                  constituency: (_locate?.constituencies.isEmpty ?? true)
-                      ? ''
-                      : shortAC(_locate!.constituencies.first),
-                  ward: '$_currentWard',
+                left: 0,
+                right: 0,
+                child: Center(
+                  child: _WardPill(
+                    constituency: (_locate?.constituencies.isEmpty ?? true)
+                        ? ''
+                        : shortAC(_locate!.constituencies.first),
+                    ward: '$_currentWard',
+                  ),
                 ),
               ),
 
@@ -609,27 +694,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               ),
             ),
 
-            // ── 4. Bottom CTA — the flat footer PLATE, edge to edge with a
-            // perfectly flat top edge and no radius of its own. It is the
-            // bottom layer: the white sheet above overlaps it, and the only
-            // rounded corners in the composition belong to that sheet. ──
-            Positioned(
-              key: const ValueKey('home-cta'),
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: _SubmitBar(onTap: _openReport),
-            ),
-
-            // ── 5. The draggable content sheet, inset so it stops partway
-            // down the CTA — its rounded bottom corners then sit ON the blue,
-            // which is what produces the reference's overlap. ──
+            // ── 4. The draggable content sheet. It now runs to the bottom of
+            // the screen; the floating nav bar sits over it, and the list keeps
+            // enough bottom padding that no card hides behind the bar. ──
             Positioned(
               key: const ValueKey('home-sheet'),
               left: 0,
               right: 0,
               top: 0,
-              bottom: _kCtaContentHeight - _kSheetCornerRadius,
+              bottom: 0,
               child: DraggableScrollableSheet(
                 controller: _sheetCtrl,
                 // Landing == floor == minimum: opens showing the header + ~2
@@ -642,9 +715,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 builder: (context, scrollController) => DecoratedBox(
                   decoration: BoxDecoration(
                     color: Colors.white,
-                    // Every rounded corner in this composition lives here —
-                    // the CTA behind stays perfectly flat.
-                    borderRadius: BorderRadius.circular(_kSheetCornerRadius),
+                    // The sheet owns the only rounded corners in the
+                    // composition; the map runs full-bleed behind it.
+                    borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(_kSheetCornerRadius),
+                    ),
                     boxShadow: [
                       BoxShadow(
                         color: Colors.black.withValues(alpha: 0.16),
@@ -654,10 +729,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     ],
                   ),
                   child: ClipRRect(
-                    borderRadius: BorderRadius.circular(_kSheetCornerRadius),
+                    borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(_kSheetCornerRadius),
+                    ),
                     child: CustomScrollView(
                       controller: scrollController,
-                      physics: const ClampingScrollPhysics(),
+                      // iOS-style rubber-band overscroll — the list now settles
+                      // instead of stopping dead at the ends.
+                      physics: const BouncingScrollPhysics(
+                        parent: AlwaysScrollableScrollPhysics(),
+                      ),
                       slivers: [
                         SliverPersistentHeader(
                           pinned: true,
@@ -667,7 +748,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           ),
                         ),
                         SliverPadding(
-                          padding: const EdgeInsets.fromLTRB(14, 0, 14, 40),
+                          // Bottom clearance so the last card clears the
+                          // floating nav bar rather than hiding under it.
+                          padding: EdgeInsets.fromLTRB(14, 0, 14,
+                              _kNavBarHeight + _kNavBarBottomGap + bottomInset + 24),
                           sliver: SliverList(
                             delegate: SliverChildListDelegate(
                               _buildSheetBody(),
@@ -678,6 +762,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     ),
                   ),
                 ),
+              ),
+            ),
+
+            // ── 5. Floating bottom nav bar — My Reports | + | In my Ward.
+            // The "+" is the grievance CTA that used to be the footer plate. ──
+            Positioned(
+              key: const ValueKey('home-navbar'),
+              left: 0,
+              right: 0,
+              bottom: _kNavBarBottomGap + bottomInset,
+              child: _HomeNavBar(
+                tab: _tab,
+                myCount: _history.length,
+                wardCount: _wardIssues.length,
+                onTab: _selectTab,
+                onSubmit: _openReport,
               ),
             ),
 
@@ -746,99 +846,31 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ),
           const SizedBox(height: 10),
 
-          // Three-segment control — the original slate/white pill styling.
+          // Title of the active destination + (ward only) the scope/sort
+          // dropdown that replaced the old "My Supports" segment.
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14),
-            child: Container(
-              padding: const EdgeInsets.all(4),
-              decoration: BoxDecoration(
-                color: const Color(0xFFEDEFF3),
-                borderRadius: BorderRadius.circular(999),
-              ),
-              child: Row(
-                children: [
-                  for (final (tab, label, count) in [
-                    (_HomeTab.mine, 'My Reports', _history.length),
-                    (_HomeTab.ward, 'In my Ward', _wardIssues.length),
-                    (_HomeTab.supports, 'My Supports', _stats?.upvotes ?? 0),
-                  ])
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: () {
-                          if (_tab == tab) return;
-                          HapticFeedback.selectionClick();
-                          setState(() => _tab = tab);
-                        },
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 260),
-                          curve: NkMotion.settle,
-                          padding: const EdgeInsets.symmetric(vertical: 8),
-                          decoration: BoxDecoration(
-                            // Reference: the active segment is a plain white
-                            // pill on the pale track — no navy, no gold.
-                            color: _tab == tab
-                                ? Colors.white
-                                : Colors.transparent,
-                            borderRadius: BorderRadius.circular(999),
-                            boxShadow: _tab == tab
-                                ? [
-                                    BoxShadow(
-                                      color:
-                                          Colors.black.withValues(alpha: 0.10),
-                                      blurRadius: 6,
-                                      offset: const Offset(0, 2),
-                                    ),
-                                  ]
-                                : null,
-                          ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              // Leading grey count badge, as in the reference.
-                              Container(
-                                constraints: const BoxConstraints(
-                                    minWidth: 20, minHeight: 20),
-                                padding:
-                                    const EdgeInsets.symmetric(horizontal: 4),
-                                alignment: Alignment.center,
-                                decoration: BoxDecoration(
-                                  color: _tab == tab
-                                      ? NkColors.slate100
-                                      : Colors.white
-                                          .withValues(alpha: 0.75),
-                                  borderRadius: BorderRadius.circular(999),
-                                ),
-                                child: Text(
-                                  '$count',
-                                  style: const TextStyle(
-                                    fontSize: 10.5,
-                                    fontWeight: FontWeight.w800,
-                                    color: NkColors.slate600,
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 6),
-                              Flexible(
-                                child: Text(
-                                  context.tr(label),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    fontSize: 12.5,
-                                    fontWeight: FontWeight.w700,
-                                    color: _tab == tab
-                                        ? NkColors.slate900
-                                        : NkColors.slate600,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: [
+                Expanded(
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 220),
+                    switchInCurve: NkMotion.settle,
+                    child: Text(
+                      _tab == _HomeTab.mine
+                          ? context.tr('My Reports')
+                          : context.tr('In my Ward'),
+                      key: ValueKey(_tab),
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                        color: NkColors.slate900,
                       ),
                     ),
-                ],
-              ),
+                  ),
+                ),
+                if (_tab == _HomeTab.ward) _buildWardFilterMenu(),
+              ],
             ),
           ),
           const SizedBox(height: 12),
@@ -846,6 +878,146 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       ),
     );
   }
+
+  /// Ward-feed filter: scope (All / My Supports) over sort (Recent / Priority),
+  /// in one menu — the citizen counterpart of the coordinator's sort dropdown.
+  Widget _buildWardFilterMenu() {
+    final scopeLabel = _wardScope == _WardScope.all
+        ? context.tr('All')
+        : context.tr('My Supports');
+    final sortLabel = _wardSort == _WardSort.recent
+        ? context.tr('Recent')
+        : context.tr('Priority');
+
+    return PopupMenuButton<String>(
+      tooltip: '',
+      position: PopupMenuPosition.under,
+      offset: const Offset(0, 6),
+      color: Colors.white,
+      elevation: 10,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+      ),
+      onSelected: (v) => switch (v) {
+        'all' => _setWardScope(_WardScope.all),
+        'supports' => _setWardScope(_WardScope.supports),
+        'recent' => _setWardSort(_WardSort.recent),
+        'priority' => _setWardSort(_WardSort.priority),
+        _ => null,
+      },
+      itemBuilder: (context) => [
+        _menuHeader(context.tr('Show')),
+        _menuItem('all', context.tr('All'), _wardScope == _WardScope.all,
+            count: _wardIssues.length),
+        _menuItem('supports', context.tr('My Supports'),
+            _wardScope == _WardScope.supports,
+            // Cast-upvote count from the profile counters; once the list has
+            // actually loaded, its own length is the authority.
+            count: _supported.isNotEmpty
+                ? _supported.length
+                : (_stats?.upvotes ?? 0)),
+        const PopupMenuDivider(),
+        _menuHeader(context.tr('Sort by')),
+        _menuItem('recent', context.tr('Recent'), _wardSort == _WardSort.recent),
+        _menuItem(
+            'priority', context.tr('Priority'), _wardSort == _WardSort.priority),
+      ],
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(12, 7, 8, 7),
+        decoration: BoxDecoration(
+          color: NkColors.slate50,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: NkColors.slate200),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              _wardScope == _WardScope.supports
+                  ? Icons.favorite_rounded
+                  : Icons.tune_rounded,
+              size: 13,
+              color: NkColors.refBlue,
+            ),
+            const SizedBox(width: 6),
+            Text(
+              '$scopeLabel · $sortLabel',
+              style: const TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w700,
+                color: NkColors.slate700,
+              ),
+            ),
+            const Icon(Icons.expand_more_rounded,
+                size: 15, color: NkColors.slate500),
+          ],
+        ),
+      ),
+    );
+  }
+
+  PopupMenuItem<String> _menuHeader(String text) => PopupMenuItem<String>(
+        enabled: false,
+        height: 26,
+        child: Text(
+          text.toUpperCase(),
+          style: const TextStyle(
+            fontSize: 9.5,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0.6,
+            color: NkColors.slate400,
+          ),
+        ),
+      );
+
+  PopupMenuItem<String> _menuItem(String value, String label, bool active,
+          {int? count}) =>
+      PopupMenuItem<String>(
+        value: value,
+        height: 40,
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: active ? FontWeight.w800 : FontWeight.w600,
+                  color: active ? NkColors.refBlue : NkColors.slate700,
+                ),
+              ),
+            ),
+            if (count != null) ...[
+              Container(
+                constraints: const BoxConstraints(minWidth: 20),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: NkColors.slate100,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  '$count',
+                  style: const TextStyle(
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w800,
+                    color: NkColors.slate600,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+            ],
+            SizedBox(
+              width: 16,
+              child: active
+                  ? const Icon(Icons.check_rounded,
+                      size: 16, color: NkColors.refBlue)
+                  : null,
+            ),
+          ],
+        ),
+      );
 
   // ── Sheet: scrolling body ──────────────────────────────────────────────
 
@@ -881,17 +1053,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       );
     }
 
-    // No section header in the reference — the segmented tabs already say
-    // which list you are looking at, and pull-to-refresh replaces the button.
     out.add(const SizedBox(height: 4));
 
-    switch (_tab) {
-      case _HomeTab.ward:
-        out.addAll(_wardCards());
-      case _HomeTab.mine:
-        out.addAll(_myReportCards());
-      case _HomeTab.supports:
-        out.addAll(_supportCards());
+    // Cards fade+rise in on their own short stagger, and the whole list
+    // cross-fades when the destination or ward scope changes.
+    final cards = switch (_tab) {
+      _HomeTab.ward => _wardCards(),
+      _HomeTab.mine => _myReportCards(),
+    };
+    for (var i = 0; i < cards.length; i++) {
+      out.add(_StaggeredEntry(index: i, child: cards[i]));
     }
     return out;
   }
@@ -903,7 +1074,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             Icon(icon, size: 32, color: NkColors.slate300),
             const SizedBox(height: 8),
             Text(
-              message,
+              // Unknown strings (the ward-number ones) pass through as English.
+              context.tr(message),
               textAlign: TextAlign.center,
               style: const TextStyle(fontSize: 14, color: NkColors.slate400),
             ),
@@ -925,14 +1097,35 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       ];
     }
 
-    final list = _applyStatusFilter(_wardIssues);
+    final supports = _wardScope == _WardScope.supports;
+    if (supports && _supportedLoading && _supported.isEmpty) {
+      return [
+        const Padding(
+          padding: EdgeInsets.symmetric(vertical: 32),
+          child: Center(
+            child: SizedBox(
+              height: 22,
+              width: 22,
+              child: CircularProgressIndicator(
+                  strokeWidth: 2.4, color: NkColors.brand),
+            ),
+          ),
+        ),
+      ];
+    }
+
+    final list = _applyStatusFilter(_tabIssues);
     if (list.isEmpty) {
       return [
         _emptyState(
-          Icons.groups_outlined,
-          _statusFilter != null
-              ? 'No matching grievances in Ward $_currentWard.'
-              : 'No public grievances in Ward $_currentWard yet.',
+          supports ? Icons.thumb_up_outlined : Icons.groups_outlined,
+          supports
+              ? (_statusFilter != null
+                  ? 'No matching grievances among your supports.'
+                  : 'You have not supported any grievance yet.')
+              : (_statusFilter != null
+                  ? 'No matching grievances in Ward $_currentWard.'
+                  : 'No public grievances in Ward $_currentWard yet.'),
         ),
       ];
     }
@@ -1001,13 +1194,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     }
     return out;
   }
-
-  List<Widget> _supportCards() => [
-        _emptyState(
-          Icons.thumb_up_outlined,
-          'No supported grievances yet.',
-        ),
-      ];
 
   Widget _verifyCard(Issue issue) {
     return Container(
@@ -1143,69 +1329,296 @@ class _SheetHeaderDelegate extends SliverPersistentHeaderDelegate {
       old.height != height || old.child != child;
 }
 
-/// The pinned bottom call-to-action — a full-width deep-navy bar with a gold
-/// label. Replaces the old floating "+" FAB so the primary action is always
-/// visible above the sheet.
-class _SubmitBar extends StatelessWidget {
-  const _SubmitBar({required this.onTap});
+/// The floating bottom navigation bar: My Reports | + | In my Ward.
+///
+/// The "+" is the grievance CTA that used to be the full-width footer plate —
+/// it rises above the track as the one raised element in the composition, and
+/// the two destinations sit on a pale pill with a soft drop shadow.
+class _HomeNavBar extends StatelessWidget {
+  const _HomeNavBar({
+    required this.tab,
+    required this.myCount,
+    required this.wardCount,
+    required this.onTab,
+    required this.onSubmit,
+  });
 
+  final _HomeTab tab;
+  final int myCount;
+  final int wardCount;
+  final ValueChanged<_HomeTab> onTab;
+  final VoidCallback onSubmit;
+
+  /// Width reserved in the row for the raised "+" so the two destinations
+  /// never slide under it.
+  static const double _plusSlot = 92;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: SizedBox(
+        height: _kNavBarHeight,
+        child: Stack(
+          alignment: Alignment.center,
+          clipBehavior: Clip.none,
+          children: [
+            // Track — sits at the bottom so the "+" can rise out of it.
+            Align(
+              alignment: Alignment.bottomCenter,
+              child: Container(
+                height: 58,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF1F3F7),
+                  borderRadius: BorderRadius.circular(999),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.14),
+                      blurRadius: 26,
+                      offset: const Offset(0, 10),
+                      spreadRadius: -6,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            // Destinations, split around the reserved centre slot.
+            Align(
+              alignment: Alignment.bottomCenter,
+              child: SizedBox(
+                height: 58,
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: _NavSegment(
+                        label: context.tr('My Reports'),
+                        count: myCount,
+                        active: tab == _HomeTab.mine,
+                        onTap: () => onTab(_HomeTab.mine),
+                      ),
+                    ),
+                    const SizedBox(width: _plusSlot),
+                    Expanded(
+                      child: _NavSegment(
+                        label: context.tr('In my Ward'),
+                        count: wardCount,
+                        active: tab == _HomeTab.ward,
+                        onTap: () => onTab(_HomeTab.ward),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            // The raised CTA.
+            _NavPlusButton(onTap: onSubmit),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// One destination on the nav track — a white pill with a soft lift when
+/// active, plain text when not.
+class _NavSegment extends StatelessWidget {
+  const _NavSegment({
+    required this.label,
+    required this.count,
+    required this.active,
+    required this.onTap,
+  });
+
+  final String label;
+  final int count;
+  final bool active;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final bottomInset = MediaQuery.paddingOf(context).bottom;
     return GestureDetector(
-      onTap: () {
-        HapticFeedback.mediumImpact();
-        onTap();
-      },
+      onTap: onTap,
       behavior: HitTestBehavior.opaque,
-      // A FLAT footer plate: edge to edge, perfectly flat top edge, no radius
-      // anywhere. It is the bottom layer of the stack and the white sheet
-      // overlaps it — the rounded corners in the design belong to that sheet.
-      // A FLAT footer plate of a FIXED height. Its top [_kSheetCornerRadius]
-      // strip sits UNDER the sheet's rounded bottom; the label is then centred
-      // in the band that stays visible, above the home-indicator inset — so it
-      // reads as evenly spaced instead of crammed against the sheet's curve.
-      child: Container(
-        width: double.infinity,
-        height: _kCtaContentHeight,
-        decoration: const BoxDecoration(
-          color: NkColors.refBlueDeep,
-          gradient: RadialGradient(
-            // Bloom centred on the visible label band, not the whole plate.
-            center: Alignment(0, -0.12),
-            radius: 1.1,
-            colors: [
-              NkColors.refBlueGlow,
-              NkColors.refBlueDeep,
-            ],
+      child: Padding(
+        padding: const EdgeInsets.all(5),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 300),
+          curve: NkMotion.settle,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: active ? Colors.white : Colors.transparent,
+            borderRadius: BorderRadius.circular(999),
+            boxShadow: active
+                ? [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.10),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ]
+                : null,
           ),
-        ),
-        child: Column(
-          children: [
-            // Hidden strip the sheet's rounded bottom overlaps.
-            const SizedBox(height: _kSheetCornerRadius),
-            // Visible band: centre the label in whatever is left once the
-            // home-indicator inset below is reserved.
-            Expanded(
-              child: Center(
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 300),
+                curve: NkMotion.settle,
+                constraints: const BoxConstraints(minWidth: 22, minHeight: 22),
+                padding: const EdgeInsets.symmetric(horizontal: 5),
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: active
+                      ? NkColors.slate100
+                      : Colors.white.withValues(alpha: 0.75),
+                  borderRadius: BorderRadius.circular(999),
+                ),
                 child: Text(
-                  context.tr('Submit Your Grievance'),
-                  textAlign: TextAlign.center,
+                  '$count',
                   style: const TextStyle(
-                    fontSize: 17,
+                    fontSize: 11,
                     fontWeight: FontWeight.w800,
-                    letterSpacing: 0.2,
-                    // Cream-gold, sampled from the wordmark gradient in the SVG.
-                    color: Color(0xFFFFEEB8),
+                    color: NkColors.slate600,
                   ),
                 ),
               ),
-            ),
-            SizedBox(height: bottomInset),
-          ],
+              const SizedBox(width: 7),
+              Flexible(
+                child: AnimatedDefaultTextStyle(
+                  duration: const Duration(milliseconds: 300),
+                  curve: NkMotion.settle,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: active ? FontWeight.w800 : FontWeight.w600,
+                    color: active ? NkColors.slate900 : NkColors.slate500,
+                  ),
+                  child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+                ),
+              ),
+            ],
+          ),
         ),
+      ),
+    );
+  }
+}
+
+/// The raised navy "+" — the grievance CTA. Presses in slightly so the tap has
+/// physical feedback instead of only a colour change.
+class _NavPlusButton extends StatefulWidget {
+  const _NavPlusButton({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  State<_NavPlusButton> createState() => _NavPlusButtonState();
+}
+
+class _NavPlusButtonState extends State<_NavPlusButton> {
+  bool _down = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTapDown: (_) => setState(() => _down = true),
+      onTapCancel: () => setState(() => _down = false),
+      onTapUp: (_) => setState(() => _down = false),
+      onTap: () {
+        HapticFeedback.mediumImpact();
+        widget.onTap();
+      },
+      child: AnimatedScale(
+        scale: _down ? 0.92 : 1,
+        duration: const Duration(milliseconds: 160),
+        curve: NkMotion.settle,
+        child: Container(
+          height: 62,
+          width: 78,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: NkColors.refBlueDeep,
+            borderRadius: BorderRadius.circular(20),
+            gradient: const RadialGradient(
+              center: Alignment(0, -0.2),
+              radius: 1.1,
+              colors: [NkColors.refBlueGlow, NkColors.refBlueDeep],
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: NkColors.refBlueDeep.withValues(alpha: 0.42),
+                blurRadius: 18,
+                offset: const Offset(0, 8),
+                spreadRadius: -2,
+              ),
+            ],
+          ),
+          child: const Icon(
+            Icons.add_rounded,
+            size: 30,
+            // Cream-gold, sampled from the wordmark gradient in the logo SVG.
+            color: Color(0xFFFFEEB8),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Fades + lifts a list item in on a short per-index stagger, so a list that
+/// changes (tab switch, filter change, refresh) settles instead of snapping.
+class _StaggeredEntry extends StatefulWidget {
+  const _StaggeredEntry({required this.index, required this.child});
+
+  final int index;
+  final Widget child;
+
+  @override
+  State<_StaggeredEntry> createState() => _StaggeredEntryState();
+}
+
+class _StaggeredEntryState extends State<_StaggeredEntry>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 380),
+  );
+  late final Animation<double> _a =
+      CurvedAnimation(parent: _c, curve: NkMotion.settle);
+  Timer? _delay;
+
+  @override
+  void initState() {
+    super.initState();
+    // Cap the stagger so a long list does not take a second to finish.
+    final ms = (widget.index.clamp(0, 6)) * 45;
+    if (ms == 0) {
+      _c.forward();
+    } else {
+      _delay = Timer(Duration(milliseconds: ms), () {
+        if (mounted) _c.forward();
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _delay?.cancel();
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: _a,
+      child: SlideTransition(
+        position: Tween<Offset>(
+          begin: const Offset(0, 0.06),
+          end: Offset.zero,
+        ).animate(_a),
+        child: widget.child,
       ),
     );
   }

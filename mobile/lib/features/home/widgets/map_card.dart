@@ -15,14 +15,17 @@ import '../../../domain/status_meta.dart';
 import '../../../domain/ticket.dart';
 import '../../shared/status_chip.dart';
 
-/// Desaturate + blue-tint matrix for the pale reference basemap. Luma-weighted
-/// saturation pulled down to 0.18, then a cool lift on the offsets so the
-/// tiles read as a soft blue-grey with near-white roads instead of full-colour
-/// OSM (yellow arterials / green parks).
+/// Desaturate + WARM matrix for the pale basemap.
+///
+/// Built from the luma weights (0.2126 / 0.7152 / 0.0722) at saturation 0.22 —
+/// enough colour left that parks and water still read, but no full-strength OSM
+/// yellow arterials or green blocks. The offsets then push the whole image warm
+/// (red lifted most, blue barely at all), giving the soft cream-paper tone
+/// instead of the cold blue-grey the previous matrix produced.
 const List<double> _kPaleTileMatrix = <double>[
-  0.27559, 0.65798, 0.06642, 0, 14, //
-  0.19559, 0.73798, 0.06642, 0, 20, //
-  0.19559, 0.65798, 0.14642, 0, 40, //
+  0.3858, 0.5579, 0.0563, 0, 22, //
+  0.1658, 0.7779, 0.0563, 0, 14, //
+  0.1658, 0.5579, 0.2763, 0, 2, //
   0, 0, 0, 1, 0, //
 ];
 
@@ -57,6 +60,7 @@ class MapCard extends StatefulWidget {
     this.lockBounds,
     this.lockPadding = EdgeInsets.zero,
     this.lockMinZoom = 12,
+    this.citizenPins = false,
   });
 
   final LatLng? center;
@@ -116,6 +120,12 @@ class MapCard extends StatefulWidget {
   /// visible band. Zooming out below this is blocked so the user can't reveal
   /// neighbouring wards. Computed by the caller from the ward span + viewport.
   final double lockMinZoom;
+
+  /// Citizen palette: pins use only the three statuses the home filter pills
+  /// expose (pending / in-progress / resolved) and anything else — notably
+  /// FALSE petitions — is not plotted at all. The coordinator map keeps the
+  /// full operational palette.
+  final bool citizenPins;
 
   @override
   State<MapCard> createState() => _MapCardState();
@@ -312,22 +322,30 @@ class _MapCardState extends State<MapCard> {
                 MarkerLayer(
                   markers: [
                     for (final issue in filtered)
-                      Marker(
-                        point: LatLng(issue.latitude, issue.longitude),
-                        width: 26,
-                        height: 34,
-                        alignment: Alignment.topCenter,
-                        child: GestureDetector(
-                          onTap: () {
-                            HapticFeedback.selectionClick();
-                            widget.onSelect(issue);
-                          },
-                          child: _StatusPin(
-                            status: issue.status,
-                            highlight: issue.id == widget.selected?.id,
+                      // Citizen map: statuses outside the three filter pills
+                      // (FALSE petitions, verification-pending) yield no colour
+                      // and are skipped entirely.
+                      if (!widget.citizenPins ||
+                          citizenPinColor(issue.status) != null)
+                        Marker(
+                          point: LatLng(issue.latitude, issue.longitude),
+                          width: 26,
+                          height: 34,
+                          alignment: Alignment.topCenter,
+                          child: GestureDetector(
+                            onTap: () {
+                              HapticFeedback.selectionClick();
+                              widget.onSelect(issue);
+                            },
+                            child: _StatusPin(
+                              status: issue.status,
+                              highlight: issue.id == widget.selected?.id,
+                              color: widget.citizenPins
+                                  ? citizenPinColor(issue.status)
+                                  : null,
+                            ),
                           ),
                         ),
-                      ),
                   ],
                 ),
               ],
@@ -552,17 +570,25 @@ class _MapCardState extends State<MapCard> {
 
 /// Colored teardrop pin (port of the MapView divIcon SVG).
 class _StatusPin extends StatelessWidget {
-  const _StatusPin({required this.status, required this.highlight});
+  const _StatusPin({
+    required this.status,
+    required this.highlight,
+    this.color,
+  });
 
   final String status;
   final bool highlight;
+
+  /// Overrides the operational palette — the citizen map passes the three-way
+  /// pending/in-progress/resolved colour here.
+  final Color? color;
 
   @override
   Widget build(BuildContext context) {
     return CustomPaint(
       size: const Size(26, 34),
       painter: _PinPainter(
-        color: statusMeta(status).pin,
+        color: color ?? statusMeta(status).pin,
         highlight: highlight,
       ),
     );
