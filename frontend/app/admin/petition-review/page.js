@@ -160,51 +160,95 @@ export default function PetitionReviewPage() {
               <p className="font-semibold">All caught up — no petitions pending verification.</p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {rows.map((issue) => {
-                const name = citizenName(issue);
-                const acs = constituenciesForWard(issue.ward_no);
-                return (
-                  <article key={issue.id} onClick={() => setSelected(issue)}
-                    className="glass-panel glass-hover group cursor-pointer overflow-hidden rounded-2xl">
-                    <div className="flex items-center gap-1.5 border-b border-violet-200/50 bg-violet-50/60 px-4 py-2">
-                      <span className="h-1.5 w-1.5 rounded-full bg-violet-500 glow-pending" />
-                      <span className="text-[11px] font-bold uppercase tracking-wide text-violet-700">Pending Verification</span>
-                      <span className="ml-auto text-[11px] text-violet-400">{daysOpen(issue)}d ago</span>
-                    </div>
-
-                    <div className="p-4">
-                      <div className="flex items-center gap-2.5">
-                        <span className={`flex h-9 w-9 items-center justify-center rounded-full text-xs font-bold ${tint(name)}`}>{initials(name)}</span>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate font-bold text-slate-800">{name}</p>
-                          <p className="flex items-center gap-1 text-[11px] text-slate-400"><Phone size={10} /> {issue.phone ? `+91 ${issue.phone}` : "—"}</p>
-                        </div>
-                      </div>
-
-                      <p className="mt-3 line-clamp-2 min-h-[2.5rem] text-sm text-slate-700">
-                        {issue.title || <span className="italic text-slate-400">No headline</span>}
-                      </p>
-
-                      <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[11px]">
-                        {issue.image_url && <Chip icon={ImageIcon}>Photo</Chip>}
-                        {issue.audio_url && <Chip icon={Volume2}>Audio</Chip>}
-                        {issue.ward_no != null && <Chip icon={MapPin}>Ward {issue.ward_no}</Chip>}
-                        {acs.length > 0 && <Chip icon={Landmark}>{shortAC(acs[0])}</Chip>}
-                        {issue.upvotes > 0 && <Chip icon={ThumbsUp}>{issue.upvotes}</Chip>}
-                      </div>
-
-                      <button
-                        onClick={(e) => verify(issue.id, e)}
-                        disabled={busyId === issue.id}
-                        className="mt-4 flex w-full items-center justify-center gap-1.5 rounded-xl bg-violet-600 py-2.5 text-sm font-bold text-white transition hover:bg-violet-700 disabled:opacity-60"
-                      >
-                        <ShieldCheck size={15} /> {busyId === issue.id ? "Verifying…" : "Verify Grievance"}
-                      </button>
-                    </div>
-                  </article>
-                );
-              })}
+            /* Single-column list, matching the Tickets table: sticky header,
+               hairline row separators, hover highlight, no zebra striping. */
+            <div className="glass-panel-strong overflow-auto rounded-2xl">
+              <table className="w-full border-collapse text-sm">
+                <thead className="sticky top-0 z-10 bg-white/70 text-left text-[11px] font-bold uppercase tracking-wider text-slate-400 backdrop-blur">
+                  <tr>
+                    <th className="px-5 py-3">Status</th>
+                    <th className="px-3 py-3">Citizen</th>
+                    <th className="px-3 py-3">Description</th>
+                    <th className="px-3 py-3">Attachments</th>
+                    <th className="px-3 py-3">Location</th>
+                    <th className="px-3 py-3">Upvotes</th>
+                    <th className="px-3 py-3 text-right">Date</th>
+                    <th className="px-3 py-3 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((issue) => {
+                    const name = citizenName(issue);
+                    const acs = constituenciesForWard(issue.ward_no);
+                    return (
+                      <tr key={issue.id} onClick={() => setSelected(issue)}
+                        style={{ transition: "background .25s ease" }}
+                        className="group cursor-pointer border-t border-slate-200/50 hover:bg-white/60">
+                        {/* Status */}
+                        <td className="px-5 py-3.5">
+                          <span className="flex items-center gap-1.5 whitespace-nowrap">
+                            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-violet-500 glow-pending" />
+                            <span className="text-[11px] font-bold uppercase tracking-wide text-violet-700">Pending</span>
+                          </span>
+                        </td>
+                        {/* Citizen */}
+                        <td className="px-3 py-3.5">
+                          <div className="flex items-center gap-2.5">
+                            <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[11px] font-bold ${tint(name)}`}>{initials(name)}</span>
+                            <div className="min-w-0">
+                              <p className="truncate font-bold text-slate-800">{name}</p>
+                              <p className="flex items-center gap-1 text-[11px] text-slate-400"><Phone size={10} /> {issue.phone ? `+91 ${issue.phone}` : "—"}</p>
+                            </div>
+                          </div>
+                        </td>
+                        {/* Description — takes the leftover width, single line.
+                            w-full claims the slack; max-w-0 lets truncate work. */}
+                        <td className="w-full max-w-0 px-3 py-3.5">
+                          <p className="truncate text-slate-700">
+                            {issue.title || <span className="italic text-slate-400">No headline</span>}
+                          </p>
+                        </td>
+                        {/* Attachments */}
+                        <td className="px-3 py-3.5">
+                          <div className="flex items-center gap-1.5 text-[11px]">
+                            {issue.image_url && <Chip icon={ImageIcon}>Photo</Chip>}
+                            {issue.audio_url && <Chip icon={Volume2}>Audio</Chip>}
+                            {!issue.image_url && !issue.audio_url && <span className="text-slate-300">—</span>}
+                          </div>
+                        </td>
+                        {/* Location */}
+                        <td className="px-3 py-3.5">
+                          <div className="flex items-center gap-1.5 text-[11px]">
+                            {issue.ward_no != null && <Chip icon={MapPin}>Ward {issue.ward_no}</Chip>}
+                            {acs.length > 0 && <Chip icon={Landmark}>{shortAC(acs[0])}</Chip>}
+                            {issue.ward_no == null && acs.length === 0 && <span className="text-slate-300">—</span>}
+                          </div>
+                        </td>
+                        {/* Upvotes */}
+                        <td className="px-3 py-3.5">
+                          <span className="flex items-center gap-1 text-[11px] font-semibold text-slate-500">
+                            <ThumbsUp size={11} /> {issue.upvotes || 0}
+                          </span>
+                        </td>
+                        {/* Time ago */}
+                        <td className="whitespace-nowrap px-3 py-3.5 text-right text-[11px] text-slate-400">
+                          {daysOpen(issue)}d ago
+                        </td>
+                        {/* Action */}
+                        <td className="px-3 py-3.5 text-right">
+                          <button
+                            onClick={(e) => verify(issue.id, e)}
+                            disabled={busyId === issue.id}
+                            className="inline-flex h-8 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-violet-600 px-3 text-xs font-bold text-white transition hover:bg-violet-700 disabled:opacity-60"
+                          >
+                            <ShieldCheck size={13} /> {busyId === issue.id ? "Verifying…" : "Verify"}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           )}
         </div>

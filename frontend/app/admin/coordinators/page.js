@@ -245,8 +245,11 @@ export default function CoordinatorsPage() {
 function CoordinatorRow({ coord, onEdit, onReset, onToggleStatus }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const disabled = coord.status === "disabled";
+  // .glass-panel sets backdrop-filter, which makes every row its own stacking
+  // context — so the menu's own z-index can never lift it above a LATER row.
+  // Raising the row itself while its menu is open is what actually fixes it.
   return (
-    <div className={`glass-panel glass-hover flex items-center gap-4 rounded-2xl p-3 ${disabled ? "opacity-70" : ""}`}>
+    <div className={`glass-panel glass-hover relative flex items-center gap-4 rounded-2xl p-3 ${menuOpen ? "z-[1000]" : ""} ${disabled ? "opacity-70" : ""}`}>
       <Avatar coord={coord} />
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">

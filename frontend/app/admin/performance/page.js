@@ -21,7 +21,6 @@ import { departmentMeta } from "@/lib/departments";
 import { derivePriority, PRIORITY_META, slaBreached, daysOpen } from "@/lib/adminModel";
 import { CONSTITUENCIES, issueInConstituency, shortAC, constituenciesForWard } from "@/lib/constituencies";
 import { communityKpis, FLAGGED_CONTENT } from "@/lib/communityInsights";
-import TodaysPulse from "@/components/community/TodaysPulse";
 import NammKuralPulse from "@/components/admin/NammKuralPulse";
 
 const AdminHeatMap = dynamic(() => import("@/components/AdminHeatMap"), {
@@ -125,9 +124,8 @@ export default function PerformancePage() {
           </div>
         </div>
 
-        {/* Map + MLA social mentions */}
-        <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1.6fr_1fr]">
-          <div className="glass-panel relative h-[46vh] overflow-hidden rounded-2xl">
+        {/* Density map — full content width */}
+        <div className="glass-panel relative h-[46vh] overflow-hidden rounded-2xl">
             {center ? (
               <AdminHeatMap issues={scoped} mode={mode} center={center} boundaries={boundaries}
                 highlightZone={zone || null} highlightWard={ward || null} overlay={overlay} />
@@ -154,16 +152,6 @@ export default function PerformancePage() {
                 </>
               )}
             </div>
-          </div>
-
-          {/* Social Mentions column — Today's Pulse card (from /coordinator),
-              bounded to the map's height so the layout mirrors the previous
-              two-column shape. Internal scroll for the news carousel. */}
-          <div className="h-[46vh] min-h-0 overflow-hidden">
-            <div className="no-scrollbar h-full overflow-y-auto rounded-3xl">
-              <TodaysPulse constituency={ac || DEFAULT_AC} variant="admin" />
-            </div>
-          </div>
         </div>
 
         {/* நம் குரல் pulse — media + social listening briefing for the MLA */}
