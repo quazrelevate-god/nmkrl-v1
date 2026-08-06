@@ -30,9 +30,13 @@ import 'widgets/action_sheets.dart';
 ///   in-app notification banner for new grievances in this ward.
 
 /// Sheet snap fractions — same composition as the citizen home: the floor is
-/// the landing size AND the minimum, sized to the pinned header plus ~2 cards.
-const double _kSheetMid = 0.62;
+/// the landing size AND the minimum, sized to the pinned header plus ~2 cards,
+/// and it is the only resting place below the near-full expanded snap.
 const double _kSheetMax = 0.86;
+
+/// Fixed-duration settle, matching the citizen sheet, so a flick and a slow
+/// drag travel at the same speed instead of on a velocity-driven simulation.
+const Duration _kSheetSnapDuration = Duration(milliseconds: 320);
 
 /// Rough on-screen footprint of one grievance card, used to size the floor.
 const double _kCardFootprint = 96;
@@ -476,7 +480,8 @@ class _CoordinatorHomeScreenState
                 minChildSize: sheetFloor,
                 maxChildSize: _kSheetMax,
                 snap: true,
-                snapSizes: [sheetFloor, _kSheetMid, _kSheetMax],
+                snapSizes: [sheetFloor, _kSheetMax],
+                snapAnimationDuration: _kSheetSnapDuration,
                 builder: (context, scrollController) => DecoratedBox(
                   decoration: BoxDecoration(
                     color: Colors.white,
