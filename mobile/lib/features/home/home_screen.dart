@@ -47,16 +47,21 @@ const double _kSheetMax = 0.86;
 /// border + inter-card gap), used to size the sheet floor to ~2 cards.
 const double _kCardFootprint = 96;
 
-/// Height of the pinned grip + filter pills + title/filter row.
-/// grip 8+4+10, pills ~29+10, title row ~30, trailing 12 ≈ 103. Held a few px
-/// above that: the sliver extent is fixed, so slack is invisible white space
-/// whereas a short value would clip the row.
-const double _kSheetHeaderHeight = 106;
+/// Pinned sheet header. There is no title row any more: grip + status pills is
+/// the base, and the ward feed adds one row of filter pills under it. The
+/// sliver extent is fixed, so each value is held a few px above the measured
+/// content — slack is invisible white space, a short value would clip.
+/// base: grip 8+4+10 + pills 29 + trailing 12 ≈ 63.
+/// ward: base + 10 + filter pills 26 ≈ 99.
+const double _kSheetHeaderBase = 64;
+const double _kSheetHeaderWard = 100;
 
-/// Height of the floating bottom nav bar (its "+" rises above the track, so
-/// this is the tallest point) and the gap it keeps from the safe-area edge.
-const double _kNavBarHeight = 68;
-const double _kNavBarBottomGap = 12;
+/// Floating bottom nav bar: a flat capsule with everything — including the
+/// centre "+" — living INSIDE it, so this is the whole component's height.
+const double _kNavBarHeight = 52;
+
+/// Small consistent inset between the capsule and the home-indicator area.
+const double _kNavBarBottomGap = 8;
 
 /// The one corner radius in the composition — it belongs to the white sheet.
 const double _kSheetCornerRadius = 22;
@@ -102,8 +107,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   List<Issue> _wardIssues = [];
   List<Issue> _history = [];
 
-  /// Real per-account profile counters (null until first load → shows dashes).
-  ({int reports, int upvotes, int resolved, int open})? _stats;
   bool _histLoading = true;
   Issue? _selected;
   final Map<String, GlobalKey> _cardKeys = {};
@@ -159,10 +162,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   /// the landing size and the minimum — the sheet can be pulled up but never
   /// collapsed below it.
   double _sheetFloorFraction(double parentHeight, double bottomObstruction) {
+    // Sized off the TALLER (ward) header so the floor does not jump when the
+    // destination changes.
     final px =
-        _kSheetHeaderHeight + 8 + 2 * _kCardFootprint + bottomObstruction;
+        _kSheetHeaderWard + 8 + 2 * _kCardFootprint + bottomObstruction;
     return (px / parentHeight).clamp(0.28, 0.62);
   }
+
+  /// The pinned header's fixed extent for the active destination.
+  double get _sheetHeaderHeight =>
+      _tab == _HomeTab.ward ? _kSheetHeaderWard : _kSheetHeaderBase;
 
   /// Web-Mercator zoom at which [b] just fills [viewport] — used as the map's
   /// zoom floor while locked, so the user can't pull back past the whole ward.
@@ -310,18 +319,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         });
       }
     }
-    _loadStats();
-  }
-
-  /// Real profile counters for the signed-in account (reports / upvotes cast /
-  /// resolved / open-unassigned). Refreshed whenever history reloads.
-  Future<void> _loadStats() async {
-    try {
-      final s = await ref
-          .read(apiClientProvider)
-          .fetchUserStats(ref.read(userIdProvider));
-      if (mounted) setState(() => _stats = s);
-    } catch (_) {/* leave previous values */}
   }
 
   /// Grievances this account has upvoted. Loaded on demand — the ward feed only
@@ -460,8 +457,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         // The grievance just joined "My Supports" — refresh that scope and the
         // counters behind it so the dropdown badge is not stale.
         _loadSupported();
-        _loadStats();
-      },
+          },
     );
   }
 
@@ -747,7 +743,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         SliverPersistentHeader(
                           pinned: true,
                           delegate: _SheetHeaderDelegate(
-                            height: _kSheetHeaderHeight,
+                            height: _sheetHeaderHeight,
                             child: _buildSheetHeader(),
                           ),
                         ),
@@ -875,180 +871,51 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               ],
             ),
           ),
-          const SizedBox(height: 10),
 
-          // Title of the active destination + (ward only) the scope/sort
-          // dropdown that replaced the old "My Supports" segment.
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(
-              children: [
-                Expanded(
-                  child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 220),
-                    switchInCurve: NkMotion.settle,
-                    child: Text(
-                      _tab == _HomeTab.mine
-                          ? context.tr('My Reports')
-                          : context.tr('In my Ward'),
-                      key: ValueKey(_tab),
-                      style: const TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w800,
-                        color: NkColors.slate900,
-                      ),
-                    ),
-                  ),
-                ),
-                if (_tab == _HomeTab.ward) _buildWardFilterMenu(),
-              ],
-            ),
-          ),
+          // Ward feed only: scope + sort as one evenly spaced row of pills.
+          // The nav bar already names the destination, so there is no title.
+          if (_tab == _HomeTab.ward) ...[
+            const SizedBox(height: 10),
+            _buildWardFilterPills(),
+          ],
           const SizedBox(height: 12),
         ],
       ),
     );
   }
 
-  /// Ward-feed filter: scope (All / My Supports) over sort (Recent / Priority),
-  /// in one menu — the citizen counterpart of the coordinator's sort dropdown.
-  Widget _buildWardFilterMenu() {
-    final scopeLabel = _wardScope == _WardScope.all
-        ? context.tr('All')
-        : context.tr('My Supports');
-    final sortLabel = _wardSort == _WardSort.recent
-        ? context.tr('Recent')
-        : context.tr('Priority');
-
-    return PopupMenuButton<String>(
-      tooltip: '',
-      position: PopupMenuPosition.under,
-      offset: const Offset(0, 6),
-      color: Colors.white,
-      elevation: 10,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-      ),
-      onSelected: (v) => switch (v) {
-        'all' => _setWardScope(_WardScope.all),
-        'supports' => _setWardScope(_WardScope.supports),
-        'recent' => _setWardSort(_WardSort.recent),
-        'priority' => _setWardSort(_WardSort.priority),
-        _ => null,
-      },
-      itemBuilder: (context) => [
-        _menuHeader(context.tr('Show')),
-        _menuItem('all', context.tr('All'), _wardScope == _WardScope.all,
-            count: _wardIssues.length),
-        _menuItem('supports', context.tr('My Supports'),
-            _wardScope == _WardScope.supports,
-            // Cast-upvote count from the profile counters; once the list has
-            // actually loaded, its own length is the authority.
-            count: _supported.isNotEmpty
-                ? _supported.length
-                : (_stats?.upvotes ?? 0)),
-        const PopupMenuDivider(),
-        _menuHeader(context.tr('Sort by')),
-        _menuItem('recent', context.tr('Recent'), _wardSort == _WardSort.recent),
-        _menuItem(
-            'priority', context.tr('Priority'), _wardSort == _WardSort.priority),
-      ],
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(12, 7, 8, 7),
-        decoration: BoxDecoration(
-          color: NkColors.slate50,
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(color: NkColors.slate200),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              _wardScope == _WardScope.supports
-                  ? Icons.favorite_rounded
-                  : Icons.tune_rounded,
-              size: 13,
-              color: NkColors.refBlue,
-            ),
-            const SizedBox(width: 6),
-            Text(
-              '$scopeLabel · $sortLabel',
-              style: const TextStyle(
-                fontSize: 11.5,
-                fontWeight: FontWeight.w700,
-                color: NkColors.slate700,
-              ),
-            ),
-            const Icon(Icons.expand_more_rounded,
-                size: 15, color: NkColors.slate500),
-          ],
-        ),
+  /// Scope (All / My Supports) and sort (Recent / Priority) as four pills on
+  /// one row, evenly spaced — replaces the dropdown menu.
+  Widget _buildWardFilterPills() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          _WardFilterPill(
+            label: context.tr('All'),
+            active: _wardScope == _WardScope.all,
+            onTap: () => _setWardScope(_WardScope.all),
+          ),
+          _WardFilterPill(
+            label: context.tr('My Supports'),
+            active: _wardScope == _WardScope.supports,
+            onTap: () => _setWardScope(_WardScope.supports),
+          ),
+          _WardFilterPill(
+            label: context.tr('Recent'),
+            active: _wardSort == _WardSort.recent,
+            onTap: () => _setWardSort(_WardSort.recent),
+          ),
+          _WardFilterPill(
+            label: context.tr('Priority'),
+            active: _wardSort == _WardSort.priority,
+            onTap: () => _setWardSort(_WardSort.priority),
+          ),
+        ],
       ),
     );
   }
-
-  PopupMenuItem<String> _menuHeader(String text) => PopupMenuItem<String>(
-        enabled: false,
-        height: 26,
-        child: Text(
-          text.toUpperCase(),
-          style: const TextStyle(
-            fontSize: 9.5,
-            fontWeight: FontWeight.w800,
-            letterSpacing: 0.6,
-            color: NkColors.slate400,
-          ),
-        ),
-      );
-
-  PopupMenuItem<String> _menuItem(String value, String label, bool active,
-          {int? count}) =>
-      PopupMenuItem<String>(
-        value: value,
-        height: 40,
-        child: Row(
-          children: [
-            Expanded(
-              child: Text(
-                label,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: active ? FontWeight.w800 : FontWeight.w600,
-                  color: active ? NkColors.refBlue : NkColors.slate700,
-                ),
-              ),
-            ),
-            if (count != null) ...[
-              Container(
-                constraints: const BoxConstraints(minWidth: 20),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: NkColors.slate100,
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  '$count',
-                  style: const TextStyle(
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w800,
-                    color: NkColors.slate600,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-            ],
-            SizedBox(
-              width: 16,
-              child: active
-                  ? const Icon(Icons.check_rounded,
-                      size: 16, color: NkColors.refBlue)
-                  : null,
-            ),
-          ],
-        ),
-      );
 
   // ── Sheet: scrolling body ──────────────────────────────────────────────
 
@@ -1362,9 +1229,14 @@ class _SheetHeaderDelegate extends SliverPersistentHeaderDelegate {
 
 /// The floating bottom navigation bar: My Reports | + | In my Ward.
 ///
-/// The "+" is the grievance CTA that used to be the full-width footer plate —
-/// it rises above the track as the one raised element in the composition, and
-/// the two destinations sit on a pale pill with a soft drop shadow.
+/// Built to the isolated navbar reference: ONE flat capsule of fixed height
+/// with uniform padding, and all three sections living inside it — the centre
+/// "+" no longer rises above the track, it is a peer of the two side tabs and
+/// shares their inner height and vertical centre line.
+///
+/// Deliberately no Expanded / spaceEvenly: the side widths are computed from
+/// the measured capsule width minus the reserved centre slot, so the geometry
+/// is explicit rather than distributed by the layout algorithm.
 class _HomeNavBar extends StatelessWidget {
   const _HomeNavBar({
     required this.tab,
@@ -1380,80 +1252,89 @@ class _HomeNavBar extends StatelessWidget {
   final ValueChanged<_HomeTab> onTab;
   final VoidCallback onSubmit;
 
-  /// Width reserved in the row for the raised "+" so the two destinations
-  /// never slide under it.
-  static const double _plusSlot = 92;
+  /// Inset from the screen edges.
+  static const double _sideMargin = 16;
+
+  /// Uniform padding between the capsule edge and its contents.
+  static const double _capsulePad = 5;
+
+  /// Reserved width of the centre button — proportional to the side tabs, not
+  /// a raised element competing with them.
+  static const double _plusWidth = 60;
+
+  /// Track left visible either side of the centre button, so the active pill
+  /// never butts up against it.
+  static const double _plusGap = 5;
+
+  /// Inner content height, shared by all three sections.
+  static const double _innerHeight = _kNavBarHeight - _capsulePad * 2;
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: SizedBox(
+      padding: const EdgeInsets.symmetric(horizontal: _sideMargin),
+      child: Container(
         height: _kNavBarHeight,
-        child: Stack(
-          alignment: Alignment.center,
-          clipBehavior: Clip.none,
-          children: [
-            // Track — sits at the bottom so the "+" can rise out of it.
-            Align(
-              alignment: Alignment.bottomCenter,
-              child: Container(
-                height: 58,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF1F3F7),
-                  borderRadius: BorderRadius.circular(999),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.14),
-                      blurRadius: 26,
-                      offset: const Offset(0, 10),
-                      spreadRadius: -6,
-                    ),
-                  ],
-                ),
-              ),
+        padding: const EdgeInsets.all(_capsulePad),
+        decoration: BoxDecoration(
+          // Light neutral track; the active pill is the only pure white.
+          color: const Color(0xFFF1F2F4),
+          borderRadius: BorderRadius.circular(_kNavBarHeight / 2),
+          boxShadow: [
+            // Very soft elevation — low opacity, modest blur.
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.07),
+              blurRadius: 14,
+              offset: const Offset(0, 4),
+              spreadRadius: -2,
             ),
-
-            // Destinations, split around the reserved centre slot.
-            Align(
-              alignment: Alignment.bottomCenter,
-              child: SizedBox(
-                height: 58,
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: _NavSegment(
-                        label: context.tr('My Reports'),
-                        count: myCount,
-                        active: tab == _HomeTab.mine,
-                        onTap: () => onTab(_HomeTab.mine),
-                      ),
-                    ),
-                    const SizedBox(width: _plusSlot),
-                    Expanded(
-                      child: _NavSegment(
-                        label: context.tr('In my Ward'),
-                        count: wardCount,
-                        active: tab == _HomeTab.ward,
-                        onTap: () => onTab(_HomeTab.ward),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-
-            // The raised CTA.
-            _NavPlusButton(onTap: onSubmit),
           ],
+        ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final sideWidth =
+                ((constraints.maxWidth - _plusWidth - _plusGap * 2) / 2)
+                    .clamp(0.0, 400.0);
+            return Row(
+              children: [
+                SizedBox(
+                  width: sideWidth,
+                  height: _innerHeight,
+                  child: _NavSegment(
+                    label: context.tr('My Reports'),
+                    count: myCount,
+                    active: tab == _HomeTab.mine,
+                    onTap: () => onTab(_HomeTab.mine),
+                  ),
+                ),
+                const SizedBox(width: _plusGap),
+                SizedBox(
+                  width: _plusWidth,
+                  height: _innerHeight,
+                  child: _NavPlusButton(onTap: onSubmit),
+                ),
+                const SizedBox(width: _plusGap),
+                SizedBox(
+                  width: sideWidth,
+                  height: _innerHeight,
+                  child: _NavSegment(
+                    label: context.tr('In my Ward'),
+                    count: wardCount,
+                    active: tab == _HomeTab.ward,
+                    onTap: () => onTab(_HomeTab.ward),
+                  ),
+                ),
+              ],
+            );
+          },
         ),
       ),
     );
   }
 }
 
-/// One destination on the nav track — a white pill with a soft lift when
-/// active, plain text when not.
+/// One destination on the nav track: a compact white pill when active, bare
+/// track when not. Badge and label share the capsule's vertical centre line.
 class _NavSegment extends StatelessWidget {
   const _NavSegment({
     required this.label,
@@ -1472,72 +1353,79 @@ class _NavSegment extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
-      child: Padding(
-        padding: const EdgeInsets.all(5),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 300),
-          curve: NkMotion.settle,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: active ? Colors.white : Colors.transparent,
-            borderRadius: BorderRadius.circular(999),
-            boxShadow: active
-                ? [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.10),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
-                    ),
-                  ]
-                : null,
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 300),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 280),
+        curve: NkMotion.settle,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: active ? Colors.white : Colors.transparent,
+          borderRadius: BorderRadius.circular(999),
+          boxShadow: active
+              ? [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.07),
+                    blurRadius: 5,
+                    offset: const Offset(0, 1),
+                  ),
+                ]
+              : null,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            // Perfect 20pt circle for one- and two-digit counts; only a
+            // three-digit count stretches it, and then symmetrically.
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 280),
+              curve: NkMotion.settle,
+              height: 20,
+              constraints: const BoxConstraints(minWidth: 20),
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                // Subtle, not bright: a light neutral either way, one step
+                // apart so the badge reads on both the pill and the track.
+                color: active
+                    ? const Color(0xFFEDEFF3)
+                    : const Color(0xFFE3E6EB),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                '$count',
+                style: const TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  height: 1,
+                  color: NkColors.slate600,
+                ),
+              ),
+            ),
+            const SizedBox(width: 7),
+            Flexible(
+              child: AnimatedDefaultTextStyle(
+                duration: const Duration(milliseconds: 280),
                 curve: NkMotion.settle,
-                constraints: const BoxConstraints(minWidth: 22, minHeight: 22),
-                padding: const EdgeInsets.symmetric(horizontal: 5),
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: active
-                      ? NkColors.slate100
-                      : Colors.white.withValues(alpha: 0.75),
-                  borderRadius: BorderRadius.circular(999),
+                style: TextStyle(
+                  fontSize: 12.5,
+                  height: 1,
+                  letterSpacing: 0,
+                  fontWeight: active ? FontWeight.w700 : FontWeight.w600,
+                  color: active ? NkColors.slate900 : NkColors.slate500,
                 ),
-                child: Text(
-                  '$count',
-                  style: const TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w800,
-                    color: NkColors.slate600,
-                  ),
-                ),
+                child:
+                    Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
               ),
-              const SizedBox(width: 7),
-              Flexible(
-                child: AnimatedDefaultTextStyle(
-                  duration: const Duration(milliseconds: 300),
-                  curve: NkMotion.settle,
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: active ? FontWeight.w800 : FontWeight.w600,
-                    color: active ? NkColors.slate900 : NkColors.slate500,
-                  ),
-                  child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
   }
 }
 
-/// The raised navy "+" — the grievance CTA. Presses in slightly so the tap has
-/// physical feedback instead of only a colour change.
+/// The centre navy "+" — the grievance CTA. Sized to the capsule's inner
+/// height so it sits flush inside the track rather than floating over it.
 class _NavPlusButton extends StatefulWidget {
   const _NavPlusButton({required this.onTap});
 
@@ -1561,33 +1449,26 @@ class _NavPlusButtonState extends State<_NavPlusButton> {
         widget.onTap();
       },
       child: AnimatedScale(
-        scale: _down ? 0.92 : 1,
+        scale: _down ? 0.93 : 1,
         duration: const Duration(milliseconds: 160),
         curve: NkMotion.settle,
         child: Container(
-          height: 62,
-          width: 78,
           alignment: Alignment.center,
           decoration: BoxDecoration(
+            // Flat navy — no radial bloom, so it reads as part of the bar.
             color: NkColors.refBlueDeep,
-            borderRadius: BorderRadius.circular(20),
-            gradient: const RadialGradient(
-              center: Alignment(0, -0.2),
-              radius: 1.1,
-              colors: [NkColors.refBlueGlow, NkColors.refBlueDeep],
-            ),
+            borderRadius: BorderRadius.circular(14),
             boxShadow: [
               BoxShadow(
-                color: NkColors.refBlueDeep.withValues(alpha: 0.42),
-                blurRadius: 18,
-                offset: const Offset(0, 8),
-                spreadRadius: -2,
+                color: NkColors.refBlueDeep.withValues(alpha: 0.20),
+                blurRadius: 7,
+                offset: const Offset(0, 2),
               ),
             ],
           ),
           child: const Icon(
             Icons.add_rounded,
-            size: 30,
+            size: 22,
             // Cream-gold, sampled from the wordmark gradient in the logo SVG.
             color: Color(0xFFFFEEB8),
           ),
@@ -1758,6 +1639,52 @@ class _DemoJumpButton extends StatelessWidget {
           Icons.account_balance,
           size: 16,
           color: active ? NkColors.gold300 : Colors.white,
+        ),
+      ),
+    );
+  }
+}
+
+/// One option in the ward feed's filter row. Compact pill: navy fill when
+/// selected, quiet neutral when not. Scope and sort are independent, so one
+/// pill from each pair reads as active at the same time.
+class _WardFilterPill extends StatelessWidget {
+  const _WardFilterPill({
+    required this.label,
+    required this.active,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 220),
+        curve: NkMotion.settle,
+        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
+        decoration: BoxDecoration(
+          color: active ? NkColors.refBlue : const Color(0xFFF1F3F7),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: active ? NkColors.refBlue : const Color(0xFFE3E6EB),
+          ),
+        ),
+        child: AnimatedDefaultTextStyle(
+          duration: const Duration(milliseconds: 220),
+          curve: NkMotion.settle,
+          style: TextStyle(
+            fontSize: 11,
+            height: 1,
+            fontWeight: active ? FontWeight.w800 : FontWeight.w600,
+            color: active ? Colors.white : NkColors.slate600,
+          ),
+          child: Text(label, maxLines: 1),
         ),
       ),
     );
