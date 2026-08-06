@@ -47,11 +47,11 @@ const double _kSheetMax = 0.86;
 /// border + inter-card gap), used to size the sheet floor to ~2 cards.
 const double _kCardFootprint = 96;
 
-/// Height of the pinned grip + filter pills + segmented tabs block.
-/// grip 8+4+10, pills 30+10, segments ~39, trailing 12 ≈ 113. Held a few
-/// px above that: the sliver extent is fixed, so slack is invisible white
-/// space whereas a short value would clip the tab row.
-const double _kSheetHeaderHeight = 118;
+/// Height of the pinned grip + filter pills + title/filter row.
+/// grip 8+4+10, pills ~29+10, title row ~30, trailing 12 ≈ 103. Held a few px
+/// above that: the sliver extent is fixed, so slack is invisible white space
+/// whereas a short value would clip the row.
+const double _kSheetHeaderHeight = 106;
 
 /// Height of the floating bottom nav bar (its "+" rises above the track, so
 /// this is the tallest point) and the gap it keeps from the safe-area edge.
@@ -154,12 +154,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     return LatLngBounds.fromPoints(pts);
   }
 
-  /// Sheet floor fraction: the pinned header + ~2 grievance cards, as a
-  /// fraction of the sheet's parent height. This is BOTH the landing size and
-  /// the minimum — the sheet can be pulled up but never collapsed below it.
-  double _sheetFloorFraction(double parentHeight) {
-    const px = _kSheetHeaderHeight + 8 + 2 * _kCardFootprint;
-    return (px / parentHeight).clamp(0.28, 0.5);
+  /// Sheet floor fraction: the pinned header + ~2 grievance cards clear of the
+  /// floating nav bar, as a fraction of the sheet's parent height. This is BOTH
+  /// the landing size and the minimum — the sheet can be pulled up but never
+  /// collapsed below it.
+  double _sheetFloorFraction(double parentHeight, double bottomObstruction) {
+    final px =
+        _kSheetHeaderHeight + 8 + 2 * _kCardFootprint + bottomObstruction;
+    return (px / parentHeight).clamp(0.28, 0.62);
   }
 
   /// Web-Mercator zoom at which [b] just fills [viewport] — used as the map's
@@ -582,9 +584,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final screenH = MediaQuery.sizeOf(context).height;
 
     // The sheet now runs to the bottom of the screen — the nav bar floats over
-    // it — so its fractions are relative to the full height.
+    // it — so its fractions are relative to the full height, and its floor has
+    // to clear whatever the nav bar covers.
     final sheetParentH = screenH;
-    final sheetFloor = _sheetFloorFraction(sheetParentH);
+    final navCover = _kNavBarHeight + _kNavBarBottomGap + bottomInset;
+    final sheetFloor = _sheetFloorFraction(sheetParentH, navCover);
 
     // Everything the sheet covers at its floor, used to bias the ward fit into
     // the band that stays visible above it.
@@ -765,7 +769,34 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               ),
             ),
 
-            // ── 5. Floating bottom nav bar — My Reports | + | In my Ward.
+            // ── 5. Fade under the floating nav bar, so list content scrolling
+            // beneath it dissolves into white instead of peeking through the
+            // gaps around the track and the raised "+". ──
+            Positioned(
+              key: const ValueKey('home-navscrim'),
+              left: 0,
+              right: 0,
+              bottom: 0,
+              height: navCover + 26,
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Colors.white.withValues(alpha: 0),
+                        Colors.white.withValues(alpha: 0.92),
+                        Colors.white,
+                      ],
+                      stops: const [0, 0.45, 0.7],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+
+            // ── 6. Floating bottom nav bar — My Reports | + | In my Ward.
             // The "+" is the grievance CTA that used to be the footer plate. ──
             Positioned(
               key: const ValueKey('home-navbar'),

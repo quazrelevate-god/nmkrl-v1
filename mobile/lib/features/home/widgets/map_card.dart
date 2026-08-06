@@ -17,15 +17,14 @@ import '../../shared/status_chip.dart';
 
 /// Desaturate + WARM matrix for the pale basemap.
 ///
-/// Built from the luma weights (0.2126 / 0.7152 / 0.0722) at saturation 0.22 —
+/// Built from the luma weights (0.2126 / 0.7152 / 0.0722) at saturation 0.18 —
 /// enough colour left that parks and water still read, but no full-strength OSM
-/// yellow arterials or green blocks. The offsets then push the whole image warm
-/// (red lifted most, blue barely at all), giving the soft cream-paper tone
-/// instead of the cold blue-grey the previous matrix produced.
+/// yellow arterials or green blocks. The offsets then lean the image warm by a
+/// 10-point red-over-blue delta: a subtle paper warmth, not a sepia wash.
 const List<double> _kPaleTileMatrix = <double>[
-  0.3858, 0.5579, 0.0563, 0, 22, //
-  0.1658, 0.7779, 0.0563, 0, 14, //
-  0.1658, 0.5579, 0.2763, 0, 2, //
+  0.3543, 0.5865, 0.0592, 0, 16, //
+  0.1743, 0.7665, 0.0592, 0, 12, //
+  0.1743, 0.5865, 0.2392, 0, 6, //
   0, 0, 0, 1, 0, //
 ];
 

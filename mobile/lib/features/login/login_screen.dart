@@ -271,7 +271,9 @@ class _CitizenLoginFormState extends ConsumerState<_CitizenLoginForm> {
         padding: const EdgeInsets.only(bottom: 6),
         child: Row(
           children: [
-            Icon(icon, size: 12, color: NkColors.slate500),
+            // slate700, not slate500: the frosted panel is translucent over
+            // navy, so mid-grey labels lose contrast against it.
+            Icon(icon, size: 12, color: NkColors.slate700),
             const SizedBox(width: 6),
             Text(
               text.toUpperCase(),
@@ -279,7 +281,7 @@ class _CitizenLoginFormState extends ConsumerState<_CitizenLoginForm> {
                 fontSize: 11,
                 fontWeight: FontWeight.w700,
                 letterSpacing: 0.6,
-                color: NkColors.slate500,
+                color: NkColors.slate700,
               ),
             ),
           ],
@@ -552,8 +554,10 @@ class _CitizenLoginFormState extends ConsumerState<_CitizenLoginForm> {
                       'New numbers are registered automatically on first login',
                       style: TextStyle(
                         fontSize: 10,
-                        fontWeight: FontWeight.w500,
-                        color: NkColors.slate400,
+                        fontWeight: FontWeight.w600,
+                        // slate600 on the translucent panel; slate400 was
+                        // legible on solid white but not on frosted glass.
+                        color: NkColors.slate600,
                       ),
                     ),
                   ),
