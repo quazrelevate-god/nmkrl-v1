@@ -38,23 +38,50 @@ enum _WardSort { recent, priority }
 
 /// Sheet snap fractions. The FLOOR (min == landing) is computed per-device so
 /// it shows the pinned pills+tabs header plus exactly ~2 grievance cards, and
-/// the user can never collapse below it — see [_sheetFloorFraction]. Above the
-/// floor there is a comfortable mid snap and a near-full expanded snap.
-const double _kSheetMid = 0.62;
+/// the user can never collapse below it — see [_sheetFloorFraction]. There are
+/// exactly two resting places: that floor and the near-full expanded snap.
 const double _kSheetMax = 0.86;
+
+/// Fixed-duration settle between the two snaps. Without this the sheet lands on
+/// a velocity-driven ballistic simulation, so a flick and a slow drag settle at
+/// very different speeds; a set duration makes the travel read the same either
+/// way, which is what "smooth" means here.
+const Duration _kSheetSnapDuration = Duration(milliseconds: 320);
 
 /// Rough on-screen footprint of one grievance card (thumbnail row + selection
 /// border + inter-card gap), used to size the sheet floor to ~2 cards.
 const double _kCardFootprint = 96;
 
+/// Easing for a destination change. Symmetric on purpose: the outgoing page
+/// has to accelerate away exactly as fast as the incoming one decelerates in.
+/// A decelerate-only curve (our usual NkMotion.settle) makes the exit crawl
+/// behind the entrance and the two read as separate, unrelated moves.
+const Curve _kTabCurve = Curves.easeInOutCubic;
+
 /// Pinned sheet header. There is no title row any more: grip + status pills is
-/// the base, and the ward feed adds one row of filter pills under it. The
-/// sliver extent is fixed, so each value is held a few px above the measured
-/// content — slack is invisible white space, a short value would clip.
-/// base: grip 8+4+10 + pills 29 + trailing 12 ≈ 63.
-/// ward: base + 10 + filter pills 26 ≈ 99.
+/// the base, and the ward feed can reveal one row of filter pills under it.
+/// These are the two SETTLED extents — the header interpolates between them
+/// rather than snapping, so each value is held a px above the measured content:
+/// slack is invisible white space, a short value would clip.
+/// base: grip 8+4+10 + pills 29 + trailing 12 = 63.
+/// ward (revealed): base + 8 + filter pills 26 + 4 = 101.
+/// The BASE value must land inside the 8px gap that opens the ward block, not
+/// inside the pills themselves, or a collapsed header shows a sliver of them.
 const double _kSheetHeaderBase = 64;
-const double _kSheetHeaderWard = 100;
+const double _kSheetHeaderWard = 102;
+
+/// A swipe across the sheet changes destination if EITHER the flick is quick
+/// enough or the finger travelled far enough — so a fast flick and a slow,
+/// deliberate drag both work, while an accidental nudge during a vertical
+/// scroll does nothing.
+const double _kSwipeMinVelocity = 250; // logical px per second
+const double _kSwipeMinDistance = 56; // logical px of net travel
+
+/// Width reserved for the ward feed's funnel button — and mirrored on the left
+/// of the pill row. Reserving it in BOTH destinations is the point: the pills
+/// then occupy the same pixels either side of a tab change, so the pinned
+/// header (which does not slide) has nothing to twitch.
+const double _kFunnelSlot = 34;
 
 /// Floating bottom nav bar: a flat capsule with everything — including the
 /// centre "+" — living INSIDE it, so this is the whole component's height.
@@ -92,7 +119,8 @@ class HomeScreen extends ConsumerStatefulWidget {
   ConsumerState<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends ConsumerState<HomeScreen> {
+class _HomeScreenState extends ConsumerState<HomeScreen>
+    with SingleTickerProviderStateMixin {
   // Location
   LatLng? _geoCoords;
   LatLng? _override; // demo: jump to an Egmore ward
@@ -162,16 +190,77 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   /// the landing size and the minimum — the sheet can be pulled up but never
   /// collapsed below it.
   double _sheetFloorFraction(double parentHeight, double bottomObstruction) {
-    // Sized off the TALLER (ward) header so the floor does not jump when the
-    // destination changes.
+    // Sized off the BASE header, so the floor clears exactly two cards in BOTH
+    // destinations. It deliberately does NOT account for the ward's revealed
+    // filter row: that costs _kSheetHeaderLift more, and the sheet is lifted by
+    // [_syncSheetLift] to pay for it rather than the floor being raised — which
+    // would either add a third snap stop or clamp the sheet up with a pop.
     final px =
-        _kSheetHeaderWard + 8 + 2 * _kCardFootprint + bottomObstruction;
+        _kSheetHeaderBase + 8 + 2 * _kCardFootprint + bottomObstruction;
     return (px / parentHeight).clamp(0.28, 0.62);
   }
 
-  /// The pinned header's fixed extent for the active destination.
+  /// Extra sheet height the revealed ward filter row needs, as a fraction of
+  /// [parentHeight] — exactly the header growth, so the two cards below it stay
+  /// where they were and only the sheet's top edge moves.
+  double _sheetLiftFraction(double parentHeight) =>
+      (_kSheetHeaderWard - _kSheetHeaderBase) / parentHeight;
+
+  /// The two snap stops, cached so the list keeps its IDENTITY across rebuilds.
+  /// DraggableScrollableSheet compares snapSizes by identity and schedules a
+  /// post-frame re-snap whenever it differs — a fresh literal every build would
+  /// re-snap the sheet on every unrelated setState and cancel the lift below.
+  List<double>? _snapCache;
+  List<double> _snapSizes(double floor) {
+    final cached = _snapCache;
+    if (cached != null && cached.first == floor) return cached;
+    return _snapCache = [floor, _kSheetMax];
+  }
+
+  /// Hold the resting sheet at exactly two clear cards. The ward's revealed
+  /// filters need [_sheetLiftFraction] more height; everything else sits on the
+  /// floor. Only ever nudges a sheet that is already resting low — one the user
+  /// has pulled up to the max snap is left exactly where they put it.
+  void _syncSheetLift() {
+    if (!_sheetCtrl.isAttached) return;
+    final parentH = MediaQuery.sizeOf(context).height;
+    final navCover = _kNavBarHeight +
+        _kNavBarBottomGap +
+        MediaQuery.paddingOf(context).bottom;
+    final floor = _sheetFloorFraction(parentH, navCover);
+    final lift = _sheetLiftFraction(parentH);
+    final target =
+        floor + (_sheetHeaderHeight > _kSheetHeaderBase ? lift : 0);
+    // Above the low band means the user dragged it there. Not ours to move.
+    if (_sheetCtrl.size > floor + lift + 0.02) return;
+    if ((_sheetCtrl.size - target).abs() < 0.001) return;
+    _sheetCtrl.animateTo(
+      target,
+      duration: _kSheetSnapDuration,
+      curve: _kTabCurve,
+    );
+  }
+
+  /// Whether the ward feed's scope + sort pills are revealed. Collapsed by
+  /// default, which is what makes the ward header the SAME height as My
+  /// Reports' — the destination change then has no vertical step to make.
+  bool _wardFiltersOpen = false;
+
+  /// The pinned header's settled extent for the active destination.
   double get _sheetHeaderHeight =>
-      _tab == _HomeTab.ward ? _kSheetHeaderWard : _kSheetHeaderBase;
+      (_tab == _HomeTab.ward && _wardFiltersOpen)
+          ? _kSheetHeaderWard
+          : _kSheetHeaderBase;
+
+  /// The extent the header is animating away from, held for the length of a
+  /// destination change so [_liveHeaderHeight] can travel between the two.
+  double _prevHeaderHeight = _kSheetHeaderBase;
+
+  /// The header's extent *right now*, on the same clock and curve as the cards.
+  double get _liveHeaderHeight {
+    final t = _kTabCurve.transform(_tabAnimCtrl.value);
+    return _prevHeaderHeight + (_sheetHeaderHeight - _prevHeaderHeight) * t;
+  }
 
   /// Web-Mercator zoom at which [b] just fills [viewport] — used as the map's
   /// zoom floor while locked, so the user can't pull back past the whole ward.
@@ -192,9 +281,27 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     return (math.min(zx, zy) - 0.15).clamp(1.0, 18.0);
   }
 
+  /// Drives the destination change: the outgoing cards slide out while the
+  /// incoming ones slide in, and the pinned header's extent travels between its
+  /// two heights on the same clock so the two never fight each other.
+  late final AnimationController _tabAnimCtrl;
+
+  /// +1 when moving toward the right-hand destination, -1 toward the left, so
+  /// the cards travel the same way the nav bar selection does.
+  double _slideDir = 1;
+
+  /// The sheet's own scroll controller, handed to us by DraggableScrollableSheet
+  /// in its builder. Kept so a destination change can reset the list to its top.
+  ScrollController? _sheetScrollCtrl;
+
   @override
   void initState() {
     super.initState();
+    _tabAnimCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 320),
+      value: 1, // first paint is already settled — nothing slides on launch
+    );
     _locateDevice();
     _loadBoundaries();
     _loadHistory();
@@ -202,9 +309,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   @override
   void dispose() {
+    _tabAnimCtrl.dispose();
     _sheetCtrl.dispose();
     super.dispose();
   }
+
 
   // ── Location (port of useGeolocation) ──────────────────────────────────
 
@@ -388,10 +497,58 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     setState(() => _statusFilter = _statusFilter == key ? null : key);
   }
 
+  /// Reveal/hide the ward feed's scope + sort row. Rides the SAME controller as
+  /// a destination change, so the header grows on the identical curve — but the
+  /// body's key is untouched, so the cards do not slide for this.
+  void _toggleWardFilters() {
+    HapticFeedback.selectionClick();
+    _prevHeaderHeight = _sheetHeaderHeight;
+    setState(() => _wardFiltersOpen = !_wardFiltersOpen);
+    _tabAnimCtrl.forward(from: 0);
+    // Same duration and curve as the header growth, so the sheet's top edge and
+    // the filter row arrive together and the cards below never move.
+    _syncSheetLift();
+  }
+
+  /// Net horizontal travel of the swipe in progress, accumulated because
+  /// DragEndDetails reports velocity but not distance — and a slow, deliberate
+  /// drag carries almost no velocity yet clearly means to change destination.
+  double _swipeDx = 0;
+
+  /// Horizontal flick across the sheet: same destination change as tapping the
+  /// nav bar, routed through [_selectTab] so the slide, the haptic, the scroll
+  /// reset and the sheet lift are all identical either way.
+  void _onSheetSwipe(DragEndDetails details) {
+    final velocity = details.primaryVelocity ?? 0;
+    final flicked = velocity.abs() >= _kSwipeMinVelocity;
+    final dragged = _swipeDx.abs() >= _kSwipeMinDistance;
+    if (!flicked && !dragged) return; // an idle nudge, not an intent
+    // Trust velocity when there is any; otherwise fall back to net travel. A
+    // leftward swipe advances to the right-hand destination, like a page turn.
+    final direction = flicked ? velocity : _swipeDx;
+    _selectTab(direction < 0 ? _HomeTab.ward : _HomeTab.mine);
+  }
+
   void _selectTab(_HomeTab tab) {
     if (_tab == tab) return;
     HapticFeedback.selectionClick();
+    // Which way the cards travel — mine sits left of ward in the nav bar.
+    _slideDir = tab.index > _tab.index ? 1 : -1;
+    // Where the pinned header is travelling FROM. Read before the tab flips,
+    // because _sheetHeaderHeight is derived from _tab. Without this the header
+    // snapped 64→100 in one frame and shoved the outgoing cards down 36px
+    // mid-slide, which is what stopped this reading as a page transition.
+    _prevHeaderHeight = _sheetHeaderHeight;
     setState(() => _tab = tab);
+    // Restarting from 0 also cancels an in-flight transition, so rapid taps
+    // never leave a list stranded part-way across.
+    _tabAnimCtrl.forward(from: 0);
+    // Land the new list at its top: without this a scrolled ward feed hands
+    // its offset to a shorter reports list and opens part-way down, or blank.
+    if (_sheetScrollCtrl?.hasClients ?? false) _sheetScrollCtrl!.jumpTo(0);
+    // Leaving the ward with its filters still open gives that height back, so
+    // My Reports lands on the same clean two cards; returning takes it again.
+    _syncSheetLift();
   }
 
   void _setWardScope(_WardScope scope) {
@@ -510,9 +667,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   /// A tapped map pin highlights + brings forward the matching grievance
-  /// ribbon in the sheet (#6). Lifts the sheet to its normal snap so the card
-  /// is on screen, and switches to the ward segment if the issue is a ward
-  /// grievance. Tapping the card itself opens the detail dialog.
+  /// ribbon in the sheet (#6), and switches to the ward segment if the issue is
+  /// a ward grievance. Tapping the card itself opens the detail dialog.
+  ///
+  /// The sheet is deliberately left where it is: with only a floor and a
+  /// near-full snap, the only lift available would bury the map you just tapped.
+  /// The floor already shows ~2 cards, and ensureVisible scrolls the sheet's own
+  /// list to the selected one.
   void _onMapSelect(Issue? i) {
     setState(() {
       _selected = i;
@@ -521,13 +682,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       }
     });
     if (i == null) return;
-    if (_sheetCtrl.isAttached && _sheetCtrl.size < _kSheetMid) {
-      _sheetCtrl.animateTo(
-        _kSheetMid,
-        duration: const Duration(milliseconds: 300),
-        curve: NkMotion.settle,
-      );
-    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final ctx = _cardKeys[i.id]?.currentContext;
       if (ctx != null) {
@@ -711,8 +865,24 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 minChildSize: sheetFloor,
                 maxChildSize: _kSheetMax,
                 snap: true,
-                snapSizes: [sheetFloor, _kSheetMid, _kSheetMax],
-                builder: (context, scrollController) => DecoratedBox(
+                // Exactly two stops, and the SAME list instance every build —
+                // see [_snapSizes]. The ward's filter lift rides on top of this
+                // as a resting offset; it does not add a stop.
+                snapSizes: _snapSizes(sheetFloor),
+                snapAnimationDuration: _kSheetSnapDuration,
+                builder: (context, scrollController) {
+                  _sheetScrollCtrl = scrollController;
+                  return GestureDetector(
+                    // HORIZONTAL only, and only over the sheet. The sheet's own
+                    // vertical drag and the list's scroll keep winning the
+                    // gesture arena for vertical motion, so this never competes
+                    // with them; taps on cards and pills are untouched because
+                    // a tap does not travel far enough to claim the arena. The
+                    // map is deliberately excluded — it owns its own panning.
+                    onHorizontalDragStart: (_) => _swipeDx = 0,
+                    onHorizontalDragUpdate: (d) => _swipeDx += d.delta.dx,
+                    onHorizontalDragEnd: _onSheetSwipe,
+                    child: DecoratedBox(
                   decoration: BoxDecoration(
                     color: Colors.white,
                     // The sheet owns the only rounded corners in the
@@ -740,11 +910,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         parent: AlwaysScrollableScrollPhysics(),
                       ),
                       slivers: [
-                        SliverPersistentHeader(
-                          pinned: true,
-                          delegate: _SheetHeaderDelegate(
-                            height: _sheetHeaderHeight,
-                            child: _buildSheetHeader(),
+                        // AnimatedBuilder is a plain widget, but its build
+                        // returns a sliver, so the element tree still yields a
+                        // RenderSliver here — that is what lets the extent
+                        // animate without rebuilding the whole scroll view.
+                        AnimatedBuilder(
+                          animation: _tabAnimCtrl,
+                          // Built once per destination change, NOT per frame:
+                          // the header's chips are the expensive part and
+                          // re-running them 60× would cost the frames we are
+                          // trying to save.
+                          child: _buildSheetHeader(),
+                          builder: (context, child) => SliverPersistentHeader(
+                            pinned: true,
+                            delegate: _SheetHeaderDelegate(
+                              height: _liveHeaderHeight,
+                              child: child!,
+                            ),
                           ),
                         ),
                         SliverPadding(
@@ -752,16 +934,68 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           // floating nav bar rather than hiding under it.
                           padding: EdgeInsets.fromLTRB(14, 0, 14,
                               _kNavBarHeight + _kNavBarBottomGap + bottomInset + 24),
-                          sliver: SliverList(
-                            delegate: SliverChildListDelegate(
-                              _buildSheetBody(),
+                          // Page-style slide: the outgoing list travels a
+                          // FULL width out while the incoming one comes a full
+                          // width in, so at any instant you see one list, not
+                          // two ghosts overlapping. Both trees are alive during
+                          // the transition, which is why this is a boxed child
+                          // rather than a lazy SliverList.
+                          sliver: SliverToBoxAdapter(
+                            child: AnimatedSwitcher(
+                              duration: _tabAnimCtrl.duration!,
+                              // Same curve the header extent runs on, so the
+                              // vertical and horizontal motion stay locked.
+                              switchInCurve: _kTabCurve,
+                              switchOutCurve: _kTabCurve,
+                              // Anchor both lists to the top; the default
+                              // centres them, so a short list would bob
+                              // vertically against a long one mid-slide.
+                              layoutBuilder: (current, previous) => Stack(
+                                alignment: Alignment.topCenter,
+                                children: [
+                                  ...previous,
+                                  if (current != null) current,
+                                ],
+                              ),
+                              transitionBuilder: (child, animation) {
+                                // Runs for BOTH children. The one whose key
+                                // matches the live tab is arriving; the other
+                                // is leaving and must exit the opposite way,
+                                // or they slide home together.
+                                final key = child.key as ValueKey<_HomeTab>?;
+                                final incoming = key?.value == _tab;
+                                final dx = incoming ? _slideDir : -_slideDir;
+                                // No fade — a page slide translates, it does
+                                // not dissolve. Fading during the travel is
+                                // what made this read as a wash before.
+                                return SlideTransition(
+                                  position: Tween<Offset>(
+                                    begin: Offset(dx, 0),
+                                    end: Offset.zero,
+                                  ).animate(animation),
+                                  // Without this the entire card list — photos
+                                  // and all — re-rasterises on every frame of
+                                  // the travel, because a translate alone is
+                                  // not a repaint boundary. Cached as a layer
+                                  // it is composited, which is the difference
+                                  // between a stutter and a glide.
+                                  child: RepaintBoundary(child: child),
+                                );
+                              },
+                              child: Column(
+                                key: ValueKey<_HomeTab>(_tab),
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: _buildSheetBody(),
+                              ),
                             ),
                           ),
                         ),
                       ],
                     ),
                   ),
-                ),
+                  ),
+                );
+                },
               ),
             ),
 
@@ -832,6 +1066,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   Widget _buildSheetHeader() {
     final source = _tabIssues;
+    final ward = _tab == _HomeTab.ward;
     return ColoredBox(
       color: Colors.white,
       child: Column(
@@ -848,37 +1083,72 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ),
           const SizedBox(height: 10),
 
-          // Status filter pills — replace the old map legend. They split the
-          // row evenly rather than scrolling, so there is no dead space.
+          // Status filter pills — replace the old map legend. Three chips that
+          // hug their own content, centred as a group between two equal slots:
+          // an empty one on the left and the ward feed's funnel on the right.
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 14),
-            // Independent chips that hug their own content and sit centred as a
-            // group — not a full-width segmented control.
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                for (var i = 0; i < _kFilterPills.length; i++) ...[
-                  _FilterPill(
-                    count: _bucketCount(source, _kFilterPills[i].$1),
-                    label: context.tr(_kFilterPills[i].$2),
-                    fg: _kFilterPills[i].$3,
-                    bg: _kFilterPills[i].$4,
-                    active: _statusFilter == _kFilterPills[i].$1,
-                    onTap: () => _toggleStatusFilter(_kFilterPills[i].$1),
+                // Dead mirror of the funnel. Its only job is to keep the pills
+                // optically centred AND pixel-identical across destinations.
+                const SizedBox(width: _kFunnelSlot),
+                Expanded(
+                  // Last-resort guard: a longer translation or a large system
+                  // font scales the group down instead of overflowing the row.
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        for (var i = 0; i < _kFilterPills.length; i++) ...[
+                          _FilterPill(
+                            count: _bucketCount(source, _kFilterPills[i].$1),
+                            label: context.tr(_kFilterPills[i].$2),
+                            fg: _kFilterPills[i].$3,
+                            bg: _kFilterPills[i].$4,
+                            active: _statusFilter == _kFilterPills[i].$1,
+                            onTap: () =>
+                                _toggleStatusFilter(_kFilterPills[i].$1),
+                          ),
+                          if (i < _kFilterPills.length - 1)
+                            const SizedBox(width: 8),
+                        ],
+                      ],
+                    ),
                   ),
-                  if (i < _kFilterPills.length - 1) const SizedBox(width: 8),
-                ],
+                ),
+                SizedBox(
+                  width: _kFunnelSlot,
+                  child: ward
+                      ? Align(
+                          alignment: Alignment.centerRight,
+                          child: _WardFilterToggle(
+                            open: _wardFiltersOpen,
+                            filtered: _wardScope != _WardScope.all ||
+                                _wardSort != _WardSort.recent,
+                            onTap: _toggleWardFilters,
+                          ),
+                        )
+                      : null,
+                ),
               ],
             ),
           ),
 
-          // Ward feed only: scope + sort as one evenly spaced row of pills.
-          // The nav bar already names the destination, so there is no title.
-          if (_tab == _HomeTab.ward) ...[
-            const SizedBox(height: 10),
-            _buildWardFilterPills(),
-          ],
+          // Trailing padding of the BASE header — deliberately above the ward
+          // block so _kSheetHeaderBase clips exactly where My Reports ends.
           const SizedBox(height: 12),
+
+          // Ward feed only: scope + sort. Built whenever the ward is active,
+          // never conditionally removed — the header's ClipRect is what hides
+          // it, so revealing and hiding are one motion played both ways. A
+          // widget torn out of the tree would blink instead of sliding.
+          if (ward) ...[
+            const SizedBox(height: 8),
+            _buildWardFilterPills(),
+            const SizedBox(height: 4),
+          ],
         ],
       ),
     );
@@ -1225,8 +1495,23 @@ class _SheetHeaderDelegate extends SliverPersistentHeaderDelegate {
   double get maxExtent => height;
 
   @override
-  Widget build(BuildContext context, double shrinkOffset, bool overlaps) =>
-      SizedBox(height: height, child: child);
+  Widget build(BuildContext context, double shrinkOffset, bool overlaps) {
+    // [height] is mid-flight during a destination change, so the incoming
+    // header's natural height rarely matches it. Let the child lay out at its
+    // own size and clip the difference: a tight box here would throw a
+    // RenderFlex overflow on every frame of the transition.
+    return SizedBox(
+      height: height,
+      child: ClipRect(
+        child: OverflowBox(
+          alignment: Alignment.topCenter,
+          minHeight: 0,
+          maxHeight: double.infinity,
+          child: child,
+        ),
+      ),
+    );
+  }
 
   @override
   bool shouldRebuild(_SheetHeaderDelegate old) =>
@@ -1269,8 +1554,10 @@ class _HomeNavBar extends StatelessWidget {
   static const double _plusWidth = 60;
 
   /// Track left visible either side of the centre button, so the active pill
-  /// never butts up against it.
-  static const double _plusGap = 5;
+  /// never butts up against it. The side segments are sized from whatever is
+  /// left after this, so widening the gap narrows them rather than overflowing —
+  /// and their labels are Flexible + ellipsis, so they truncate if squeezed.
+  static const double _plusGap = 14;
 
   /// Inner content height, shared by all three sections.
   static const double _innerHeight = _kNavBarHeight - _capsulePad * 2;
@@ -1654,6 +1941,59 @@ class _DemoJumpButton extends StatelessWidget {
 /// One option in the ward feed's filter row. Compact pill: navy fill when
 /// selected, quiet neutral when not. Scope and sort are independent, so one
 /// pill from each pair reads as active at the same time.
+/// Funnel that reveals the ward feed's scope + sort row. Sized to sit inside
+/// [_kFunnelSlot] and one px shorter than a status pill, so it rides the same
+/// baseline without driving the row's height.
+class _WardFilterToggle extends StatelessWidget {
+  const _WardFilterToggle({
+    required this.open,
+    required this.filtered,
+    required this.onTap,
+  });
+
+  final bool open;
+
+  /// A non-default scope or sort is applied. Kept lit while the row is hidden,
+  /// otherwise collapsing it would silently swallow the fact that the feed is
+  /// filtered.
+  final bool filtered;
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final lit = open || filtered;
+    return Semantics(
+      button: true,
+      expanded: open,
+      label: context.tr('Filter'),
+      child: GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 220),
+          curve: NkMotion.settle,
+          height: 28,
+          width: 28,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: lit ? NkColors.refBlue : const Color(0xFFF1F3F7),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(
+              color: lit ? NkColors.refBlue : const Color(0xFFE3E6EB),
+            ),
+          ),
+          child: Icon(
+            open ? Icons.filter_alt : Icons.filter_alt_outlined,
+            size: 15,
+            color: lit ? Colors.white : NkColors.slate600,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _WardFilterPill extends StatelessWidget {
   const _WardFilterPill({
     required this.label,
