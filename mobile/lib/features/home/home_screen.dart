@@ -884,29 +884,35 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
-  /// Scope (All / My Supports) and sort (Recent / Priority) as four pills on
-  /// one row, evenly spaced — replaces the dropdown menu.
+  /// Scope (All / My Supports) and sort (Recent / Priority) as four pills that
+  /// hug their own content, separated by a constant gap and centred as a group
+  /// on the row — not spread edge to edge.
   Widget _buildWardFilterPills() {
+    const gap = SizedBox(width: 7);
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 14),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
           _WardFilterPill(
             label: context.tr('All'),
             active: _wardScope == _WardScope.all,
             onTap: () => _setWardScope(_WardScope.all),
           ),
+          gap,
           _WardFilterPill(
             label: context.tr('My Supports'),
             active: _wardScope == _WardScope.supports,
             onTap: () => _setWardScope(_WardScope.supports),
           ),
+          gap,
           _WardFilterPill(
             label: context.tr('Recent'),
             active: _wardSort == _WardSort.recent,
             onTap: () => _setWardSort(_WardSort.recent),
           ),
+          gap,
           _WardFilterPill(
             label: context.tr('Priority'),
             active: _wardSort == _WardSort.priority,
