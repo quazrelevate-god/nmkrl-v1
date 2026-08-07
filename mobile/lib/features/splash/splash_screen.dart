@@ -15,6 +15,25 @@ import 'tamil_nadu_outline.dart';
 /// theme as [NkColors.navyPrimary] so every other surface can match it exactly.
 const _navy = NkColors.navyPrimary;
 const _gold = Color(0xFFD4A537);
+
+/// The same navy wash the in-app success splashes use, so the app's first
+/// surface and its acknowledgement screens are one material rather than two
+/// different blues: lifted through the centre, deepening to the edges.
+const _splashWash = RadialGradient(
+  center: Alignment(0, -0.12),
+  radius: 1.05,
+  colors: [NkColors.refBlueGlow, NkColors.navyPrimary, NkColors.brandDark],
+  stops: [0.0, 0.5, 1.0],
+);
+
+/// Subtle vignette over the whole scene — corners fall away so the wordmark
+/// sits in the light. Kept low so it reads as depth, not as a dark frame.
+const _splashVignette = RadialGradient(
+  center: Alignment.center,
+  radius: 0.98,
+  colors: [Color(0x00000000), Color(0x1F000000), Color(0x40000000)],
+  stops: [0.45, 0.8, 1.0],
+);
 // Light-beige palette for the solid wordmark gradient.
 const _beigeLight = Color(0xFFFBF3DC);
 const _beigeMid = Color(0xFFE7CE96);
@@ -221,7 +240,10 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  const ColoredBox(color: _navy),
+                  const DecoratedBox(
+                    decoration: BoxDecoration(gradient: _splashWash),
+                    child: SizedBox.expand(),
+                  ),
 
                   // Soft background glow behind the wordmark (fades in with
                   // the reveal, then breathes via the glow pulse).
@@ -299,6 +321,15 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
                           ),
                         ),
                       ),
+                    ),
+                  ),
+
+                  // Vignette last, over the whole scene — the wordmark is
+                  // centred so only the corners are touched.
+                  const IgnorePointer(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(gradient: _splashVignette),
+                      child: SizedBox.expand(),
                     ),
                   ),
                 ],

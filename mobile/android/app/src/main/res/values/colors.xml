@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Sampled from the app-icon artwork's edge, so the adaptive icon's
+         background is continuous with the inset foreground. -->
+    <color name="ic_launcher_background">#041423</color>
+</resources>

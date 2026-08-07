@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Native launch screen: the particle splash's exact navy so the OS splash,
-     the engine-boot window and the Flutter animation read as one surface. -->
-<color xmlns:android="http://schemas.android.com/apk/res/android">#16324F</color>
+<!-- Native launch screen. The brand navy (NkColors.navyPrimary) that the
+     Flutter splash and the in-app success splashes use, so the OS window, the
+     engine-boot window and the Flutter animation read as one surface. -->
+<color xmlns:android="http://schemas.android.com/apk/res/android">#1A3556</color>
