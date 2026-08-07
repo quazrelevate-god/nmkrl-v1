@@ -120,6 +120,9 @@ class _ReportSheetState extends ConsumerState<ReportSheet> {
 
   void _bumpReset() => setState(() => _resetToken++);
 
+  /// Both attachments are mandatory — see the guard in [_submit].
+  bool get _canSubmit => _images.isNotEmpty && _recorder.file != null;
+
   Future<void> _submit({bool force = false}) async {
     setState(() => _error = null);
     final coords = widget.coords;
@@ -129,9 +132,19 @@ class _ReportSheetState extends ConsumerState<ReportSheet> {
       _bumpReset();
       return;
     }
-    if (_images.isEmpty && _recorder.file == null) {
-      setState(() =>
-          _error = context.tr('Add a photo or a voice note to describe the issue.'));
+    // BOTH are required: the photo is the evidence a coordinator triages on,
+    // the voice note is the citizen's account of it. One without the other has
+    // repeatedly produced grievances that cannot be acted on.
+    final noPhoto = _images.isEmpty;
+    final noVoice = _recorder.file == null;
+    if (noPhoto || noVoice) {
+      setState(() => _error = context.tr(
+            noPhoto && noVoice
+                ? 'Add both a photo and a voice note to submit.'
+                : noPhoto
+                    ? 'Add a photo — a voice note alone is not enough.'
+                    : 'Record a voice note — a photo alone is not enough.',
+          ));
       _bumpReset();
       return;
     }
@@ -278,10 +291,15 @@ class _ReportSheetState extends ConsumerState<ReportSheet> {
             // Swipe to submit.
             const SizedBox(height: 16),
             SwipeToConfirm(
-              label: context.tr('Swipe to submit grievance'),
+              label: context.tr(_canSubmit
+                  ? 'Swipe to submit grievance'
+                  : 'Add a photo and a voice note'),
               uppercaseLabel: true,
               busyLabel: 'Submitting…',
               busy: _submitting,
+              // Inert until both attachments exist — the requirement reads off
+              // the control itself instead of only failing on swipe.
+              disabled: !_canSubmit,
               resetToken: _resetToken,
               onConfirm: _submit,
               height: 62,

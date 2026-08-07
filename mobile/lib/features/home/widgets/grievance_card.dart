@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/i18n.dart';
@@ -9,6 +10,7 @@ import '../../../domain/geo_utils.dart';
 import '../../../domain/models/issue.dart';
 import '../../../domain/status_meta.dart';
 import '../../../domain/ticket.dart';
+import '../../../state/providers.dart';
 import '../../shared/status_chip.dart';
 
 const Color _kInk = Color(0xFF1A2A3A);
@@ -175,7 +177,7 @@ class GrievanceCard extends StatelessWidget {
 }
 
 /// Full grievance detail, shown as a modal dialog over the home screen.
-class GrievanceDialog extends StatelessWidget {
+class GrievanceDialog extends ConsumerWidget {
   const GrievanceDialog({super.key, required this.issue, this.onUpvote});
 
   final Issue issue;
@@ -208,6 +210,10 @@ class GrievanceDialog extends StatelessWidget {
 
   bool get _hasGeo => issue.latitude != 0 || issue.longitude != 0;
 
+  /// Terminal states: a resolved grievance has nothing left to amplify, and a
+  /// rejected one was never valid to begin with.
+  bool get _settled => issue.status == 'CLOSED' || issue.status == 'FALSE';
+
   Future<void> _openMaps(BuildContext context) async {
     if (!_hasGeo) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -237,7 +243,7 @@ class GrievanceDialog extends StatelessWidget {
       };
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final image = mediaImage(issue.imageUrl);
     final maxH = MediaQuery.sizeOf(context).height * 0.9;
     final summary = context.lang == AppLang.ta &&
@@ -402,38 +408,74 @@ class GrievanceDialog extends StatelessWidget {
                     ),
 
                   // ── 7. Support button ──
-                  if (onUpvote != null && issue.status != 'FALSE')
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(14, 4, 14, 16),
-                      child: GestureDetector(
-                        onTap: () {
-                          Navigator.of(context).pop();
-                          onUpvote!(issue);
-                        },
-                        child: Container(
-                          height: 48,
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            // Brand navy, not the card's text ink.
-                            color: NkColors.navyPrimary,
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Text(
-                            context.tr('Support this Grievance'),
-                            style: const TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w800,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ),
-                      ),
+                  //
+                  // Hidden outright once the grievance is settled (resolved or
+                  // rejected) — there is nothing left to amplify. Disabled and
+                  // relabelled when this account has already supported it, so
+                  // the state is clear on open instead of only after a swipe.
+                  if (onUpvote != null && !_settled)
+                    _SupportButton(
+                      already:
+                          ref.watch(supportedIssuesProvider).contains(issue.id),
+                      onTap: () {
+                        Navigator.of(context).pop();
+                        onUpvote!(issue);
+                      },
                     )
                   else
                     const SizedBox(height: 12),
                 ],
               ),
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The dialog's primary action. Navy and tappable normally; a flat grey,
+/// inert, relabelled pill once this account has already supported the issue.
+class _SupportButton extends StatelessWidget {
+  const _SupportButton({required this.already, required this.onTap});
+
+  final bool already;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 4, 14, 16),
+      child: GestureDetector(
+        onTap: already ? null : onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 220),
+          curve: NkMotion.settle,
+          height: 48,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: already ? NkColors.slate200 : NkColors.navyPrimary,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (already) ...[
+                const Icon(Icons.check_rounded,
+                    size: 16, color: NkColors.slate500),
+                const SizedBox(width: 7),
+              ],
+              Text(
+                context.tr(already
+                    ? 'Already supported this grievance'
+                    : 'Support this Grievance'),
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                  color: already ? NkColors.slate500 : Colors.white,
+                ),
+              ),
+            ],
           ),
         ),
       ),

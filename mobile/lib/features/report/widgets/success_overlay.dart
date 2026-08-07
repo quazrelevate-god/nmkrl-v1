@@ -1,20 +1,24 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../../core/theme.dart';
 
-/// Full-screen UPI-style acknowledgement (port of SuccessOverlay.js): green
-/// radial wash sweeps in, the white check badge pops with radiating rings and
-/// a stroke-drawn tick, then title/message/ticket reveal. Auto-dismisses or
-/// on tap.
+/// Full-screen UPI-style acknowledgement (port of SuccessOverlay.js): a navy
+/// radial wash sweeps in, the white badge pops with radiating rings and its
+/// mark draws in, then title/message/ticket reveal. Auto-dismisses or on tap.
+///
+/// The wash is the brand navy — the same value as the Support CTA — so the
+/// acknowledgement reads as part of the app rather than a stock success screen.
 class SuccessOverlay {
   static Future<void> show(
     BuildContext context, {
     required String title,
     required String message,
     String? ticket,
+    bool handshake = false,
     Duration autoDismiss = const Duration(milliseconds: 2800),
   }) {
     HapticFeedback.heavyImpact();
@@ -25,6 +29,7 @@ class SuccessOverlay {
           title: title,
           message: message,
           ticket: ticket,
+          handshake: handshake,
           autoDismiss: autoDismiss,
         ),
         transitionsBuilder: (_, anim, __, child) {
@@ -47,12 +52,16 @@ class _SuccessScreen extends StatefulWidget {
     required this.title,
     required this.message,
     required this.ticket,
+    required this.handshake,
     required this.autoDismiss,
   });
 
   final String title;
   final String message;
   final String? ticket;
+
+  /// Support flow: an animated handshake instead of the submission tick.
+  final bool handshake;
   final Duration autoDismiss;
 
   @override
@@ -69,7 +78,21 @@ class _SuccessScreenState extends State<_SuccessScreen>
     vsync: this,
     duration: const Duration(milliseconds: 1800),
   )..repeat();
+
+  /// Drives the handshake's two-cycle shake, started once the badge has popped.
+  late final AnimationController _shake = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 620),
+  );
   Timer? _auto;
+  Timer? _shakeStart;
+
+  /// Two damped oscillations — a greeting shake, not a wobble.
+  double get _shakeAngle {
+    if (_shake.value == 0 || _shake.value == 1) return 0;
+    final decay = 1 - _shake.value;
+    return math.sin(_shake.value * math.pi * 4) * 0.20 * decay;
+  }
 
   @override
   void initState() {
@@ -77,13 +100,20 @@ class _SuccessScreenState extends State<_SuccessScreen>
     _auto = Timer(widget.autoDismiss, () {
       if (mounted) Navigator.of(context).maybePop();
     });
+    if (widget.handshake) {
+      _shakeStart = Timer(const Duration(milliseconds: 620), () {
+        if (mounted) _shake.forward();
+      });
+    }
   }
 
   @override
   void dispose() {
     _auto?.cancel();
+    _shakeStart?.cancel();
     _intro.dispose();
     _rings.dispose();
+    _shake.dispose();
     super.dispose();
   }
 
@@ -105,13 +135,14 @@ class _SuccessScreenState extends State<_SuccessScreen>
         child: Scaffold(
           body: Container(
             decoration: const BoxDecoration(
+              // Brand navy, matching the Support CTA.
               gradient: RadialGradient(
                 center: Alignment(0, -1),
                 radius: 1.6,
                 colors: [
-                  Color(0xFF12B76A),
-                  Color(0xFF059669),
-                  Color(0xFF047857),
+                  NkColors.refBlueGlow,
+                  NkColors.navyPrimary,
+                  NkColors.brandDark,
                 ],
                 stops: [0.0, 0.45, 1.0],
               ),
@@ -164,13 +195,33 @@ class _SuccessScreenState extends State<_SuccessScreen>
                                     ),
                                   ],
                                 ),
-                                child: AnimatedBuilder(
-                                  animation: check,
-                                  builder: (context, _) => CustomPaint(
-                                    painter:
-                                        _CheckPainter(progress: check.value),
-                                  ),
-                                ),
+                                child: widget.handshake
+                                    ? AnimatedBuilder(
+                                        animation:
+                                            Listenable.merge([check, _shake]),
+                                        builder: (context, _) => Opacity(
+                                          opacity:
+                                              check.value.clamp(0.0, 1.0),
+                                          child: Transform.rotate(
+                                            // Two quick shakes once the badge
+                                            // has popped — the gesture itself,
+                                            // not a spinning icon.
+                                            angle: _shakeAngle,
+                                            child: const Icon(
+                                              Icons.handshake_rounded,
+                                              size: 56,
+                                              color: NkColors.navyPrimary,
+                                            ),
+                                          ),
+                                        ),
+                                      )
+                                    : AnimatedBuilder(
+                                        animation: check,
+                                        builder: (context, _) => CustomPaint(
+                                          painter: _CheckPainter(
+                                              progress: check.value),
+                                        ),
+                                      ),
                               ),
                             ),
                           ],
@@ -314,7 +365,7 @@ class _CheckPainter extends CustomPainter {
         ..strokeWidth = w * 0.06
         ..strokeCap = StrokeCap.round
         ..strokeJoin = StrokeJoin.round
-        ..color = NkColors.emerald600,
+        ..color = NkColors.navyPrimary,
     );
   }
 

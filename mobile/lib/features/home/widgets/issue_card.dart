@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/theme.dart';
@@ -9,6 +10,7 @@ import '../../../domain/geo_utils.dart';
 import '../../../domain/models/issue.dart';
 import '../../../domain/status_meta.dart';
 import '../../../domain/ticket.dart';
+import '../../../state/providers.dart';
 import '../../shared/status_chip.dart';
 
 /// Collapsible grievance card (In My Ward + My Reports) — port of IssueCard
@@ -601,37 +603,58 @@ class IssueCard extends StatelessWidget {
                           _LifecycleTracker(index: progressIndex(issue.status)),
                         ],
 
-                        // Support button — hidden on false petitions (#4).
+                        // Support button — hidden once the grievance is
+                        // settled (resolved / rejected); disabled and
+                        // relabelled when already supported.
                         if (actions == null &&
                             onUpvote != null &&
-                            issue.status != 'FALSE') ...[
+                            issue.status != 'FALSE' &&
+                            issue.status != 'CLOSED') ...[
                           const SizedBox(height: 12),
-                          GestureDetector(
-                            onTap: () => onUpvote!(issue),
-                            child: Container(
-                              height: 42,
-                              decoration: BoxDecoration(
-                                color: NkColors.brand,
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(Icons.thumb_up_outlined,
-                                      size: 13, color: Colors.white),
-                                  SizedBox(width: 6),
-                                  Text(
-                                    context.tr('Support this grievance'),
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w700,
-                                      color: Colors.white,
+                          Consumer(builder: (context, ref, _) {
+                            final already = ref
+                                .watch(supportedIssuesProvider)
+                                .contains(issue.id);
+                            return GestureDetector(
+                              onTap: already ? null : () => onUpvote!(issue),
+                              child: Container(
+                                height: 42,
+                                decoration: BoxDecoration(
+                                  color: already
+                                      ? NkColors.slate200
+                                      : NkColors.brand,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(
+                                      already
+                                          ? Icons.check_rounded
+                                          : Icons.thumb_up_outlined,
+                                      size: 13,
+                                      color: already
+                                          ? NkColors.slate500
+                                          : Colors.white,
                                     ),
-                                  ),
-                                ],
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      context.tr(already
+                                          ? 'Already supported this grievance'
+                                          : 'Support this grievance'),
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w700,
+                                        color: already
+                                            ? NkColors.slate500
+                                            : Colors.white,
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
-                            ),
-                          ),
+                            );
+                          }),
                         ],
                       ],
                     ),

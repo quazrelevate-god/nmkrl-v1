@@ -80,6 +80,51 @@ class AuthNotifier extends Notifier<bool> {
 
 final authProvider = NotifierProvider<AuthNotifier, bool>(AuthNotifier.new);
 
+/// Ids of the grievances this account has already supported.
+///
+/// Held app-wide so any surface showing a Support button can disable it BEFORE
+/// the user swipes — previously the only feedback was the backend's 409 after
+/// a confirmed submit, which read as the action failing.
+class SupportedIssuesNotifier extends Notifier<Set<String>> {
+  @override
+  Set<String> build() {
+    // Signed-out builds resolve to an empty set; refresh is a no-op then.
+    Future.microtask(refresh);
+    return const <String>{};
+  }
+
+  Future<void> refresh() async {
+    final userId = ref.read(userIdProvider);
+    if (userId.isEmpty) return;
+    try {
+      final list = await ref.read(apiClientProvider).fetchSupported(userId);
+      state = {for (final i in list) i.id};
+    } catch (_) {
+      // Leave the last known set — a failed refresh must not re-enable a
+      // button the user has already used.
+    }
+  }
+
+  /// Optimistic local mark, so the button flips the moment the upvote lands
+  /// without waiting for a round trip.
+  void markSupported(String issueId) {
+    if (state.contains(issueId)) return;
+    state = {...state, issueId};
+  }
+
+  /// Adopt a set a caller already fetched (the home's "My Supports" scope
+  /// loads the same list), instead of issuing a second identical request.
+  void setAll(Iterable<String> issueIds) => state = {...issueIds};
+}
+
+final supportedIssuesProvider =
+    NotifierProvider<SupportedIssuesNotifier, Set<String>>(
+        SupportedIssuesNotifier.new);
+
+/// True when [issueId] has already been supported by this account.
+bool hasSupported(WidgetRef ref, String issueId) =>
+    ref.watch(supportedIssuesProvider).contains(issueId);
+
 // ── Coordinator side ─────────────────────────────────────────────────────
 
 final coordinatorStoreProvider = Provider<CoordinatorStore>(

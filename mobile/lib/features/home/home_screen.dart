@@ -39,8 +39,14 @@ enum _WardSort { recent, priority }
 /// Sheet snap fractions. The FLOOR (min == landing) is computed per-device so
 /// it shows the pinned pills+tabs header plus exactly ~2 grievance cards, and
 /// the user can never collapse below it — see [_sheetFloorFraction]. There are
-/// exactly two resting places: that floor and the near-full expanded snap.
-const double _kSheetMax = 0.86;
+/// exactly two resting places: that floor and the expanded snap, which is
+/// computed per-device by [_sheetMaxFraction] rather than fixed.
+
+/// What the expanded snap must leave uncovered, measured down from the status
+/// bar: the app bar (8 gap + 56 tall), the ward pill (10 gap + 38 tall) and a
+/// breathing gap under it. Below this the sheet would swallow both chips.
+const double _kAppBarBlockHeight = 8 + 56 + 10 + 38;
+const double _kExpandedTopGap = 18;
 
 /// Fixed-duration settle between the two snaps. Without this the sheet lands on
 /// a velocity-driven ballistic simulation, so a flick and a slow drag settle at
@@ -200,6 +206,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     return (px / parentHeight).clamp(0.28, 0.62);
   }
 
+  /// Expanded snap: the tallest the sheet may get while still leaving the app
+  /// bar AND the constituency·ward pill clear, with a gap under the pill.
+  /// Per-device, since the status-bar inset varies.
+  static double _sheetMaxFraction(double parentHeight, double topInset) {
+    final reserved = topInset + _kAppBarBlockHeight + _kExpandedTopGap;
+    return ((parentHeight - reserved) / parentHeight).clamp(0.5, 0.9);
+  }
+
   /// Extra sheet height the revealed ward filter row needs, as a fraction of
   /// [parentHeight] — exactly the header growth, so the two cards below it stay
   /// where they were and only the sheet's top edge moves.
@@ -211,10 +225,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   /// post-frame re-snap whenever it differs — a fresh literal every build would
   /// re-snap the sheet on every unrelated setState and cancel the lift below.
   List<double>? _snapCache;
-  List<double> _snapSizes(double floor) {
+  List<double> _snapSizes(double floor, double max) {
     final cached = _snapCache;
-    if (cached != null && cached.first == floor) return cached;
-    return _snapCache = [floor, _kSheetMax];
+    if (cached != null && cached.first == floor && cached.last == max) {
+      return cached;
+    }
+    return _snapCache = [floor, max];
   }
 
   /// Hold the resting sheet at exactly two clear cards. The ward's revealed
@@ -225,7 +241,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     if (!_sheetCtrl.isAttached) return;
     final parentH = MediaQuery.sizeOf(context).height;
     final navCover = _kNavBarHeight +
-        _kNavBarBottomGap +
+        _kNavBarBottomGap * 2 +
         MediaQuery.paddingOf(context).bottom;
     final floor = _sheetFloorFraction(parentH, navCover);
     final lift = _sheetLiftFraction(parentH);
@@ -440,6 +456,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           .read(apiClientProvider)
           .fetchSupported(ref.read(userIdProvider));
       if (mounted) setState(() => _supported = list);
+      // Same fetch backs every Support button's disabled state — keep the
+      // app-wide set in step rather than issuing a second identical request.
+      ref
+          .read(supportedIssuesProvider.notifier)
+          .setAll([for (final i in list) i.id]);
     } catch (_) {/* empty state covers it */} finally {
       if (mounted) setState(() => _supportedLoading = false);
     }
@@ -737,8 +758,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     // it — so its fractions are relative to the full height, and its floor has
     // to clear whatever the nav bar covers.
     final sheetParentH = screenH;
-    final navCover = _kNavBarHeight + _kNavBarBottomGap + bottomInset;
+    // The solid nav bar occupies this whole strip at the bottom of the screen.
+    final navCover = _kNavBarHeight + _kNavBarBottomGap * 2 + bottomInset;
     final sheetFloor = _sheetFloorFraction(sheetParentH, navCover);
+    final sheetMax = _sheetMaxFraction(sheetParentH, topInset);
 
     // Everything the sheet covers at its floor, used to bias the ward fit into
     // the band that stays visible above it.
@@ -863,12 +886,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 // grievance cards and can never be collapsed below that.
                 initialChildSize: sheetFloor,
                 minChildSize: sheetFloor,
-                maxChildSize: _kSheetMax,
+                maxChildSize: sheetMax,
                 snap: true,
                 // Exactly two stops, and the SAME list instance every build —
                 // see [_snapSizes]. The ward's filter lift rides on top of this
                 // as a resting offset; it does not add a stop.
-                snapSizes: _snapSizes(sheetFloor),
+                snapSizes: _snapSizes(sheetFloor, sheetMax),
                 snapAnimationDuration: _kSheetSnapDuration,
                 builder: (context, scrollController) {
                   _sheetScrollCtrl = scrollController;
@@ -932,8 +955,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                         SliverPadding(
                           // Bottom clearance so the last card clears the
                           // floating nav bar rather than hiding under it.
-                          padding: EdgeInsets.fromLTRB(14, 0, 14,
-                              _kNavBarHeight + _kNavBarBottomGap + bottomInset + 24),
+                          padding:
+                              EdgeInsets.fromLTRB(14, 0, 14, navCover + 16),
                           // Page-style slide: the outgoing list travels a
                           // FULL width out while the incoming one comes a full
                           // width in, so at any instant you see one list, not
@@ -999,28 +1022,37 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               ),
             ),
 
-            // ── 5. Fade under the floating nav bar, so list content scrolling
-            // beneath it dissolves into white instead of peeking through the
-            // gaps around the track and the raised "+". ──
+            // ── 5. Solid nav plate: a white bar attached to the bottom edge
+            // that the nav pill sits on. It replaces the old fade — content
+            // scrolling under the pill is now cleanly cut off rather than
+            // dissolving through it — and its top edge carries a soft shadow
+            // that separates the bar from the grievance list above.
+            //
+            // Height is the pill plus one [_kNavBarBottomGap] above and below
+            // (the safe-area inset sits under the lower gap), so the pill reads
+            // evenly inset from the plate's boundaries. The pill's own position
+            // is unchanged. ──
             Positioned(
-              key: const ValueKey('home-navscrim'),
+              key: const ValueKey('home-navplate'),
               left: 0,
               right: 0,
               bottom: 0,
-              height: navCover + 26,
+              height: navCover,
               child: IgnorePointer(
-                child: DecoratedBox(
+                child: Container(
                   decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        Colors.white.withValues(alpha: 0),
-                        Colors.white.withValues(alpha: 0.92),
-                        Colors.white,
-                      ],
-                      stops: const [0, 0.45, 0.7],
+                    color: Colors.white,
+                    borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(3),
                     ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.07),
+                        blurRadius: 10,
+                        offset: const Offset(0, -3),
+                        spreadRadius: -1,
+                      ),
+                    ],
                   ),
                 ),
               ),

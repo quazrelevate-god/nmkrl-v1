@@ -270,6 +270,14 @@ const Map<String, String> _ta = {
   'Close': 'மூடு',
   'Assigning…': 'ஒதுக்குகிறது…',
   'Recent': 'சமீபத்தியது',
+  'Already supported this grievance': 'இந்த புகாருக்கு ஏற்கனவே ஆதரவு அளித்துள்ளீர்கள்',
+  'Add both a photo and a voice note to submit.':
+      'சமர்ப்பிக்க புகைப்படம் மற்றும் குரல் பதிவு இரண்டையும் சேர்க்கவும்.',
+  'Add a photo — a voice note alone is not enough.':
+      'புகைப்படம் சேர்க்கவும் — குரல் பதிவு மட்டும் போதாது.',
+  'Record a voice note — a photo alone is not enough.':
+      'குரல் பதிவு செய்யவும் — புகைப்படம் மட்டும் போதாது.',
+  'Add a photo and a voice note': 'புகைப்படம் மற்றும் குரல் பதிவு சேர்க்கவும்',
   'Show': 'காட்டு',
   'Sort by': 'வரிசைப்படுத்து',
   'All': 'அனைத்தும்',

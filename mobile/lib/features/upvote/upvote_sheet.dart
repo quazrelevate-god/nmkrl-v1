@@ -12,8 +12,8 @@ import '../report/widgets/swipe_to_confirm.dart';
 const _kDailyMax = 5;
 
 /// "Support this grievance" sheet (port of UpvoteModal.js): grievance summary,
-/// 5-supports/day fair-use banner and an emerald swipe-to-confirm, ending in
-/// the full-screen success overlay.
+/// 5-supports/day fair-use banner and a navy swipe-to-confirm, ending in the
+/// full-screen success overlay.
 class UpvoteSheet extends ConsumerStatefulWidget {
   const UpvoteSheet({super.key, required this.issue, required this.onConfirm});
 
@@ -60,6 +60,8 @@ class _UpvoteSheetState extends ConsumerState<UpvoteSheet> {
     try {
       await widget.onConfirm();
       await ref.read(dailyLimitProvider).consume(kSupportLimitKey, _kDailyMax);
+      // Flip every Support button for this grievance immediately.
+      ref.read(supportedIssuesProvider.notifier).markSupported(widget.issue.id);
       if (!mounted) return;
       Navigator.of(context).pop();
       await SuccessOverlay.show(
@@ -67,6 +69,7 @@ class _UpvoteSheetState extends ConsumerState<UpvoteSheet> {
         title: 'Support Added',
         message:
             'Thanks for amplifying this grievance. The coordinator sees higher-supported issues first.',
+        handshake: true,
       );
     } catch (e) {
       setState(() {
@@ -196,14 +199,14 @@ class _UpvoteSheetState extends ConsumerState<UpvoteSheet> {
               padding:
                   const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
               decoration: BoxDecoration(
-                color: NkColors.emerald50,
+                color: const Color(0xFFE2EAF7),
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: NkColors.emerald100),
+                border: Border.all(color: const Color(0xFFCBD9F0)),
               ),
               child: Row(
                 children: [
                   const Icon(Icons.verified_user,
-                      size: 16, color: NkColors.emerald700),
+                      size: 16, color: NkColors.navyPrimary),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text.rich(
@@ -213,7 +216,7 @@ class _UpvoteSheetState extends ConsumerState<UpvoteSheet> {
                           fontSize: 12.5,
                           fontWeight: FontWeight.w800,
                           height: 1.35,
-                          color: NkColors.emerald700,
+                          color: NkColors.navyPrimary,
                         ),
                         children: [
                           TextSpan(
@@ -251,7 +254,6 @@ class _UpvoteSheetState extends ConsumerState<UpvoteSheet> {
             SwipeToConfirm(
               label: 'Swipe to support',
               busyLabel: 'Adding your support…',
-              emerald: true,
               busy: _busy,
               resetToken: _resetToken,
               onConfirm: _confirm,
