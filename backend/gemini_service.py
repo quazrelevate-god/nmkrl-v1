@@ -7,9 +7,37 @@ civic grievance voice notes recorded in native Indian languages.
 
 import json
 import os
+import re
 import sys
+import time
 
-GEMINI_MODEL = "gemini-2.5-flash"
+# Model chain, preferred first. Every Gemini call walks this list.
+#
+# Why a chain at all: gemini-2.5-flash has been answering TEXT requests fine
+# while returning 503 UNAVAILABLE ("experiencing high demand") for AUDIO ones —
+# observed hours apart, so it is a sustained capacity condition rather than a
+# spike. With a single model and no retry, one 503 fell straight through to the
+# labelled mock transcript, and that mock is then persisted on the issue row
+# forever. gemini-flash-latest served the identical audio successfully.
+#
+# Override with GEMINI_MODELS="a,b,c" to re-order or extend without a deploy.
+GEMINI_MODELS = [
+    m.strip()
+    for m in os.getenv(
+        "GEMINI_MODELS", "gemini-2.5-flash,gemini-flash-latest"
+    ).split(",")
+    if m.strip()
+]
+
+# Kept as the canonical single-model name for callers that still import it.
+GEMINI_MODEL = GEMINI_MODELS[0] if GEMINI_MODELS else "gemini-2.5-flash"
+
+# Statuses worth waiting out on the SAME model — overload and rate limiting are
+# expected to clear. Anything else (404 unknown model, 400 bad request, 403 bad
+# key) will not improve with a retry, so those move straight to the next model.
+_RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
+_MAX_ATTEMPTS = 2
+_BASE_DELAY = 0.7
 
 PROMPT = """You are an assistant for a civic grievance app in India.
 You will receive an audio voice note in which a citizen describes a street/civic
@@ -55,6 +83,70 @@ def _normalise_mime(mime: str) -> str:
         return "audio/webm"
     base = mime.split(";")[0].strip().lower()
     return MIME_NORMALISE.get(base, "audio/webm")
+
+
+def _status_of(exc: Exception) -> int | None:
+    """Best-effort HTTP status for a google-genai error.
+
+    The SDK surfaces these inconsistently across versions, so fall back to
+    reading the leading status out of the message text.
+    """
+    for attr in ("code", "status_code"):
+        value = getattr(exc, attr, None)
+        if isinstance(value, int):
+            return value
+    match = re.search(r"\b([45]\d{2})\b", str(exc))
+    return int(match.group(1)) if match else None
+
+
+def _generate(contents, *, label: str):
+    """Run a Gemini request across the model chain with retry + fallback.
+
+    Each model gets [_MAX_ATTEMPTS] tries, backing off between them, but only
+    for the transient statuses above; everything else advances to the next
+    model immediately. Raises the final exception once the chain is exhausted,
+    so each caller keeps its own existing fallback behaviour.
+    """
+    api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+    if not api_key:
+        raise RuntimeError("No GEMINI_API_KEY configured")
+    if not GEMINI_MODELS:
+        raise RuntimeError("GEMINI_MODELS is empty")
+
+    from google import genai
+
+    client = genai.Client(api_key=api_key)
+    last_exc: Exception | None = None
+
+    for model in GEMINI_MODELS:
+        for attempt in range(1, _MAX_ATTEMPTS + 1):
+            try:
+                response = client.models.generate_content(
+                    model=model, contents=contents
+                )
+                # Only worth a line when the happy path did NOT hold, so the
+                # logs show exactly when the chain is carrying us.
+                if model != GEMINI_MODELS[0] or attempt > 1:
+                    print(
+                        f"[gemini_service] {label}: served by {model} "
+                        f"on attempt {attempt}",
+                        file=sys.stderr,
+                    )
+                return response
+            except Exception as exc:  # noqa: BLE001 — reported, then retried
+                last_exc = exc
+                status = _status_of(exc)
+                print(
+                    f"[gemini_service] {label}: {model} attempt {attempt} "
+                    f"failed — {type(exc).__name__} {status}: {str(exc)[:140]}",
+                    file=sys.stderr,
+                )
+                if status in _RETRY_STATUSES and attempt < _MAX_ATTEMPTS:
+                    time.sleep(_BASE_DELAY * (2 ** (attempt - 1)))
+                    continue
+                break  # next model in the chain
+
+    raise last_exc if last_exc else RuntimeError("Gemini: no attempt was made")
 
 
 def _mock_result(reason: str) -> dict:
@@ -127,13 +219,11 @@ def check_duplicate(new_title: str, new_transcript: str, new_highlights: list,
     )
 
     try:
-        from google import genai
         from google.genai import types
 
-        client = genai.Client(api_key=api_key)
-        response = client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=[types.Content(role="user", parts=[types.Part(text=prompt)])],
+        response = _generate(
+            [types.Content(role="user", parts=[types.Part(text=prompt)])],
+            label="Duplicate check",
         )
         text = (response.text or "").strip()
         if text.startswith("```"):
@@ -227,13 +317,11 @@ def classify_department(title: str, transcript: str, highlights: list) -> str:
         highlights=", ".join(highlights or []),
     )
     try:
-        from google import genai
         from google.genai import types
 
-        client = genai.Client(api_key=api_key)
-        response = client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=[types.Content(role="user", parts=[types.Part(text=prompt)])],
+        response = _generate(
+            [types.Content(role="user", parts=[types.Part(text=prompt)])],
+            label="Department routing",
         )
         text = (response.text or "").strip()
         if text.startswith("```"):
@@ -277,16 +365,12 @@ def process_audio(audio_bytes: bytes, mime_type: str = "audio/webm") -> dict:
     )
 
     try:
-        from google import genai
         from google.genai import types
-
-        client = genai.Client(api_key=api_key)
 
         # google-genai ≥1.0: contents must be a list of Content objects.
         # Mixing a plain string with a Part in the same list is not valid.
-        response = client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=[
+        response = _generate(
+            [
                 types.Content(
                     role="user",
                     parts=[
@@ -298,6 +382,7 @@ def process_audio(audio_bytes: bytes, mime_type: str = "audio/webm") -> dict:
                     ],
                 )
             ],
+            label="Transcription",
         )
 
         text = (response.text or "").strip()
