@@ -6,11 +6,14 @@ Authority/triage endpoints:
   * POST /api/admin/issues/{id}/verify   - SUBMITTED -> ACTIVE (approve grievance)
   * POST /api/admin/issues/{id}/close    - mark resolved -> PENDING_VERIFICATION
   * POST /api/admin/issues/{id}/progress - ACTIVE -> IN_PROGRESS
+  * GET  /api/admin/issues/{id}/timeline - append-only action history
+  * GET  /api/admin/coordinator-performance - per-coordinator workload + outcomes
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
+import audit
 from database import get_db
 from utils import CHENNAI_AC_MAP, now_iso, serialize_issue
 
@@ -249,3 +252,102 @@ def upsert_officer(body: OfficerContact, conn=Depends(get_db)):
         (body.key, body.name or "", body.mobile or "", now_iso()),
     )
     return {"key": body.key, "name": body.name or "", "mobile": body.mobile or ""}
+
+
+@router.get("/issues/{issue_id}/timeline")
+def issue_timeline(issue_id: str, conn=Depends(get_db)):
+    """Full action history for one grievance, oldest first.
+
+    The issues row only keeps the LATEST coordinator_message, so this is the
+    only surface that can show what a coordinator wrote at transfer time after
+    a later escalate overwrote it, together with the closure photo/voice.
+    """
+    if conn.execute("SELECT 1 FROM issues WHERE id = ?", (issue_id,)).fetchone() is None:
+        raise HTTPException(status_code=404, detail="Issue not found")
+    return {"issue_id": issue_id, "events": audit.timeline(conn, issue_id)}
+
+
+def _avg_hours(rows, start_col: str, end_col: str):
+    """Mean hours between two ISO timestamps, ignoring rows missing either."""
+    from datetime import datetime
+    spans = []
+    for r in rows:
+        a, b = r[start_col], r[end_col]
+        if not a or not b:
+            continue
+        try:
+            spans.append((datetime.fromisoformat(b) - datetime.fromisoformat(a)).total_seconds() / 3600)
+        except ValueError:
+            continue
+    if not spans:
+        return None
+    return round(sum(spans) / len(spans), 1)
+
+
+@router.get("/coordinator-performance")
+def coordinator_performance(conn=Depends(get_db)):
+    """Per-coordinator workload and outcomes.
+
+    Admin could see WHO a grievance was assigned to but never how any one
+    coordinator was doing: the counts had to be eyeballed from the petition
+    list. This aggregates the same rows the coordinator app acts on, so the
+    numbers cannot drift from what the field sees.
+
+    Every coordinator account appears, including those with nothing assigned
+    yet — an empty row is a real answer, not a missing one.
+    """
+    coords = conn.execute(
+        """SELECT username, name, role, constituency, home_ward
+             FROM coordinators ORDER BY name COLLATE NOCASE"""
+    ).fetchall()
+
+    stats = []
+    for c in coords:
+        uname = (c["username"] or "").strip().lower()
+        rows = conn.execute(
+            "SELECT * FROM issues WHERE LOWER(assigned_coordinator) = ?", (uname,)
+        ).fetchall()
+        by_status = {}
+        for r in rows:
+            by_status[r["status"]] = by_status.get(r["status"], 0) + 1
+        actions = {
+            a["action"]: a["n"] for a in conn.execute(
+                """SELECT action, COUNT(*) AS n FROM issue_events
+                    WHERE actor_type = 'coordinator' AND actor_id = ?
+                    GROUP BY action""",
+                (uname,),
+            ).fetchall()
+        }
+        closed = by_status.get("PENDING_VERIFICATION", 0) + by_status.get("CLOSED", 0)
+        assigned = len(rows)
+        stats.append({
+            "username": uname,
+            "name": c["name"],
+            "role": c["role"],
+            "constituency": c["constituency"],
+            "home_ward": c["home_ward"],
+            "assigned": assigned,
+            "open": by_status.get("ACTIVE", 0) + by_status.get("SUBMITTED", 0),
+            "forwarded": by_status.get("FORWARDED", 0),
+            "escalated": by_status.get("IN_PROGRESS", 0),
+            "awaiting_citizen": by_status.get("PENDING_VERIFICATION", 0),
+            "resolved": by_status.get("CLOSED", 0),
+            "false_petitions": by_status.get("FALSE", 0),
+            "rejected_by_citizen": sum(1 for r in rows if r["rejected_at"]),
+            # Proof-of-work: closures that actually carry the photo + voice the
+            # app demands before a ticket can be closed.
+            "closures_with_evidence": sum(
+                1 for r in rows if r["closure_image_url"] and r["closure_audio_url"]
+            ),
+            "actions": actions,
+            "closure_rate": round(closed * 100 / assigned) if assigned else 0,
+            "avg_hours_to_assign": _avg_hours(rows, "created_at", "assigned_at"),
+            "avg_hours_to_close": _avg_hours(rows, "assigned_at", "closed_at"),
+        })
+
+    unassigned = conn.execute(
+        """SELECT COUNT(*) AS n FROM issues
+            WHERE (assigned_coordinator IS NULL OR assigned_coordinator = '')
+              AND status NOT IN ('CLOSED', 'FALSE')"""
+    ).fetchone()["n"]
+    return {"count": len(stats), "unassigned": unassigned, "coordinators": stats}

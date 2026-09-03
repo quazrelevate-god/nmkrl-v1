@@ -15,6 +15,8 @@ partition correctly across accounts and the citizen gets the right push.
   POST /api/coordinator/issues/{id}/close    → → PENDING_VERIFICATION
   POST /api/coordinator/issues/{id}/mark_false → → FALSE
 
+  GET  /api/coordinator/issues/{id}/timeline → append-only action history
+
   GET  /api/coordinator/ward/{n}
        ?coordinator=<username>       required — filters ownership properly
        ?sort=recent|priority         optional — created_at desc / upvotes desc
@@ -24,8 +26,9 @@ partition correctly across accounts and the citizen gets the right push.
        • hides grievances assigned to a DIFFERENT coordinator
 """
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Query
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 
+import audit
 from database import get_db
 from utils import now_iso, serialize_issue
 from routers.notifications import emit_status_change
@@ -138,9 +141,15 @@ def coord_verify(
     conn.execute(
         """UPDATE issues
               SET status = 'ACTIVE', coordinator_message = '',
-                  assigned_coordinator = ?
+                  assigned_coordinator = ?,
+                  assigned_at = COALESCE(assigned_at, ?)
             WHERE id = ?""",
-        (coordinator.strip().lower(), issue_id),
+        (coordinator.strip().lower(), now_iso(), issue_id),
+    )
+    audit.record(
+        conn, issue_id, action="verify", actor_type="coordinator",
+        actor_id=coordinator, from_status=prev["status"], to_status="ACTIVE",
+        note="Took ownership of the grievance.",
     )
     row = _load(conn, issue_id)
     emit_status_change(
@@ -151,16 +160,24 @@ def coord_verify(
 
 
 @router.post("/issues/{issue_id}/transfer")
-def coord_transfer(
+async def coord_transfer(
     issue_id: str,
     department: str = Form(...),
     notes: str = Form(""),
     officer: str = Form(""),
     coordinator: str = Form(""),
+    photo: UploadFile = File(None),
+    voice: UploadFile = File(None),
     conn=Depends(get_db),
 ):
-    """Dept. Transfer: → FORWARDED with dept + optional responsible officer."""
-    _authorize(conn, _load(conn, issue_id), coordinator)
+    """Dept. Transfer: → FORWARDED with dept + responsible officer.
+
+    The officer is now a COLUMN, not just a phrase inside the citizen-facing
+    message — admin could not filter or count on a name buried in prose.
+    """
+    prev = _load(conn, issue_id)
+    _authorize(conn, prev, coordinator)
+    image_url, audio_url = await audit.store_evidence(photo, voice)
     if officer:
         msg = f"Routed to {department} — Responsible officer: {officer}."
     else:
@@ -169,8 +186,15 @@ def coord_transfer(
         msg += f" Note: {notes}"
     conn.execute(
         "UPDATE issues SET status = 'FORWARDED', department = ?, "
+        "responsible_officer = ?, transferred_at = ?, "
         "coordinator_message = ? WHERE id = ?",
-        (department, msg, issue_id),
+        (department, officer, now_iso(), msg, issue_id),
+    )
+    audit.record(
+        conn, issue_id, action="transfer", actor_type="coordinator",
+        actor_id=coordinator, from_status=prev["status"], to_status="FORWARDED",
+        note=notes, department=department, officer=officer,
+        image_url=image_url, audio_url=audio_url,
     )
     row = _load(conn, issue_id)
     emit_status_change(
@@ -181,15 +205,19 @@ def coord_transfer(
 
 
 @router.post("/issues/{issue_id}/escalate")
-def coord_escalate(
+async def coord_escalate(
     issue_id: str,
     description: str = Form(...),
     coordinator: str = Form(""),
+    photo: UploadFile = File(None),
+    voice: UploadFile = File(None),
     conn=Depends(get_db),
 ):
     """Escalate: → IN_PROGRESS + escalated_at now(). Mobile groups these into
     a dedicated 'Escalated' tab and keeps them out of 'My Reports'."""
-    _authorize(conn, _load(conn, issue_id), coordinator)
+    prev = _load(conn, issue_id)
+    _authorize(conn, prev, coordinator)
+    image_url, audio_url = await audit.store_evidence(photo, voice)
     conn.execute(
         """UPDATE issues
               SET status = 'IN_PROGRESS',
@@ -199,6 +227,11 @@ def coord_escalate(
         (now_iso(),
          f"Escalated to higher authority. Reason: {description}",
          issue_id),
+    )
+    audit.record(
+        conn, issue_id, action="escalate", actor_type="coordinator",
+        actor_id=coordinator, from_status=prev["status"], to_status="IN_PROGRESS",
+        note=description, image_url=image_url, audio_url=audio_url,
     )
     row = _load(conn, issue_id)
     emit_status_change(
@@ -216,7 +249,8 @@ def coord_redirect(
     conn=Depends(get_db),
 ):
     """Redirect: → SUBMITTED with a delay-apology message."""
-    _authorize(conn, _load(conn, issue_id), coordinator)
+    prev = _load(conn, issue_id)
+    _authorize(conn, prev, coordinator)
     msg = (
         "Sorry for the delay, will re-assign another team to resolve this issue faster. "
         f"Reason: {description}"
@@ -225,23 +259,47 @@ def coord_redirect(
         "UPDATE issues SET status = 'SUBMITTED', coordinator_message = ? WHERE id = ?",
         (msg, issue_id),
     )
+    audit.record(
+        conn, issue_id, action="redirect", actor_type="coordinator",
+        actor_id=coordinator, from_status=prev["status"], to_status="SUBMITTED",
+        note=description,
+    )
     row = _load(conn, issue_id)
     return serialize_issue(row)
 
 
 @router.post("/issues/{issue_id}/close")
-def coord_close(
+async def coord_close(
     issue_id: str,
     notes: str = Form(""),
     coordinator: str = Form(""),
+    photo: UploadFile = File(None),
+    voice: UploadFile = File(None),
     conn=Depends(get_db),
 ):
-    """Close: → PENDING_VERIFICATION (citizen sees the verify/reject prompt)."""
-    _authorize(conn, _load(conn, issue_id), coordinator)
+    """Close: → PENDING_VERIFICATION (citizen sees the verify/reject prompt).
+
+    The coordinator app will not let a ticket be closed without a live photo
+    and a voice note ("Live photo + voice note required to close"), so the
+    proof of work arrives here and is stored on both the event and the issue.
+    """
+    prev = _load(conn, issue_id)
+    _authorize(conn, prev, coordinator)
+    image_url, audio_url = await audit.store_evidence(photo, voice)
     conn.execute(
         "UPDATE issues SET status = 'PENDING_VERIFICATION', notify_reporter = 1, "
-        "coordinator_message = ? WHERE id = ?",
-        (notes or "Coordinator has closed this ticket. Please verify the resolution.", issue_id),
+        "closed_at = ?, coordinator_message = ?, "
+        "closure_image_url = COALESCE(?, closure_image_url), "
+        "closure_audio_url = COALESCE(?, closure_audio_url) WHERE id = ?",
+        (now_iso(),
+         notes or "Coordinator has closed this ticket. Please verify the resolution.",
+         image_url, audio_url, issue_id),
+    )
+    audit.record(
+        conn, issue_id, action="close", actor_type="coordinator",
+        actor_id=coordinator, from_status=prev["status"],
+        to_status="PENDING_VERIFICATION", note=notes,
+        image_url=image_url, audio_url=audio_url,
     )
     row = _load(conn, issue_id)
     emit_status_change(
@@ -252,16 +310,20 @@ def coord_close(
 
 
 @router.post("/issues/{issue_id}/mark_false")
-def coord_mark_false(
+async def coord_mark_false(
     issue_id: str,
     reason: str = Form(...),
     details: str = Form(""),
     coordinator: str = Form(""),
+    photo: UploadFile = File(None),
+    voice: UploadFile = File(None),
     conn=Depends(get_db),
 ):
     """Mark false: → FALSE with the coordinator's reason. Also records
     ownership so it lands in the acting coordinator's Previous tab."""
-    _authorize(conn, _load(conn, issue_id), coordinator)
+    prev = _load(conn, issue_id)
+    _authorize(conn, prev, coordinator)
+    image_url, audio_url = await audit.store_evidence(photo, voice)
     msg = f"Marked as false petition. Reason: {reason}" + (f" — {details}" if details else "")
     if coordinator:
         conn.execute(
@@ -274,9 +336,27 @@ def coord_mark_false(
             "UPDATE issues SET status = 'FALSE', coordinator_message = ? WHERE id = ?",
             (msg, issue_id),
         )
+    audit.record(
+        conn, issue_id, action="mark_false", actor_type="coordinator",
+        actor_id=coordinator, from_status=prev["status"], to_status="FALSE",
+        note=f"{reason}{' — ' + details if details else ''}",
+        image_url=image_url, audio_url=audio_url,
+    )
     row = _load(conn, issue_id)
     emit_status_change(
         conn, row, "false",
         "Your grievance was marked as a false petition.",
     )
     return serialize_issue(row)
+
+
+@router.get("/issues/{issue_id}/timeline")
+def coord_timeline(issue_id: str, conn=Depends(get_db)):
+    """Everything that has happened to a grievance, oldest first.
+
+    `issues.coordinator_message` only ever holds the LAST note written, so this
+    is the only way to see the transfer note that a later escalate overwrote,
+    or the photo/voice a coordinator recorded when they closed the ticket.
+    """
+    _load(conn, issue_id)  # 404 for an unknown grievance
+    return {"issue_id": issue_id, "events": audit.timeline(conn, issue_id)}

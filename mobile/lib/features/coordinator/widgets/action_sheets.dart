@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -344,8 +346,10 @@ class _EscalateSheetState extends State<EscalateSheet> {
           icon: Icons.keyboard_double_arrow_up,
           color: NkColors.slate800,
           enabled: _canSubmit,
-          onTap: () => Navigator.of(context)
-              .pop({'description': _description.text.trim()}),
+          onTap: () => Navigator.of(context).pop({
+            'description': _description.text.trim(),
+            ..._evidence.payload,
+          }),
         ),
       ],
     );
@@ -421,7 +425,10 @@ class _CloseSheetState extends State<CloseSheet> {
           color: NkColors.emerald600,
           enabled: _canSubmit,
           onTap: () =>
-              Navigator.of(context).pop({'notes': _notes.text.trim()}),
+              Navigator.of(context).pop({
+                'notes': _notes.text.trim(),
+                ..._evidence.payload,
+              }),
         ),
       ],
     );
@@ -443,14 +450,19 @@ class TransferSheet extends ConsumerStatefulWidget {
 
   final Issue issue;
 
-  /// Called with `(governmentDepartment, notes, responsibleOfficer)` when
-  /// the coordinator confirms the transfer. Parent posts to the backend.
-  final Future<void> Function(String department, String notes, String officer) onSubmit;
+  /// Called with `(governmentDepartment, notes, responsibleOfficer, photo,
+  /// voice)` when the coordinator confirms the transfer. Parent posts to the
+  /// backend. The evidence the sheet captured travels with it — it used to be
+  /// discarded when the sheet closed.
+  final Future<void> Function(
+      String department, String notes, String officer, File? photo, File? voice) onSubmit;
 
   static Future<void> open(
     BuildContext context, {
     required Issue issue,
-    required Future<void> Function(String department, String notes, String officer) onSubmit,
+    required Future<void> Function(
+            String department, String notes, String officer, File? photo, File? voice)
+        onSubmit,
   }) =>
       _openActionSheet(
           context, TransferSheet(issue: issue, onSubmit: onSubmit));
@@ -541,7 +553,8 @@ class _TransferSheetState extends ConsumerState<TransferSheet> {
   Future<void> _submit() async {
     setState(() => _busy = true);
     try {
-      await widget.onSubmit(_department, _notes.text.trim(), _officer);
+      await widget.onSubmit(_department, _notes.text.trim(), _officer,
+          _evidence.photo, _evidence.recorder.file);
       if (mounted) setState(() => _dispatchStage = true);
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -1022,6 +1035,7 @@ class _FalsePetitionSheetState extends State<FalsePetitionSheet> {
           onTap: () => Navigator.of(context).pop({
             'reason': _reason,
             'details': _details.text.trim(),
+            ..._evidence.payload,
           }),
         ),
       ],

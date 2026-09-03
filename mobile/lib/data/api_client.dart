@@ -86,21 +86,36 @@ abstract class ApiClient {
   /// acting coordinator so the row is stamped with them.
   Future<Issue> coordinatorVerify(String issueId, String coordinator);
 
-  /// Dept. Transfer: → FORWARDED with dept + optional responsible officer.
+  /// Dept. Transfer: → FORWARDED with dept + responsible officer.
+  ///
+  /// [photo] / [voice] are the evidence captured in the action sheet. They are
+  /// optional on every action except close, where the sheet will not let the
+  /// coordinator submit without both.
   Future<Issue> coordinatorTransfer(String issueId, String department,
-      {String notes = '', String officer = '', String coordinator = ''});
+      {String notes = '',
+      String officer = '',
+      String coordinator = '',
+      File? photo,
+      File? voice});
 
   /// Escalate: → IN_PROGRESS + escalated_at server-side timestamp.
   Future<Issue> coordinatorEscalate(String issueId,
-      {required String description, String coordinator = ''});
+      {required String description,
+      String coordinator = '',
+      File? photo,
+      File? voice});
 
-  /// Close: → PENDING_VERIFICATION (citizen sees the verify prompt).
+  /// Close: → PENDING_VERIFICATION (citizen sees the verify prompt). The
+  /// closure photo + voice note are the proof of work the admin console shows.
   Future<Issue> coordinatorClose(String issueId,
-      {String notes = '', String coordinator = ''});
+      {String notes = '', String coordinator = '', File? photo, File? voice});
 
   /// Mark false: → FALSE with the coordinator's reason.
   Future<Issue> coordinatorMarkFalse(String issueId, String reason,
-      {String details = '', String coordinator = ''});
+      {String details = '',
+      String coordinator = '',
+      File? photo,
+      File? voice});
 
   /// Fetch the Tamil-Nadu grievance-routing taxonomy (39 Government
   /// Departments → types → sub-types → sub-departments + responsible officers).

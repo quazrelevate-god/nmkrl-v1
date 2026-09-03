@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -285,6 +286,8 @@ class _CoordinatorHomeScreenState
             issue.id,
             description: '${data['description']}',
             coordinator: _me.username,
+            photo: data['photo'] as File?,
+            voice: data['voice'] as File?,
           );
       _showToast('Escalated · moved to Escalated tab');
       setState(() => _expandedId = null);
@@ -300,13 +303,15 @@ class _CoordinatorHomeScreenState
     await TransferSheet.open(
       context,
       issue: issue,
-      onSubmit: (department, notes, officer) async {
+      onSubmit: (department, notes, officer, photo, voice) async {
         await ref.read(apiClientProvider).coordinatorTransfer(
               issue.id,
               department,
               notes: notes,
               officer: officer,
               coordinator: _me.username,
+              photo: photo,
+              voice: voice,
             );
         _showToast('Transferred to $department');
         await _loadWard();
@@ -324,6 +329,10 @@ class _CoordinatorHomeScreenState
             issue.id,
             notes: '${data['notes'] ?? ''}',
             coordinator: _me.username,
+            // The close sheet will not submit without both — this is the proof
+            // of work the admin console shows against the resolution.
+            photo: data['photo'] as File?,
+            voice: data['voice'] as File?,
           );
       _showToast('Closed · awaiting citizen verification');
       setState(() => _expandedId = null);
@@ -345,6 +354,8 @@ class _CoordinatorHomeScreenState
             '${data['reason']}',
             details: '${data['details'] ?? ''}',
             coordinator: _me.username,
+            photo: data['photo'] as File?,
+            voice: data['voice'] as File?,
           );
       _showToast('Flagged as false · moved to Previous Reports');
       setState(() => _expandedId = null);

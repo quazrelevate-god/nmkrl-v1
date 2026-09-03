@@ -268,17 +268,45 @@ class DioApiClient implements ApiClient {
   Future<List<Issue>> fetchCoordinatorMine(String coordinator) =>
       _get('/api/coordinator/mine/$coordinator', parse: _issueList);
 
-  Future<Issue> _coordPost(String path, [Map<String, dynamic>? fields]) async {
+  Future<Issue> _coordPost(
+    String path, [
+    Map<String, dynamic>? fields,
+    File? photo,
+    File? voice,
+  ]) async {
     try {
       final res = await _dio.post<Map<String, dynamic>>(
         path,
-        data: fields == null ? null : FormData.fromMap(fields),
+        data: fields == null
+            ? null
+            : FormData.fromMap({
+                ...fields,
+                ...await _evidenceParts(photo, voice),
+              }),
       );
       return Issue.fromJson(res.data!);
     } catch (e) {
       _friendly(e);
     }
   }
+
+  /// Multipart parts for the evidence a coordinator captured in an action
+  /// sheet. Empty when nothing was recorded, so the same call shape serves
+  /// actions where evidence is optional and the close where it is required.
+  Future<Map<String, dynamic>> _evidenceParts(File? photo, File? voice) async =>
+      {
+        if (photo != null)
+          'photo': await MultipartFile.fromFile(
+            photo.path,
+            filename: photo.uri.pathSegments.last,
+          ),
+        if (voice != null)
+          'voice': await MultipartFile.fromFile(
+            voice.path,
+            filename: 'coordinator-note.m4a',
+            contentType: MediaType.parse('audio/mp4'),
+          ),
+      };
 
   @override
   Future<Issue> coordinatorVerify(String issueId, String coordinator) =>
@@ -287,40 +315,73 @@ class DioApiClient implements ApiClient {
 
   @override
   Future<Issue> coordinatorTransfer(String issueId, String department,
-          {String notes = '', String officer = '', String coordinator = ''}) =>
-      _coordPost('/api/coordinator/issues/$issueId/transfer', {
-        'department': department,
-        if (notes.isNotEmpty) 'notes': notes,
-        if (officer.isNotEmpty) 'officer': officer,
-        // Identifies the actor so the backend can reject an action on a
-        // grievance owned by a different coordinator.
-        if (coordinator.isNotEmpty) 'coordinator': coordinator,
-      });
+          {String notes = '',
+          String officer = '',
+          String coordinator = '',
+          File? photo,
+          File? voice}) =>
+      _coordPost(
+        '/api/coordinator/issues/$issueId/transfer',
+        {
+          'department': department,
+          if (notes.isNotEmpty) 'notes': notes,
+          if (officer.isNotEmpty) 'officer': officer,
+          // Identifies the actor so the backend can reject an action on a
+          // grievance owned by a different coordinator.
+          if (coordinator.isNotEmpty) 'coordinator': coordinator,
+        },
+        photo,
+        voice,
+      );
 
   @override
   Future<Issue> coordinatorEscalate(String issueId,
-          {required String description, String coordinator = ''}) =>
-      _coordPost('/api/coordinator/issues/$issueId/escalate', {
-        'description': description,
-        if (coordinator.isNotEmpty) 'coordinator': coordinator,
-      });
+          {required String description,
+          String coordinator = '',
+          File? photo,
+          File? voice}) =>
+      _coordPost(
+        '/api/coordinator/issues/$issueId/escalate',
+        {
+          'description': description,
+          if (coordinator.isNotEmpty) 'coordinator': coordinator,
+        },
+        photo,
+        voice,
+      );
 
   @override
   Future<Issue> coordinatorClose(String issueId,
-          {String notes = '', String coordinator = ''}) =>
-      _coordPost('/api/coordinator/issues/$issueId/close', {
-        if (notes.isNotEmpty) 'notes': notes,
-        if (coordinator.isNotEmpty) 'coordinator': coordinator,
-      });
+          {String notes = '',
+          String coordinator = '',
+          File? photo,
+          File? voice}) =>
+      _coordPost(
+        '/api/coordinator/issues/$issueId/close',
+        {
+          if (notes.isNotEmpty) 'notes': notes,
+          if (coordinator.isNotEmpty) 'coordinator': coordinator,
+        },
+        photo,
+        voice,
+      );
 
   @override
   Future<Issue> coordinatorMarkFalse(String issueId, String reason,
-          {String details = '', String coordinator = ''}) =>
-      _coordPost('/api/coordinator/issues/$issueId/mark_false', {
-        'reason': reason,
-        if (details.isNotEmpty) 'details': details,
-        if (coordinator.isNotEmpty) 'coordinator': coordinator,
-      });
+          {String details = '',
+          String coordinator = '',
+          File? photo,
+          File? voice}) =>
+      _coordPost(
+        '/api/coordinator/issues/$issueId/mark_false',
+        {
+          'reason': reason,
+          if (details.isNotEmpty) 'details': details,
+          if (coordinator.isNotEmpty) 'coordinator': coordinator,
+        },
+        photo,
+        voice,
+      );
 
   @override
   Future<Map<String, dynamic>> fetchDepartmentsTree() => _get(

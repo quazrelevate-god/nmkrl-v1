@@ -17,8 +17,9 @@ import { useEffect, useMemo, useState } from "react";
 import {
   Users, Plus, Search, X, MoreVertical, KeyRound, Pencil, ShieldBan,
   ShieldCheck, RefreshCcw, MapPin, Building2, UserPlus, Copy, Check,
-  CheckCircle2, AlertCircle,
+  CheckCircle2, AlertCircle, Inbox, Send, TrendingUp, Ban, Camera, Timer,
 } from "lucide-react";
+import { fetchCoordinatorPerformance } from "@/lib/api";
 import {
   listCoordinators, listCoordinatorsRemote, ensureSeedCoordinators,
   createCoordinatorRemote, updateCoordinatorRemote, initialsFrom,
@@ -51,6 +52,11 @@ export default function CoordinatorsPage() {
   const [resetTarget, setResetTarget] = useState(null);   // coordinator | null
   const [statusTarget, setStatusTarget] = useState(null); // coordinator | null
   const [toast, setToast] = useState(null);
+  // Per-coordinator workload + outcomes, keyed by username. Aggregated from the
+  // same grievance rows the coordinator app acts on, so the numbers here cannot
+  // drift from what the field sees.
+  const [perf, setPerf] = useState({});
+  const [unassigned, setUnassigned] = useState(null);
 
   // Source of truth is the backend so every browser + the mobile app agree.
   // Falls back to the local seed only if the backend is unreachable.
@@ -62,9 +68,20 @@ export default function CoordinatorsPage() {
     }
   }
 
+  async function refreshPerf() {
+    try {
+      const data = await fetchCoordinatorPerformance();
+      setPerf(Object.fromEntries((data.coordinators || []).map((c) => [c.username, c])));
+      setUnassigned(data.unassigned ?? null);
+    } catch {
+      setPerf({});
+    }
+  }
+
   useEffect(() => {
     // Make sure the 4 demo accounts exist in the backend, then load the list.
     ensureSeedCoordinators().finally(refresh);
+    refreshPerf();
     const sync = () => refresh();
     window.addEventListener("fms:coordinator-directory-changed", sync);
     return () => window.removeEventListener("fms:coordinator-directory-changed", sync);
@@ -94,6 +111,7 @@ export default function CoordinatorsPage() {
 
   const activeCount = rows.filter((c) => c.status !== "disabled").length;
   const disabledCount = rows.length - activeCount;
+  const totalAssigned = Object.values(perf).reduce((n, p) => n + (p.assigned || 0), 0);
 
   return (
     <>
@@ -121,15 +139,16 @@ export default function CoordinatorsPage() {
       {/* Body */}
       <div className="min-h-0 flex-1 overflow-y-auto px-7 py-5">
         {/* Stat pills */}
-        <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+        <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-5">
           <StatPill label="Total" value={rows.length} icon={Users} tone="text-slate-800" />
           <StatPill label="Active" value={activeCount} icon={ShieldCheck} tone="text-emerald-600" />
           <StatPill label="Disabled" value={disabledCount} icon={ShieldBan} tone="text-slate-500" />
+          <StatPill label="Grievances owned" value={totalAssigned} icon={Inbox} tone="text-brand" />
           <StatPill
-            label="Constituencies"
-            value={new Set(rows.map((c) => c.constituency)).size}
-            icon={Building2}
-            tone="text-brand"
+            label="Unassigned"
+            value={unassigned ?? "—"}
+            icon={AlertCircle}
+            tone={unassigned ? "text-amber-600" : "text-slate-500"}
           />
         </div>
 
@@ -187,6 +206,7 @@ export default function CoordinatorsPage() {
               <CoordinatorRow
                 key={c.username}
                 coord={c}
+                stats={perf[c.username]}
                 onEdit={() => setEditingUser(c.username)}
                 onReset={() => setResetTarget(c)}
                 onToggleStatus={() => setStatusTarget(c)}
@@ -242,14 +262,15 @@ export default function CoordinatorsPage() {
 }
 
 /* ── Row ──────────────────────────────────────────────────────────────────── */
-function CoordinatorRow({ coord, onEdit, onReset, onToggleStatus }) {
+function CoordinatorRow({ coord, stats, onEdit, onReset, onToggleStatus }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const disabled = coord.status === "disabled";
   // .glass-panel sets backdrop-filter, which makes every row its own stacking
   // context — so the menu's own z-index can never lift it above a LATER row.
   // Raising the row itself while its menu is open is what actually fixes it.
   return (
-    <div className={`glass-panel glass-hover relative flex items-center gap-4 rounded-2xl p-3 ${menuOpen ? "z-[1000]" : ""} ${disabled ? "opacity-70" : ""}`}>
+    <div className={`glass-panel glass-hover relative rounded-2xl p-3 ${menuOpen ? "z-[1000]" : ""} ${disabled ? "opacity-70" : ""}`}>
+      <div className="flex items-center gap-4">
       <Avatar coord={coord} />
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
@@ -278,9 +299,13 @@ function CoordinatorRow({ coord, onEdit, onReset, onToggleStatus }) {
         </div>
       </div>
 
-      <div className="hidden md:block">
-        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Civic score</p>
-        <p className="text-base font-extrabold text-slate-800">{coord.civicScore ?? 0}</p>
+      {/* Closure rate replaces the old placeholder "civic score" — a real
+          number, derived from the grievances this account actually owns. */}
+      <div className="hidden md:block text-right">
+        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Closure rate</p>
+        <p className="text-base font-extrabold text-slate-800">
+          {stats ? `${stats.closure_rate}%` : "—"}
+        </p>
       </div>
 
       <div className="relative">
@@ -304,9 +329,66 @@ function CoordinatorRow({ coord, onEdit, onReset, onToggleStatus }) {
           </div>
         )}
       </div>
+      </div>
+      <PerformanceStrip stats={stats} />
     </div>
   );
 }
+
+/* ── Per-coordinator performance ──────────────────────────────────────────
+   Admin could see WHO owned a grievance but never how any one coordinator was
+   doing — the counts had to be eyeballed from the petition list. */
+function PerformanceStrip({ stats }) {
+  if (!stats) return null;
+  if (!stats.assigned) {
+    return (
+      <p className="mt-2.5 border-t border-slate-900/5 pt-2.5 text-[11px] text-slate-400">
+        No grievances assigned yet.
+      </p>
+    );
+  }
+  const cells = [
+    { label: "Owned", value: stats.assigned, icon: Inbox, tone: "text-slate-700" },
+    { label: "Open", value: stats.open, icon: Timer, tone: "text-violet-600" },
+    { label: "Forwarded", value: stats.forwarded, icon: Send, tone: "text-blue-600" },
+    { label: "Escalated", value: stats.escalated, icon: TrendingUp, tone: "text-amber-600" },
+    { label: "Awaiting citizen", value: stats.awaiting_citizen, icon: Timer, tone: "text-cyan-700" },
+    { label: "Resolved", value: stats.resolved, icon: CheckCircle2, tone: "text-emerald-600" },
+    { label: "False", value: stats.false_petitions, icon: Ban, tone: "text-rose-600" },
+    { label: "With evidence", value: stats.closures_with_evidence, icon: Camera, tone: "text-emerald-700" },
+  ];
+  return (
+    <div className="mt-2.5 border-t border-slate-900/5 pt-2.5">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        {cells.map((c) => (
+          <span key={c.label} className="flex items-center gap-1.5 text-[11px] text-slate-500">
+            <c.icon size={11} className={c.tone} />
+            <span className={`font-extrabold ${c.tone}`}>{c.value}</span> {c.label}
+          </span>
+        ))}
+        {stats.rejected_by_citizen > 0 && (
+          <span className="flex items-center gap-1.5 rounded-full bg-rose-50 px-2 py-0.5 text-[11px] font-semibold text-rose-700 ring-1 ring-rose-200">
+            <AlertCircle size={11} /> {stats.rejected_by_citizen} rejected by citizen
+          </span>
+        )}
+      </div>
+      {(stats.avg_hours_to_assign != null || stats.avg_hours_to_close != null) && (
+        <p className="mt-1.5 text-[10.5px] text-slate-400">
+          {stats.avg_hours_to_assign != null && <>Avg {formatHours(stats.avg_hours_to_assign)} to pick up</>}
+          {stats.avg_hours_to_assign != null && stats.avg_hours_to_close != null && " · "}
+          {stats.avg_hours_to_close != null && <>Avg {formatHours(stats.avg_hours_to_close)} to close</>}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function formatHours(h) {
+  if (h < 1) return `${Math.round(h * 60)} min`;
+  if (h < 48) return `${h} h`;
+  return `${(h / 24).toFixed(1)} days`;
+}
+
 function MenuItem({ icon: Icon, label, onClick, tone = "text-slate-700" }) {
   return (
     <button

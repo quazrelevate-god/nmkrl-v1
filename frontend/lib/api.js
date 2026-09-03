@@ -203,6 +203,24 @@ export async function saveOfficerContact({ key, name = "", mobile = "" }) {
   return handle(res);
 }
 
+/** Admin: the append-only action history for one grievance.
+ *
+ *  The issue row only carries the LATEST coordinator_message, so this is the
+ *  only way to see the note written at transfer time after a later escalate
+ *  overwrote it — together with the photo/voice recorded for each action.
+ */
+export async function fetchIssueTimeline(issueId) {
+  const res = await fetch(`${API_BASE}/api/admin/issues/${issueId}/timeline`);
+  return handle(res);
+}
+
+/** Admin: per-coordinator workload and outcomes (assigned / escalated /
+ *  resolved / false, closure rate and average turnaround). */
+export async function fetchCoordinatorPerformance() {
+  const res = await fetch(`${API_BASE}/api/admin/coordinator-performance`);
+  return handle(res);
+}
+
 /** Admin: approve a submitted grievance -> ACTIVE (makes it public). */
 export async function adminVerifyGrievance(issueId) {
   const res = await fetch(`${API_BASE}/api/admin/issues/${issueId}/verify`, {

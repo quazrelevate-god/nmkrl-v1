@@ -8,15 +8,15 @@
  * grievance then goes public in the citizen app and enters the Tickets queue.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ClipboardCheck, ShieldCheck, ImageIcon, Volume2, MapPin, Phone,
   ThumbsUp, Search, X, Landmark, ArrowRightLeft, CheckCircle2, Ban, Send,
-  Sparkles, MessageSquare,
+  Sparkles, MessageSquare, UserCog, Camera, History, Loader2,
 } from "lucide-react";
 import { useAdminData } from "@/components/admin/AdminDataProvider";
 import TicketDrawer from "@/components/admin/TicketDrawer";
-import { adminVerifyGrievance } from "@/lib/api";
+import { adminVerifyGrievance, fetchIssueTimeline, mediaUrl } from "@/lib/api";
 import { citizenName, initials, tokenNo, daysOpen } from "@/lib/adminModel";
 import { constituenciesForWard, shortAC } from "@/lib/constituencies";
 import { listCoordinatorsRemote } from "@/lib/coordinators";
@@ -341,6 +341,13 @@ function ActionPayload({ kind, issue }) {
             <Sparkles size={11} /> Routed to
           </p>
           <p className="text-sm font-bold text-slate-800">{issue.department || "Department (unspecified)"}</p>
+          {/* The responsible officer is a real column now — it used to exist
+              only inside the sentence below, where nothing could read it. */}
+          {issue.responsible_officer && (
+            <p className="mt-1.5 flex items-center gap-1.5 text-[11px] font-semibold text-slate-600">
+              <UserCog size={11} className="text-brand" /> {issue.responsible_officer}
+            </p>
+          )}
         </div>
         {msg && (
           <div className="rounded-xl border border-slate-200 bg-white p-3">
@@ -348,28 +355,153 @@ function ActionPayload({ kind, issue }) {
             <p className="text-[13px] italic leading-snug text-slate-700">"{msg}"</p>
           </div>
         )}
+        <Timeline issueId={issue.id} />
       </div>
     );
   }
   if (kind === "false") {
     return (
-      <div className="mt-3 rounded-xl border border-rose-100 bg-rose-50/50 p-3">
-        <p className="mb-1 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-rose-600">
-          <Ban size={11} /> Marked false
-        </p>
-        <p className="text-[13px] italic leading-snug text-slate-700">{msg ? `"${msg}"` : "No reason recorded."}</p>
+      <div className="mt-3 space-y-2">
+        <div className="rounded-xl border border-rose-100 bg-rose-50/50 p-3">
+          <p className="mb-1 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-rose-600">
+            <Ban size={11} /> Marked false
+          </p>
+          <p className="text-[13px] italic leading-snug text-slate-700">{msg ? `"${msg}"` : "No reason recorded."}</p>
+        </div>
+        <Timeline issueId={issue.id} />
       </div>
     );
   }
-  // redirect + close: surface the coordinator's citizen-facing message.
-  if (!msg) return null;
+  // redirect + close: the citizen-facing message, and for a close the proof of
+  // work the coordinator app required before it would let them close at all.
   const isRedirect = kind === "redirect";
   return (
-    <div className={`mt-3 rounded-xl border p-3 ${isRedirect ? "border-slate-200 bg-white" : "border-emerald-100 bg-emerald-50/50"}`}>
-      <p className={`mb-1 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide ${isRedirect ? "text-slate-500" : "text-emerald-600"}`}>
-        {isRedirect ? <MessageSquare size={11} /> : <CheckCircle2 size={11} />} {isRedirect ? "Redirect message" : "Resolution note"}
-      </p>
-      <p className="text-[13px] italic leading-snug text-slate-700">"{msg}"</p>
+    <div className="mt-3 space-y-2">
+      {msg && (
+        <div className={`rounded-xl border p-3 ${isRedirect ? "border-slate-200 bg-white" : "border-emerald-100 bg-emerald-50/50"}`}>
+          <p className={`mb-1 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide ${isRedirect ? "text-slate-500" : "text-emerald-600"}`}>
+            {isRedirect ? <MessageSquare size={11} /> : <CheckCircle2 size={11} />} {isRedirect ? "Redirect message" : "Resolution note"}
+          </p>
+          <p className="text-[13px] italic leading-snug text-slate-700">"{msg}"</p>
+        </div>
+      )}
+      {kind === "close" && <ClosureEvidence issue={issue} />}
+      <Timeline issueId={issue.id} />
     </div>
   );
 }
+
+/* ── Closure evidence ─────────────────────────────────────────────────────
+   The coordinator app will not close a ticket without a live photo AND a voice
+   note. Both used to be discarded when the sheet closed, so a resolution could
+   only ever be taken on trust — this is that proof, at last. */
+function ClosureEvidence({ issue }) {
+  const photo = issue.closure_image_url;
+  const audio = issue.closure_audio_url;
+  if (!photo && !audio) {
+    return (
+      <p className="rounded-xl border border-dashed border-slate-200 px-3 py-2 text-[11px] text-slate-400">
+        No closure evidence on record — closed before evidence was captured.
+      </p>
+    );
+  }
+  return (
+    <div className="rounded-xl border border-emerald-100 bg-white p-3">
+      <p className="mb-2 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-emerald-600">
+        <Camera size={11} /> Closure evidence
+      </p>
+      <div className="flex flex-wrap items-center gap-3">
+        {photo && (
+          <a href={mediaUrl(photo)} target="_blank" rel="noreferrer" className="shrink-0">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={mediaUrl(photo)} alt="Closure photo"
+              className="h-20 w-20 rounded-lg object-cover ring-1 ring-slate-200" />
+          </a>
+        )}
+        {audio && <audio controls src={mediaUrl(audio)} className="h-9 min-w-[220px] flex-1" />}
+      </div>
+    </div>
+  );
+}
+
+/* ── Action history ───────────────────────────────────────────────────────
+   `coordinator_message` holds only the LAST thing written, so the transfer note
+   is gone the moment someone escalates. issue_events keeps every one. */
+function Timeline({ issueId }) {
+  const [open, setOpen] = useState(false);
+  const [events, setEvents] = useState(null);
+  const [error, setError] = useState(null);
+
+  const load = useCallback(async () => {
+    try {
+      const data = await fetchIssueTimeline(issueId);
+      setEvents(data.events || []);
+    } catch (err) {
+      setError(err.message);
+    }
+  }, [issueId]);
+
+  useEffect(() => { if (open && events === null && !error) load(); }, [open, events, error, load]);
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white">
+      <button type="button" onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center gap-1.5 px-3 py-2 text-[10px] font-bold uppercase tracking-wide text-slate-500 hover:text-brand">
+        <History size={11} /> Action history
+        {events && <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] text-slate-500">{events.length}</span>}
+      </button>
+      {open && (
+        <div className="border-t border-slate-100 px-3 py-2.5">
+          {error && <p className="text-[11px] text-rose-500">{error}</p>}
+          {!error && events === null && (
+            <p className="flex items-center gap-1.5 text-[11px] text-slate-400"><Loader2 size={11} className="animate-spin" /> Loading…</p>
+          )}
+          {events?.length === 0 && (
+            <p className="text-[11px] text-slate-400">
+              Nothing recorded — this grievance was actioned before history was kept.
+            </p>
+          )}
+          <ol className="space-y-2.5">
+            {(events || []).map((e) => (
+              <li key={e.id} className="border-l-2 border-slate-200 pl-3">
+                <p className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                  <span className="font-bold text-slate-800">{EVENT_LABELS[e.action] || e.action}</span>
+                  {e.actor_id && <span className="text-slate-400">by @{e.actor_id}</span>}
+                  <span className="text-slate-400">
+                    · {new Date(e.created_at).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}
+                  </span>
+                </p>
+                {e.department && <p className="text-[11px] text-slate-500">→ {e.department}</p>}
+                {e.officer && <p className="text-[11px] text-slate-500">Officer: {e.officer}</p>}
+                {e.note && <p className="mt-0.5 text-[12px] italic leading-snug text-slate-700">"{e.note}"</p>}
+                {(e.image_url || e.audio_url) && (
+                  <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                    {e.image_url && (
+                      <a href={mediaUrl(e.image_url)} target="_blank" rel="noreferrer">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={mediaUrl(e.image_url)} alt="" className="h-12 w-12 rounded object-cover ring-1 ring-slate-200" />
+                      </a>
+                    )}
+                    {e.audio_url && <audio controls src={mediaUrl(e.audio_url)} className="h-8 min-w-[180px]" />}
+                  </div>
+                )}
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const EVENT_LABELS = {
+  report: "Reported",
+  verify: "Assigned to coordinator",
+  transfer: "Transferred to department",
+  escalate: "Escalated",
+  redirect: "Redirected",
+  close: "Closed by coordinator",
+  mark_false: "Marked false petition",
+  citizen_approve: "Citizen approved",
+  citizen_reject: "Citizen rejected",
+};

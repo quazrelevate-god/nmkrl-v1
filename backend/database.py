@@ -161,6 +161,37 @@ CREATE TABLE IF NOT EXISTS dept_officers (
     updated_at   TEXT NOT NULL
 );
 
+-- Append-only audit trail: one row per state-changing action on a grievance,
+-- by anyone (coordinator, citizen, admin). The issues table only ever holds
+-- the LATEST value of coordinator_message / department / status, so without
+-- this the note a coordinator wrote at transfer time is destroyed by the next
+-- action. Evidence captured in the coordinator app's action sheets (live photo
+-- + voice note) is attached to the event that required it.
+--   actor_type: 'coordinator' | 'citizen' | 'admin' | 'system'
+--   actor_id:   coordinator username, or citizen user_id
+--   action:     verify | transfer | escalate | redirect | close | mark_false
+--               | citizen_approve | citizen_reject | report
+CREATE TABLE IF NOT EXISTS issue_events (
+    id          TEXT PRIMARY KEY,
+    issue_id    TEXT NOT NULL,
+    actor_type  TEXT NOT NULL,
+    actor_id    TEXT NOT NULL DEFAULT '',
+    action      TEXT NOT NULL,
+    from_status TEXT DEFAULT '',
+    to_status   TEXT DEFAULT '',
+    note        TEXT DEFAULT '',
+    department  TEXT DEFAULT '',
+    officer     TEXT DEFAULT '',
+    image_url   TEXT,
+    audio_url   TEXT,
+    created_at  TEXT NOT NULL,
+    FOREIGN KEY (issue_id) REFERENCES issues (id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_events_issue
+    ON issue_events (issue_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_events_actor
+    ON issue_events (actor_type, actor_id, created_at DESC);
+
 -- Every /api/locate lookup is logged with the real GCC zone/ward the
 -- coordinate resolved to (via point-in-polygon over the KML boundaries).
 CREATE TABLE IF NOT EXISTS location_logs (
@@ -207,6 +238,21 @@ def init_db() -> None:
             # Non-null when the citizen REJECTED a coordinator's closure — the
             # coordinator app surfaces an alert and moves it back to Assigned.
             ("rejected_at", "TEXT"),
+            # Responsible officer chosen during a Dept. Transfer. Previously this
+            # only ever existed inside the prose of coordinator_message, so it
+            # could not be filtered, counted or shown as a field.
+            ("responsible_officer", "TEXT DEFAULT ''"),
+            # Lifecycle timestamps. created_at alone cannot answer "how long did
+            # this take?" — every admin duration metric needs these.
+            ("assigned_at", "TEXT"),      # coordinator took ownership (verify)
+            ("transferred_at", "TEXT"),   # routed to a department
+            ("closed_at", "TEXT"),        # coordinator marked it done
+            ("resolved_at", "TEXT"),      # citizen APPROVED the closure
+            # Closure evidence: the live photo + voice note the coordinator app
+            # makes MANDATORY before a ticket can be closed. Denormalised from
+            # the close event so admin lists can show it without a join.
+            ("closure_image_url", "TEXT"),
+            ("closure_audio_url", "TEXT"),
         ]:
             try:
                 conn.execute(f"ALTER TABLE issues ADD COLUMN {col} {defn}")
@@ -222,3 +268,66 @@ def init_db() -> None:
             conn.execute("ALTER TABLE location_logs ADD COLUMN assembly_constituency TEXT")
         except Exception:
             pass
+        _reconcile_upvotes(conn)
+
+
+# Names used for the backfilled seed supporters (see _reconcile_upvotes).
+_SEED_SUPPORTERS = [
+    "Aarthi", "Bala", "Chitra", "Dinesh", "Elango", "Gayathri", "Hari",
+    "Iniya", "Jeeva", "Kavitha", "Lakshmi", "Murugan", "Nithya", "Pandian",
+    "Revathi", "Saravanan", "Thendral", "Umesh", "Vasanth", "Yamuna",
+]
+
+
+def _reconcile_upvotes(conn) -> None:
+    """Make `issues.upvotes` and the `upvotes` table agree.
+
+    The demo data was seeded by writing a support COUNT straight onto each
+    issue without inserting the rows behind it, so the counter and the table
+    told different stories: 747 grievances showed a total the `upvotes` table
+    could not account for. Anything reading the rows — "My Supports", the
+    per-user stats, the one-vote-per-person guard — was working from a
+    different number than the badge the citizen actually saw.
+
+    The counter is treated as the truth (it is what the whole demo is sorted
+    and prioritised by) and the missing rows are materialised under reserved
+    `seed:` ids that can never collide with a real account. Where rows somehow
+    outnumber the counter, the counter is raised instead — never lowered, so a
+    real vote is never discarded.
+
+    Idempotent: once the two agree there is nothing to do, and every live
+    upvote writes both halves, so this only ever fixes historic seed data.
+    """
+    drifted = conn.execute(
+        """SELECT i.id, i.upvotes AS stored,
+                  (SELECT COUNT(*) FROM upvotes u WHERE u.issue_id = i.id) AS actual
+             FROM issues i
+            WHERE i.upvotes <> (SELECT COUNT(*) FROM upvotes u WHERE u.issue_id = i.id)"""
+    ).fetchall()
+    if not drifted:
+        return
+    import uuid
+
+    added = raised = 0
+    for row in drifted:
+        gap = row["stored"] - row["actual"]
+        if gap < 0:
+            conn.execute(
+                "UPDATE issues SET upvotes = ? WHERE id = ?", (row["actual"], row["id"])
+            )
+            raised += 1
+            continue
+        short = row["id"].replace("-", "")[:8]
+        for n in range(gap):
+            conn.execute(
+                """INSERT OR IGNORE INTO upvotes (id, user_id, issue_id, name)
+                   VALUES (?, ?, ?, ?)""",
+                (
+                    str(uuid.uuid4()),
+                    f"seed:{short}:{n}",
+                    row["id"],
+                    _SEED_SUPPORTERS[n % len(_SEED_SUPPORTERS)],
+                ),
+            )
+            added += 1
+    print(f"[migrate] upvotes reconciled: +{added} rows, {raised} counters corrected")

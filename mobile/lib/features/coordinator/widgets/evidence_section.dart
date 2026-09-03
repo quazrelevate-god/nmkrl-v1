@@ -43,6 +43,18 @@ class EvidenceController extends ChangeNotifier {
 
   bool get hasVoice => recorder.file != null;
 
+  /// The captured files, shaped for an action sheet's `pop()` payload.
+  ///
+  /// Every sheet captures evidence and the close sheet makes it mandatory, but
+  /// the files used to die with the sheet: only the typed note was returned, so
+  /// the photo the coordinator was required to take never reached the backend.
+  /// Keys are absent when nothing was captured, so a caller can spread this
+  /// into its payload unconditionally.
+  Map<String, dynamic> get payload => {
+        if (photo != null) 'photo': photo,
+        if (recorder.file != null) 'voice': recorder.file,
+      };
+
   @override
   void dispose() {
     recorder.dispose();

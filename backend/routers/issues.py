@@ -13,6 +13,7 @@ import json
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
+import audit
 import boundaries
 from database import get_db
 from gemini_service import check_duplicate, classify_department, process_audio
@@ -164,6 +165,12 @@ async def report_issue(
             created_at,
             user_id,
         ),
+    )
+
+    audit.record(
+        conn, issue_id, action="report", actor_type="citizen", actor_id=user_id,
+        to_status="SUBMITTED", note=title, department=department,
+        image_url=image_url, audio_url=audio_url,
     )
 
     row = conn.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
@@ -361,9 +368,12 @@ def verify_issue(
         )
 
     if response == "APPROVED":
+        # resolved_at is what "how long did this take?" is measured against —
+        # created_at alone cannot answer it, and CLOSED carried no timestamp.
         conn.execute(
-            "UPDATE issues SET status = 'CLOSED', notify_reporter = 0 WHERE id = ?",
-            (issue_id,),
+            "UPDATE issues SET status = 'CLOSED', notify_reporter = 0, "
+            "resolved_at = ? WHERE id = ?",
+            (now_iso(), issue_id),
         )
     else:
         # REJECTED — roll back to ACTIVE (the coordinator's "Assigned" bucket),
@@ -382,6 +392,16 @@ def verify_issue(
         """INSERT INTO verifications (id, issue_id, user_id, response, timestamp)
            VALUES (?, ?, ?, ?, ?)""",
         (new_id(), issue_id, user_id, response, now_iso()),
+    )
+    audit.record(
+        conn, issue_id,
+        action="citizen_approve" if response == "APPROVED" else "citizen_reject",
+        actor_type="citizen", actor_id=user_id,
+        from_status="PENDING_VERIFICATION",
+        to_status="CLOSED" if response == "APPROVED" else "ACTIVE",
+        note=("Citizen confirmed the resolution."
+              if response == "APPROVED"
+              else "Citizen rejected the resolution."),
     )
     row = conn.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
     # Notify the owning coordinator that the citizen rejected the closure.
