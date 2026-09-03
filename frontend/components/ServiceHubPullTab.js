@@ -18,6 +18,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import { useReport } from "@/components/ReportProvider";
 import { useRouter, usePathname } from "next/navigation";
 import { Sparkles, ChevronLeft } from "lucide-react";
 
@@ -35,6 +36,7 @@ export default function ServiceHubPullTab() {
   const rootRef = useRef(null);
   const startX = useRef(null);
   const draggedRef = useRef(false);
+  const { open: reportOpen } = useReport();
 
   useEffect(() => {
     const measure = () => setWidth(rootRef.current?.parentElement?.offsetWidth || 375);
@@ -88,6 +90,10 @@ export default function ServiceHubPullTab() {
   const tabTranslatePx = pull * (width - TAB_W - 4);       // slide with the panel edge
   const transition = dragging ? "none" : "transform .34s cubic-bezier(.22,1,.36,1), opacity .34s ease";
   const showPreview = pull > 0 || committing;
+
+  // The grievance sheet is a modal surface — this floating tab would otherwise
+  // sit on top of it (z-720 vs z-600). Every hook above has already run.
+  if (reportOpen) return null;
 
   return (
     <div ref={rootRef} className="pointer-events-none absolute inset-0 z-[720]">

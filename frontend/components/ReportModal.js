@@ -151,10 +151,12 @@ export default function ReportModal({ open, onClose }) {
           <div className="animate-scrim-in absolute inset-0 bg-slate-900/45 backdrop-blur-md" onClick={handleClose} />
 
           {/* Layer 1 — flat navy outer, only the top corners rounded so it
-              reads as a bottom-attached sheet, not a floating card. The tall
-              bottom padding clears the nav pill, which renders ABOVE this
-              (z-700 vs z-600) so its "+" can stay live as the ✕ close. */}
-          <div className="animate-sheet-up relative z-10 w-full rounded-t-[28px] bg-brand px-3.5 pb-24 pt-2.5 shadow-[0_-18px_60px_-12px_rgba(15,23,42,0.55)]">
+              reads as a bottom-attached sheet, not a floating card. The nav
+              pill hides itself while this is open, so the sheet needs no
+              clearance below the swipe — dismissal is a scrim tap. The inline
+              padding adds the home-indicator inset on installed PWAs. */}
+          <div className="animate-sheet-up relative z-10 w-full rounded-t-[28px] bg-brand px-3.5 pb-5 pt-2.5 shadow-[0_-18px_60px_-12px_rgba(15,23,42,0.55)]"
+            style={{ paddingBottom: "calc(1.25rem + env(safe-area-inset-bottom))" }}>
             {/* Grip */}
             <div className="mx-auto h-1 w-[42px] rounded-full bg-white/30" />
 

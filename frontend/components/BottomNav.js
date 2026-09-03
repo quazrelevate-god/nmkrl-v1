@@ -5,7 +5,8 @@
  * ---------
  * iOS-style glass pill navigation with three symmetric sections:
  *   Community  ·  [ + ]  ·  Map & History
- * The centre button opens the Report pop-up (turns into an ✕ while open).
+ * The centre button opens the Report sheet; the whole pill then hides so the
+ * sheet stands alone (dismiss it by tapping the scrim).
  * Services is intentionally NOT in the pill — it lives as a right-edge
  * pull-tab (see ServiceHubPullTab) so the pill stays symmetric.
  *
@@ -53,6 +54,11 @@ export default function BottomNav() {
     document.addEventListener("scroll", onScroll, { capture: true, passive: true });
     return () => document.removeEventListener("scroll", onScroll, { capture: true });
   }, []);
+
+  // With every hook above already called, the nav can bail out entirely while
+  // the grievance sheet is open: it is a modal surface that owns the screen,
+  // dismissed by tapping the scrim. Returning here keeps hook order stable.
+  if (open) return null;
 
   const isCommunity = pathname.startsWith("/community");
   const isMap = pathname === "/";
