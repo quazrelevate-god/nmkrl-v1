@@ -284,6 +284,7 @@ class _CoordinatorHomeScreenState
       await ref.read(apiClientProvider).coordinatorEscalate(
             issue.id,
             description: '${data['description']}',
+            coordinator: _me.username,
           );
       _showToast('Escalated · moved to Escalated tab');
       setState(() => _expandedId = null);
@@ -305,6 +306,7 @@ class _CoordinatorHomeScreenState
               department,
               notes: notes,
               officer: officer,
+              coordinator: _me.username,
             );
         _showToast('Transferred to $department');
         await _loadWard();
@@ -318,9 +320,11 @@ class _CoordinatorHomeScreenState
     if (data == null) return;
     setState(() => _busyId = issue.id);
     try {
-      await ref
-          .read(apiClientProvider)
-          .coordinatorClose(issue.id, notes: '${data['notes'] ?? ''}');
+      await ref.read(apiClientProvider).coordinatorClose(
+            issue.id,
+            notes: '${data['notes'] ?? ''}',
+            coordinator: _me.username,
+          );
       _showToast('Closed · awaiting citizen verification');
       setState(() => _expandedId = null);
       await _loadWard();

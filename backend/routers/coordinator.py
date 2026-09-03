@@ -40,6 +40,40 @@ def _load(conn, issue_id):
     return row
 
 
+def _known_coordinator(conn, username: str) -> bool:
+    """Is this a real account in the admin-managed coordinators table?"""
+    return conn.execute(
+        "SELECT 1 FROM coordinators WHERE LOWER(username) = ?",
+        (username.strip().lower(),),
+    ).fetchone() is not None
+
+
+def _authorize(conn, row, coordinator: str):
+    """Gate a state-changing action on a grievance.
+
+    ``coordinator`` is optional so that builds already in the field — which
+    send nothing for escalate/close/redirect/transfer — keep working. When it
+    IS supplied (every current client build does), it must name a real account
+    and that account must either own the grievance or be claiming an
+    unassigned one. Without this, any caller could drive any grievance through
+    its whole lifecycle.
+    """
+    who = (coordinator or "").strip().lower()
+    if not who:
+        return
+    if not _known_coordinator(conn, who):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown coordinator '{who}'.",
+        )
+    owner = (row["assigned_coordinator"] or "").strip().lower()
+    if owner and owner != who:
+        raise HTTPException(
+            status_code=403,
+            detail=f"This grievance is assigned to @{owner}.",
+        )
+
+
 @router.get("/ward/{ward_no}")
 def coordinator_ward_issues(
     ward_no: int,
@@ -91,6 +125,11 @@ def coord_verify(
     """Coordinator takes ownership: any → ACTIVE. Sets assigned_coordinator
     so the ticket vanishes from every other coordinator's ward tab."""
     prev = _load(conn, issue_id)
+    if not _known_coordinator(conn, coordinator):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown coordinator '{coordinator.strip().lower()}'.",
+        )
     if (prev["assigned_coordinator"] or "").strip() not in ("", coordinator.strip().lower()):
         raise HTTPException(
             status_code=409,
@@ -117,10 +156,11 @@ def coord_transfer(
     department: str = Form(...),
     notes: str = Form(""),
     officer: str = Form(""),
+    coordinator: str = Form(""),
     conn=Depends(get_db),
 ):
     """Dept. Transfer: → FORWARDED with dept + optional responsible officer."""
-    _load(conn, issue_id)
+    _authorize(conn, _load(conn, issue_id), coordinator)
     if officer:
         msg = f"Routed to {department} — Responsible officer: {officer}."
     else:
@@ -144,11 +184,12 @@ def coord_transfer(
 def coord_escalate(
     issue_id: str,
     description: str = Form(...),
+    coordinator: str = Form(""),
     conn=Depends(get_db),
 ):
     """Escalate: → IN_PROGRESS + escalated_at now(). Mobile groups these into
     a dedicated 'Escalated' tab and keeps them out of 'My Reports'."""
-    _load(conn, issue_id)
+    _authorize(conn, _load(conn, issue_id), coordinator)
     conn.execute(
         """UPDATE issues
               SET status = 'IN_PROGRESS',
@@ -171,10 +212,11 @@ def coord_escalate(
 def coord_redirect(
     issue_id: str,
     description: str = Form(...),
+    coordinator: str = Form(""),
     conn=Depends(get_db),
 ):
     """Redirect: → SUBMITTED with a delay-apology message."""
-    _load(conn, issue_id)
+    _authorize(conn, _load(conn, issue_id), coordinator)
     msg = (
         "Sorry for the delay, will re-assign another team to resolve this issue faster. "
         f"Reason: {description}"
@@ -191,10 +233,11 @@ def coord_redirect(
 def coord_close(
     issue_id: str,
     notes: str = Form(""),
+    coordinator: str = Form(""),
     conn=Depends(get_db),
 ):
     """Close: → PENDING_VERIFICATION (citizen sees the verify/reject prompt)."""
-    _load(conn, issue_id)
+    _authorize(conn, _load(conn, issue_id), coordinator)
     conn.execute(
         "UPDATE issues SET status = 'PENDING_VERIFICATION', notify_reporter = 1, "
         "coordinator_message = ? WHERE id = ?",
@@ -218,7 +261,7 @@ def coord_mark_false(
 ):
     """Mark false: → FALSE with the coordinator's reason. Also records
     ownership so it lands in the acting coordinator's Previous tab."""
-    _load(conn, issue_id)
+    _authorize(conn, _load(conn, issue_id), coordinator)
     msg = f"Marked as false petition. Reason: {reason}" + (f" — {details}" if details else "")
     if coordinator:
         conn.execute(

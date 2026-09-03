@@ -287,23 +287,30 @@ class DioApiClient implements ApiClient {
 
   @override
   Future<Issue> coordinatorTransfer(String issueId, String department,
-          {String notes = '', String officer = ''}) =>
+          {String notes = '', String officer = '', String coordinator = ''}) =>
       _coordPost('/api/coordinator/issues/$issueId/transfer', {
         'department': department,
         if (notes.isNotEmpty) 'notes': notes,
         if (officer.isNotEmpty) 'officer': officer,
+        // Identifies the actor so the backend can reject an action on a
+        // grievance owned by a different coordinator.
+        if (coordinator.isNotEmpty) 'coordinator': coordinator,
       });
 
   @override
   Future<Issue> coordinatorEscalate(String issueId,
-          {required String description}) =>
-      _coordPost('/api/coordinator/issues/$issueId/escalate',
-          {'description': description});
+          {required String description, String coordinator = ''}) =>
+      _coordPost('/api/coordinator/issues/$issueId/escalate', {
+        'description': description,
+        if (coordinator.isNotEmpty) 'coordinator': coordinator,
+      });
 
   @override
-  Future<Issue> coordinatorClose(String issueId, {String notes = ''}) =>
+  Future<Issue> coordinatorClose(String issueId,
+          {String notes = '', String coordinator = ''}) =>
       _coordPost('/api/coordinator/issues/$issueId/close', {
         if (notes.isNotEmpty) 'notes': notes,
+        if (coordinator.isNotEmpty) 'coordinator': coordinator,
       });
 
   @override

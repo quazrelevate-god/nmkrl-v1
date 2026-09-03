@@ -664,6 +664,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       areaName: _areaName,
       geoStatus: _override != null ? 'ready' : _geoStatus,
       accuracy: _accuracy,
+      // No detected ward => the point is outside GCC and the backend will
+      // refuse the report; the sheet says so instead of letting them record.
+      insideGcc: _currentWard != null,
       onRefreshLocation: () {
         // Refresh clears any Egmore-jump override so the sheet's location
         // returns to real-device GPS detection.

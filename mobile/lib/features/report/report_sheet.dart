@@ -35,6 +35,7 @@ class ReportSheet extends ConsumerStatefulWidget {
     required this.areaName,
     required this.geoStatus,
     required this.accuracy,
+    required this.insideGcc,
     required this.onRefreshLocation,
     required this.onSubmitted,
     required this.onUpvoteExisting,
@@ -46,6 +47,11 @@ class ReportSheet extends ConsumerStatefulWidget {
   /// 'ready' | 'loading' | 'fallback'
   final String geoStatus;
   final double? accuracy;
+
+  /// False when the detected point falls outside every GCC ward polygon. The
+  /// backend refuses such reports, so the sheet says so up front rather than
+  /// letting the citizen record a photo and a voice note first.
+  final bool insideGcc;
   final VoidCallback onRefreshLocation;
   final VoidCallback onSubmitted;
   final Future<void> Function(Issue existing) onUpvoteExisting;
@@ -56,6 +62,7 @@ class ReportSheet extends ConsumerStatefulWidget {
     required String areaName,
     required String geoStatus,
     required double? accuracy,
+    required bool insideGcc,
     required VoidCallback onRefreshLocation,
     required VoidCallback onSubmitted,
     required Future<void> Function(Issue existing) onUpvoteExisting,
@@ -71,6 +78,7 @@ class ReportSheet extends ConsumerStatefulWidget {
         areaName: areaName,
         geoStatus: geoStatus,
         accuracy: accuracy,
+        insideGcc: insideGcc,
         onRefreshLocation: onRefreshLocation,
         onSubmitted: onSubmitted,
         onUpvoteExisting: onUpvoteExisting,
@@ -121,7 +129,8 @@ class _ReportSheetState extends ConsumerState<ReportSheet> {
   void _bumpReset() => setState(() => _resetToken++);
 
   /// Both attachments are mandatory — see the guard in [_submit].
-  bool get _canSubmit => _images.isNotEmpty && _recorder.file != null;
+  bool get _canSubmit =>
+      widget.insideGcc && _images.isNotEmpty && _recorder.file != null;
 
   Future<void> _submit({bool force = false}) async {
     setState(() => _error = null);
@@ -275,8 +284,9 @@ class _ReportSheetState extends ConsumerState<ReportSheet> {
                 const SizedBox(width: 8),
                 Flexible(
                   child: Text(
-                    context.tr(
-                        'Fair use policy: you can report 1 grievance per day'),
+                    context.tr(!widget.insideGcc
+                        ? 'Grievances outside GCC boundaries are not accepted right now'
+                        : 'Fair use policy: you can report 1 grievance per day'),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
@@ -291,9 +301,11 @@ class _ReportSheetState extends ConsumerState<ReportSheet> {
             // Swipe to submit.
             const SizedBox(height: 16),
             SwipeToConfirm(
-              label: context.tr(_canSubmit
-                  ? 'Swipe to submit grievance'
-                  : 'Add a photo and a voice note'),
+              label: context.tr(!widget.insideGcc
+                  ? 'Outside GCC boundaries'
+                  : _canSubmit
+                      ? 'Swipe to submit grievance'
+                      : 'Add a photo and a voice note'),
               uppercaseLabel: true,
               busyLabel: 'Submitting…',
               busy: _submitting,

@@ -28,6 +28,12 @@ from utils import (
 
 router = APIRouter(prefix="/api/issues", tags=["issues"])
 
+# Single source of truth for the out-of-area refusal, so the API and the two
+# clients cannot drift apart on the wording.
+OUTSIDE_GCC_MESSAGE = (
+    "Grievances outside GCC boundaries are not accepted right now."
+)
+
 DUPLICATE_RADIUS_M = 100.0
 # Client sends this literal when the user hasn't typed a title — we replace
 # it with the Gemini-generated title (or fall back if Gemini gave nothing).
@@ -62,6 +68,20 @@ async def report_issue(
 ):
     """Report a new street issue. Transcribe audio via Gemini, then check for
     semantic duplicates among nearby open issues before persisting."""
+    # --- Reject out-of-area reports FIRST ------------------------------------
+    # A point outside every GCC ward polygon has no ward, and BOTH the public
+    # ward feed and every coordinator queue filter on ward_no — so such a row
+    # would be invisible to everyone but its reporter, with no coordinator
+    # notified and nothing to route it. Refusing here (rather than after the
+    # write) also avoids paying for a Gemini transcription and leaving orphaned
+    # upload files behind for a grievance that can never be acted on.
+    loc = boundaries.locate(latitude, longitude)
+    ward_no = int(loc["ward"]) if loc["ward"] is not None else None
+    zone = loc["zone"]
+    zone_name = loc["zone_name"]
+    if ward_no is None:
+        raise HTTPException(status_code=422, detail=OUTSIDE_GCC_MESSAGE)
+
     # --- Persist uploaded media ---------------------------------------------
     image_url = None
     audio_url = None
@@ -110,11 +130,6 @@ async def report_issue(
 
     # --- Persist the new issue ----------------------------------------------
     area_name = reverse_geocode(latitude, longitude)
-    # Real GCC zone + ward via point-in-polygon over the KML boundaries.
-    loc = boundaries.locate(latitude, longitude)
-    ward_no = int(loc["ward"]) if loc["ward"] is not None else None
-    zone = loc["zone"]
-    zone_name = loc["zone_name"]
     department = classify_department(
         title, ai.get("transcript", ""), ai.get("highlights", [])
     )

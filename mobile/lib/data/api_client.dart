@@ -88,13 +88,15 @@ abstract class ApiClient {
 
   /// Dept. Transfer: → FORWARDED with dept + optional responsible officer.
   Future<Issue> coordinatorTransfer(String issueId, String department,
-      {String notes = '', String officer = ''});
+      {String notes = '', String officer = '', String coordinator = ''});
 
   /// Escalate: → IN_PROGRESS + escalated_at server-side timestamp.
-  Future<Issue> coordinatorEscalate(String issueId, {required String description});
+  Future<Issue> coordinatorEscalate(String issueId,
+      {required String description, String coordinator = ''});
 
   /// Close: → PENDING_VERIFICATION (citizen sees the verify prompt).
-  Future<Issue> coordinatorClose(String issueId, {String notes = ''});
+  Future<Issue> coordinatorClose(String issueId,
+      {String notes = '', String coordinator = ''});
 
   /// Mark false: → FALSE with the coordinator's reason.
   Future<Issue> coordinatorMarkFalse(String issueId, String reason,

@@ -270,6 +270,9 @@ const Map<String, String> _ta = {
   'Close': 'மூடு',
   'Assigning…': 'ஒதுக்குகிறது…',
   'Recent': 'சமீபத்தியது',
+  'Grievances outside GCC boundaries are not accepted right now':
+      'GCC எல்லைக்கு வெளியே உள்ள புகார்கள் தற்போது ஏற்கப்படவில்லை',
+  'Outside GCC boundaries': 'GCC எல்லைக்கு வெளியே',
   'Already supported this grievance': 'இந்த புகாருக்கு ஏற்கனவே ஆதரவு அளித்துள்ளீர்கள்',
   'Add both a photo and a voice note to submit.':
       'சமர்ப்பிக்க புகைப்படம் மற்றும் குரல் பதிவு இரண்டையும் சேர்க்கவும்.',
