@@ -15,7 +15,6 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronsRight, Check } from "lucide-react";
 
-const KNOB = 48;
 const PAD = 4;
 
 export default function SwipeToConfirm({
@@ -26,7 +25,19 @@ export default function SwipeToConfirm({
   busy = false,
   tone = "brand", // brand | emerald
   resetToken = 0,
+  // Styling overrides. Defaults reproduce the original control exactly, so the
+  // support/upvote call sites are unaffected; the report sheet passes the
+  // light-on-navy treatment (wide cream knob, uppercase label) instead.
+  height = 56,
+  knobWidth = 48,
+  radius = 16,
+  uppercase = false,
+  trackStyle = null,
+  knobStyle = null,
+  labelColor = null,
+  fillStyle = null,
 }) {
+  const KNOB = knobWidth;
   const trackRef = useRef(null);
   const [x, setX] = useState(0);
   const [dragging, setDragging] = useState(false);
@@ -69,18 +80,30 @@ export default function SwipeToConfirm({
   return (
     <div
       ref={trackRef}
-      className={`relative h-14 w-full select-none overflow-hidden rounded-2xl bg-slate-100 ring-1 ring-slate-200 ${disabled ? "opacity-50" : ""}`}
+      className={`relative w-full select-none overflow-hidden ${
+        trackStyle ? "" : "bg-slate-100 ring-1 ring-slate-200"
+      } ${disabled ? "opacity-60" : ""}`}
+      style={{ height, borderRadius: radius, ...(trackStyle || {}) }}
     >
       {/* progress fill */}
       <div
-        className={`absolute inset-y-0 left-0 bg-gradient-to-r ${fillTone}`}
-        style={{ width: x + KNOB + PAD, transition: trans }}
+        className={`absolute inset-y-0 left-0 ${fillStyle ? "" : `bg-gradient-to-r ${fillTone}`}`}
+        style={{ width: x + KNOB + PAD, transition: trans, ...(fillStyle || {}) }}
       />
 
       {/* track label */}
       <div
-        className="pointer-events-none absolute inset-0 flex items-center justify-center pl-10 text-sm font-bold"
-        style={{ color: pct > 0.45 || confirmed ? "#ffffff" : "#64748b", transition: "color .2s ease" }}
+        className={`pointer-events-none absolute inset-0 flex items-center justify-center pl-10 font-bold ${
+          uppercase ? "text-xs uppercase tracking-[0.03em]" : "text-sm"
+        }`}
+        style={{
+          color: labelColor
+            ? labelColor
+            : pct > 0.45 || confirmed
+              ? "#ffffff"
+              : "#64748b",
+          transition: "color .2s ease",
+        }}
       >
         {busy ? busyLabel : confirmed ? "Confirmed" : label}
       </div>
@@ -102,8 +125,15 @@ export default function SwipeToConfirm({
         onPointerUp={onUp}
         onPointerCancel={onUp}
         aria-label={label}
-        style={{ transform: `translateX(${x}px)`, transition: trans }}
-        className="absolute left-1 top-1 flex h-12 w-12 touch-none items-center justify-center rounded-xl bg-white text-brand shadow-md active:scale-95"
+        style={{
+          transform: `translateX(${x}px)`,
+          transition: trans,
+          width: KNOB,
+          height: height - PAD * 2,
+          borderRadius: Math.max(8, radius - 4),
+          ...(knobStyle || {}),
+        }}
+        className="absolute left-1 top-1 flex touch-none items-center justify-center bg-white text-brand shadow-md active:scale-95"
       >
         {confirmed || busy ? <Check size={22} /> : <ChevronsRight size={22} />}
       </button>
