@@ -361,6 +361,17 @@ def verify_issue(
     issue = conn.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
     if issue is None:
         raise HTTPException(status_code=404, detail="Issue not found")
+    # Only the person who reported it may accept or reject the resolution.
+    # Without this, anyone who knew the grievance id could sign off work on
+    # someone else's complaint — including a supporter, who is shown the
+    # grievance in their feed and has every id they need. The reporter is the
+    # one the coordinator's closure is addressed to, and the one whose
+    # rejection sends it back.
+    if (issue["created_by"] or "") != user_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Only the citizen who reported this grievance can verify it.",
+        )
     if issue["status"] != "PENDING_VERIFICATION":
         raise HTTPException(
             status_code=409,
