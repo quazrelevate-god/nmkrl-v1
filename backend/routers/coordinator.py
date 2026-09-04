@@ -51,6 +51,25 @@ def _known_coordinator(conn, username: str) -> bool:
     ).fetchone() is not None
 
 
+def _reject_if_disabled(conn, username: str) -> None:
+    """Stop a revoked account mid-session.
+
+    Sessions do not expire, so gating only the login would leave a disabled
+    coordinator working until they happened to sign out. Every action checks
+    instead, which makes the admin console's disable take effect on the next
+    tap rather than the next login.
+    """
+    row = conn.execute(
+        "SELECT status FROM coordinators WHERE LOWER(username) = ?",
+        ((username or "").strip().lower(),),
+    ).fetchone()
+    if row is not None and (row["status"] or "active").lower() != "active":
+        raise HTTPException(
+            status_code=403,
+            detail="This account has been disabled. Contact the MLA office.",
+        )
+
+
 def _authorize(conn, row, coordinator: str):
     """Gate a state-changing action on a grievance.
 
@@ -64,6 +83,7 @@ def _authorize(conn, row, coordinator: str):
     who = (coordinator or "").strip().lower()
     if not who:
         return
+    _reject_if_disabled(conn, who)
     if not _known_coordinator(conn, who):
         raise HTTPException(
             status_code=400,
@@ -91,6 +111,7 @@ def coordinator_ward_issues(
     """
     order = "upvotes DESC, created_at DESC" if sort == "priority" else "created_at DESC"
     if coordinator:
+        _reject_if_disabled(conn, coordinator)
         rows = conn.execute(
             f"""SELECT * FROM issues
                 WHERE ward_no = ?
@@ -128,6 +149,7 @@ def coord_verify(
     """Coordinator takes ownership: any → ACTIVE. Sets assigned_coordinator
     so the ticket vanishes from every other coordinator's ward tab."""
     prev = _load(conn, issue_id)
+    _reject_if_disabled(conn, coordinator)
     if not _known_coordinator(conn, coordinator):
         raise HTTPException(
             status_code=400,

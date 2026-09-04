@@ -46,6 +46,7 @@ class CoordinatorUpdate(BaseModel):
     home_ward: str | None = None
     password: str | None = None
     must_change_password: bool | None = None
+    status: str | None = None  # 'active' | 'disabled'
 
 
 @router.get("")
@@ -104,6 +105,7 @@ def update_coordinator(username: str, body: CoordinatorUpdate, conn=Depends(get_
         ("constituency", body.constituency),
         ("home_ward", body.home_ward),
         ("password", body.password),
+        ("status", body.status.lower() if body.status else None),
     ]:
         if val is not None:
             updates.append(f"{col} = ?")

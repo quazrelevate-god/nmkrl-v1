@@ -199,6 +199,14 @@ def coordinator_login(
     ).fetchone()
     if row is None or row["password"] != password:
         raise HTTPException(status_code=401, detail="Invalid username or password.")
+    # A disabled account keeps its history and its assigned grievances, but
+    # cannot come back in. Checked AFTER the password so the response does not
+    # reveal which usernames exist.
+    if (row["status"] or "active").lower() != "active":
+        raise HTTPException(
+            status_code=403,
+            detail="This account has been disabled. Contact the MLA office.",
+        )
     return {
         "id": row["id"],
         "username": row["username"],

@@ -9,6 +9,8 @@
  * NOTE: This is illustrative PoC auth — never use plain-text passwords in prod.
  */
 
+import { adminHeaders } from "@/lib/adminAuth";
+
 // All four coordinators run under the Egmore MLA office. They share the
 // constituency but cover different wards so the map filter and per-ward
 // grievance queue actually stratify the demo data.
@@ -180,7 +182,7 @@ export function createCoordinator(coord) {
   try {
     fetch("/fms/api/admin/coordinators", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: adminHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({
         name: record.name,
         username: record.username,
@@ -218,7 +220,7 @@ function mapRemoteCoordinator(row) {
     constituency: row.constituency,
     homeWard: row.home_ward,
     mustChangePassword: !!row.must_change_password,
-    status: "active",
+    status: (row.status || "active").toLowerCase(),
     initials: initialsFrom(row.name),
     avatar: seed.avatar || `https://i.pravatar.cc/160?u=${encodeURIComponent(row.username)}`,
     createdAt: row.created_at || null,
@@ -227,15 +229,18 @@ function mapRemoteCoordinator(row) {
 
 /** Fetch the whole directory from the backend. Throws on network/HTTP error. */
 export async function listCoordinatorsRemote() {
-  const res = await fetch(`${API}/api/admin/coordinators`, { cache: "no-store" });
+  const res = await fetch(`${API}/api/admin/coordinators`, { cache: "no-store", headers: adminHeaders() });
   if (!res.ok) throw new Error(`Could not load coordinators (${res.status})`);
   const data = await res.json();
   const bag = readDirectoryBag();
-  return (data.coordinators || []).map((row) => ({
-    ...mapRemoteCoordinator(row),
-    // Local-only flags the backend doesn't store (e.g. disabled) layer on top.
-    ...(bag.overrides[row.username] || {}),
-  }));
+  return (data.coordinators || []).map((row) => {
+    const mapped = mapRemoteCoordinator(row);
+    // Local overrides fill in fields the backend does not carry (avatar, etc).
+    // Account state comes from the server and must not be shadowed — that is
+    // what made a disabled account look disabled here and work everywhere else.
+    const { status: _ignored, ...localOverrides } = bag.overrides[row.username] || {};
+    return { ...mapped, ...localOverrides, status: mapped.status };
+  });
 }
 
 /** Idempotently ensure the 4 demo coordinators exist in the backend so the
@@ -245,7 +250,7 @@ export async function ensureSeedCoordinators() {
     COORDINATORS.map((c) =>
       fetch(`${API}/api/admin/coordinators`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: adminHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({
           name: c.name,
           username: c.username,
@@ -267,7 +272,7 @@ export async function createCoordinatorRemote(coord) {
   if (!username) throw new Error("Username is required");
   const res = await fetch(`${API}/api/admin/coordinators`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: adminHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({
       name: coord.name,
       username,
@@ -286,7 +291,7 @@ export async function createCoordinatorRemote(coord) {
 }
 
 /** Patch a coordinator in the backend (name/role/constituency/ward/password/
- *  mustChange). A `status` change is local-only (no backend column). */
+ *  mustChange/status). */
 export async function updateCoordinatorRemote(username, patch) {
   const body = {};
   if (patch.name != null) body.name = patch.name;
@@ -296,13 +301,16 @@ export async function updateCoordinatorRemote(username, patch) {
   if (patch.password != null) body.password = patch.password;
   if (patch.mustChangePassword != null)
     body.must_change_password = !!patch.mustChangePassword;
+  // Disable/enable is a real column now. It used to be a per-browser flag, so
+  // a "disabled" coordinator went on signing into the mobile app and working.
+  if (patch.status != null) body.status = patch.status;
 
   if (Object.keys(body).length) {
     const res = await fetch(
       `${API}/api/admin/coordinators/${encodeURIComponent(username)}`,
       {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: adminHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify(body),
       }
     );
@@ -311,8 +319,6 @@ export async function updateCoordinatorRemote(username, patch) {
       throw new Error(b.detail || `Update failed (${res.status})`);
     }
   }
-  // Disable/enable has no backend column — keep it as a per-browser override.
-  if (patch.status != null) updateCoordinator(username, { status: patch.status });
   return getCoordinator(username);
 }
 
@@ -320,7 +326,7 @@ export async function updateCoordinatorRemote(username, patch) {
 export async function deleteCoordinatorRemote(username) {
   const res = await fetch(
     `${API}/api/admin/coordinators/${encodeURIComponent(username)}`,
-    { method: "DELETE" }
+    { method: "DELETE", headers: adminHeaders() }
   );
   if (!res.ok && res.status !== 404) {
     const b = await res.json().catch(() => ({}));

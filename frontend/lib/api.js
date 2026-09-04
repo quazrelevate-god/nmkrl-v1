@@ -20,6 +20,10 @@ function _resolveApiBase() {
 }
 export const API_BASE = _resolveApiBase();
 
+// Admin requests carry a signed token; see lib/adminAuth.js. Imported lazily
+// through a function so the two modules can reference each other safely.
+import { adminHeaders } from "@/lib/adminAuth";
+
 /** Resolve a stored media path (e.g. "/uploads/..") to an absolute URL.
  *
  * Paths starting with "/community/" are static frontend assets bundled with
@@ -175,21 +179,23 @@ export async function fetchAdminIssues({
   if (constituency) params.set("constituency", constituency);
   if (q)            params.set("q", q);
   const qs = params.toString();
-  const res = await fetch(`${API_BASE}/api/admin/issues${qs ? `?${qs}` : ""}`);
+  const res = await fetch(`${API_BASE}/api/admin/issues${qs ? `?${qs}` : ""}`, {
+    headers: adminHeaders(),
+  });
   return handle(res);
 }
 
 /** Admin: list citizen accounts with per-user report/resolved/open counters. */
 export async function fetchAdminUsers({ q } = {}) {
   const qs = q ? `?q=${encodeURIComponent(q)}` : "";
-  const res = await fetch(`${API_BASE}/api/admin/users${qs}`);
+  const res = await fetch(`${API_BASE}/api/admin/users${qs}`, { headers: adminHeaders() });
   return handle(res);
 }
 
 /** Admin: fetch all configured responsible-officer contacts as a
  *  { "<Dept>||<SubDept>||<Officer>": {name, mobile} } map. */
 export async function fetchOfficerContacts() {
-  const res = await fetch(`${API_BASE}/api/admin/officers`);
+  const res = await fetch(`${API_BASE}/api/admin/officers`, { headers: adminHeaders() });
   return handle(res);
 }
 
@@ -197,7 +203,7 @@ export async function fetchOfficerContacts() {
 export async function saveOfficerContact({ key, name = "", mobile = "" }) {
   const res = await fetch(`${API_BASE}/api/admin/officers`, {
     method: "PUT",
-    headers: { "Content-Type": "application/json" },
+    headers: adminHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({ key, name, mobile }),
   });
   return handle(res);
@@ -210,14 +216,14 @@ export async function saveOfficerContact({ key, name = "", mobile = "" }) {
  *  overwrote it — together with the photo/voice recorded for each action.
  */
 export async function fetchIssueTimeline(issueId) {
-  const res = await fetch(`${API_BASE}/api/admin/issues/${issueId}/timeline`);
+  const res = await fetch(`${API_BASE}/api/admin/issues/${issueId}/timeline`, { headers: adminHeaders() });
   return handle(res);
 }
 
 /** Admin: per-coordinator workload and outcomes (assigned / escalated /
  *  resolved / false, closure rate and average turnaround). */
 export async function fetchCoordinatorPerformance() {
-  const res = await fetch(`${API_BASE}/api/admin/coordinator-performance`);
+  const res = await fetch(`${API_BASE}/api/admin/coordinator-performance`, { headers: adminHeaders() });
   return handle(res);
 }
 
@@ -225,6 +231,7 @@ export async function fetchCoordinatorPerformance() {
 export async function adminVerifyGrievance(issueId) {
   const res = await fetch(`${API_BASE}/api/admin/issues/${issueId}/verify`, {
     method: "POST",
+    headers: adminHeaders(),
   });
   return handle(res);
 }
@@ -281,6 +288,7 @@ export async function coordinatorMarkFalse(issueId, reason, details = "") {
 export async function adminForwardIssue(issueId) {
   const res = await fetch(`${API_BASE}/api/admin/issues/${issueId}/forward`, {
     method: "POST",
+    headers: adminHeaders(),
   });
   return handle(res);
 }
@@ -289,6 +297,7 @@ export async function adminForwardIssue(issueId) {
 export async function adminCloseIssue(issueId) {
   const res = await fetch(`${API_BASE}/api/admin/issues/${issueId}/close`, {
     method: "POST",
+    headers: adminHeaders(),
   });
   return handle(res);
 }
@@ -297,6 +306,7 @@ export async function adminCloseIssue(issueId) {
 export async function adminStartIssue(issueId) {
   const res = await fetch(`${API_BASE}/api/admin/issues/${issueId}/progress`, {
     method: "POST",
+    headers: adminHeaders(),
   });
   return handle(res);
 }

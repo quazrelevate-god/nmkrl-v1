@@ -258,6 +258,15 @@ def init_db() -> None:
                 conn.execute(f"ALTER TABLE issues ADD COLUMN {col} {defn}")
             except Exception:
                 pass
+        # Account state. Admin's enable/disable was a per-browser flag with no
+        # column behind it, so a "disabled" coordinator went on signing into the
+        # mobile app and working normally. Revocation needs somewhere to live.
+        try:
+            conn.execute(
+                "ALTER TABLE coordinators ADD COLUMN status TEXT NOT NULL DEFAULT 'active'"
+            )
+        except Exception:
+            pass
         # upvotes.name carries the verified upvoter name (OTP-gated public upvotes).
         try:
             conn.execute("ALTER TABLE upvotes ADD COLUMN name TEXT DEFAULT ''")

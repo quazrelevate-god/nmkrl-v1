@@ -20,12 +20,13 @@ import time
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import boundaries
+from admin_auth import issue_token, require_admin, verify_credentials
 from database import DB_PATH, get_connection, init_db
 from gemini_service import keyword_department
 from routers import (
@@ -127,7 +128,18 @@ def _seed_if_needed() -> None:
     """
     print(f"[seed] DB_PATH={DB_PATH} UPLOAD_DIR={UPLOAD_DIR} /data mounted={os.path.isdir('/data')}")
     seed_db = os.path.join(SEED_DIR, "fixmystreet.db")
-    if os.path.exists(seed_db) and _db_is_empty():
+    # FORCE_RESEED=1 resets the demo data on the next boot, on purpose.
+    #
+    # The volume at /data persists across redeploys — that is what it is for —
+    # so the automatic seed only ever fires on a genuinely fresh volume. If you
+    # DO want a clean demo dataset before a pitch, set this, redeploy, then
+    # unset it. Doing it deliberately is the point: the old behaviour reseeded
+    # whenever the database merely failed to read, which is how live data gets
+    # destroyed by a restart nobody thought was dangerous.
+    forced = os.environ.get("FORCE_RESEED", "").strip().lower() in ("1", "true", "yes")
+    if forced:
+        print("[seed] FORCE_RESEED set — resetting to the bundled demo data.")
+    if os.path.exists(seed_db) and (forced or _db_is_empty()):
         os.makedirs(os.path.dirname(DB_PATH) or ".", exist_ok=True)
         # _db_is_empty() should already have ruled this out, but seeding is
         # destructive and unrecoverable — keep a copy of anything non-trivial
@@ -200,9 +212,28 @@ app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 # Routers
 app.include_router(auth.router)
 app.include_router(issues.router)
-app.include_router(admin.router)
+# The admin surface is the only place accounts are created and passwords are
+# reset, so it is gated as a whole rather than endpoint by endpoint — a route
+# added later is protected by default instead of by remembering to say so.
+app.include_router(admin.router, dependencies=[Depends(require_admin)])
 app.include_router(coordinator.router)
-app.include_router(coordinators_admin.router)
+app.include_router(coordinators_admin.router, dependencies=[Depends(require_admin)])
+
+
+@app.post("/api/admin/auth/login", tags=["admin"])
+def admin_login(username: str = Form(...), password: str = Form(...)):
+    """Sign in to the admin console. Deliberately NOT behind require_admin."""
+    if not verify_credentials(username, password):
+        raise HTTPException(status_code=401, detail="Invalid username or password.")
+    return issue_token(username.strip().lower())
+
+
+@app.get("/api/admin/auth/me", tags=["admin"])
+def admin_me(who: str = Depends(require_admin)):
+    """Cheap token check so the console can validate a stored token on load."""
+    return {"username": who}
+
+
 app.include_router(departments.router)
 app.include_router(notifications.router)
 app.include_router(servicehub.router)

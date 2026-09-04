@@ -10,11 +10,12 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { LayoutDashboard, Ticket, ClipboardCheck, Megaphone, Users, Landmark, LogOut, FolderTree, Network } from "lucide-react";
 import { useAdminData } from "./AdminDataProvider";
 import { listCoordinators } from "@/lib/coordinators";
 import { listPending, MODERATION_EVENT } from "@/lib/postModeration";
+import { adminLogout, getAdminUser } from "@/lib/adminAuth";
 
 const NAV = [
   { href: "/admin/performance", label: "Performance", icon: LayoutDashboard, badgeKey: null },
@@ -28,6 +29,7 @@ const NAV = [
 
 export default function AdminSidebar() {
   const pathname = usePathname();
+  const router = useRouter();
   const { tickets, pending } = useAdminData();
 
   // Live coordinator count, refreshes when the admin creates/disables users
@@ -113,12 +115,17 @@ export default function AdminSidebar() {
         <div className="flex items-center gap-3">
           <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-800 text-xs font-bold text-white">AD</div>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-bold text-slate-800">admin</p>
+            <p className="truncate text-sm font-bold text-slate-800">{getAdminUser() || "admin"}</p>
             <p className="truncate text-[11px] text-slate-500">PA Office</p>
           </div>
-          <Link href="/" title="Exit to citizen app" className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-900/5 hover:text-slate-800">
+          <button
+            type="button"
+            title="Sign out of the staff portal"
+            onClick={() => { adminLogout(); router.replace("/admin/login"); }}
+            className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-900/5 hover:text-slate-800"
+          >
             <LogOut size={16} />
-          </Link>
+          </button>
         </div>
       </div>
     </aside>
