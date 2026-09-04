@@ -43,9 +43,9 @@ enum _WardSort { recent, priority }
 /// computed per-device by [_sheetMaxFraction] rather than fixed.
 
 /// What the expanded snap must leave uncovered, measured down from the status
-/// bar: the app bar (8 gap + 56 tall), the ward pill (10 gap + 38 tall) and a
+/// bar: the app bar (8 gap + 56 tall), the ward pill (10 gap + 32 tall) and a
 /// breathing gap under it. Below this the sheet would swallow both chips.
-const double _kAppBarBlockHeight = 8 + 56 + 10 + 38;
+const double _kAppBarBlockHeight = 8 + 56 + 10 + 32;
 const double _kExpandedTopGap = 18;
 
 /// Fixed-duration settle between the two snaps. Without this the sheet lands on
@@ -843,21 +843,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               ),
             ),
 
-            // ── 3. Constituency · ward chip, centred under the app bar. Same
-            // y as before; only the x anchoring changed (left → centred). ──
+            // ── 3. Constituency · ward chip under the app bar, left aligned
+            // to the same 14pt inset so its left edge lines up with the
+            // wordmark above it rather than floating on its own centre. ──
             if (_currentWard != null)
               Positioned(
                 key: const ValueKey('home-wardpill'),
                 top: topInset + 8 + 56 + 10,
-                left: 0,
-                right: 0,
-                child: Center(
-                  child: _WardPill(
-                    constituency: (_locate?.constituencies.isEmpty ?? true)
-                        ? ''
-                        : shortAC(_locate!.constituencies.first),
-                    ward: '$_currentWard',
-                  ),
+                left: 14,
+                child: _WardPill(
+                  constituency: (_locate?.constituencies.isEmpty ?? true)
+                      ? ''
+                      : shortAC(_locate!.constituencies.first),
+                  ward: '$_currentWard',
                 ),
               ),
 
@@ -1608,13 +1606,22 @@ class _HomeNavBar extends StatelessWidget {
           // Light neutral track; the active pill is the only pure white.
           color: const Color(0xFFF1F2F4),
           borderRadius: BorderRadius.circular(_kNavBarHeight / 2),
+          // Neumorphic pair: one soft shadow below-right, one light bloom
+          // above-left, so the bar reads as pressed UP out of the surface
+          // rather than dropped on top of it. Kept low-contrast on purpose —
+          // it floats over a live map, and a strong pair would fight the tiles.
           boxShadow: [
-            // Very soft elevation — low opacity, modest blur.
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.07),
-              blurRadius: 14,
-              offset: const Offset(0, 4),
-              spreadRadius: -2,
+              color: const Color(0xFF9AA5B4).withValues(alpha: 0.30),
+              blurRadius: 16,
+              offset: const Offset(4, 6),
+              spreadRadius: -4,
+            ),
+            BoxShadow(
+              color: Colors.white.withValues(alpha: 0.85),
+              blurRadius: 12,
+              offset: const Offset(-3, -3),
+              spreadRadius: -4,
             ),
           ],
         ),
@@ -1688,12 +1695,21 @@ class _NavSegment extends StatelessWidget {
         decoration: BoxDecoration(
           color: active ? Colors.white : Colors.transparent,
           borderRadius: BorderRadius.circular(999),
+          // The active tab is raised off the track with the same two-light
+          // logic as the bar, one step quieter so it reads as nested inside it.
           boxShadow: active
               ? [
                   BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.07),
+                    color: const Color(0xFF9AA5B4).withValues(alpha: 0.34),
+                    blurRadius: 6,
+                    offset: const Offset(2, 3),
+                    spreadRadius: -2,
+                  ),
+                  BoxShadow(
+                    color: Colors.white.withValues(alpha: 0.95),
                     blurRadius: 5,
-                    offset: const Offset(0, 1),
+                    offset: const Offset(-2, -2),
+                    spreadRadius: -2,
                   ),
                 ]
               : null,
@@ -1777,22 +1793,51 @@ class _NavPlusButtonState extends State<_NavPlusButton> {
         widget.onTap();
       },
       child: AnimatedScale(
-        scale: _down ? 0.93 : 1,
+        scale: _down ? 0.95 : 1,
         duration: const Duration(milliseconds: 160),
         curve: NkMotion.settle,
-        child: Container(
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          curve: NkMotion.settle,
           alignment: Alignment.center,
           decoration: BoxDecoration(
-            // Flat navy — no radial bloom, so it reads as part of the bar.
-            color: NkColors.refBlueDeep,
+            // A soft top-left-lit gradient rather than a flat fill: the light
+            // has to come from the same direction as the bar's own for the
+            // raised read to hold.
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: _down
+                  ? const [NkColors.refBlueDeep, NkColors.refBlueInner]
+                  : const [NkColors.refBlueInner, NkColors.refBlueDeep],
+            ),
             borderRadius: BorderRadius.circular(14),
-            boxShadow: [
-              BoxShadow(
-                color: NkColors.refBlueDeep.withValues(alpha: 0.20),
-                blurRadius: 7,
-                offset: const Offset(0, 2),
-              ),
-            ],
+            // Raised at rest; on press the cast shadow collapses and a tight
+            // dark halo takes over, so the button reads as pushed INTO the
+            // track instead of merely shrinking.
+            boxShadow: _down
+                ? [
+                    BoxShadow(
+                      color: const Color(0xFF7E8A99).withValues(alpha: 0.45),
+                      blurRadius: 4,
+                      offset: const Offset(1, 1),
+                      spreadRadius: -1,
+                    ),
+                  ]
+                : [
+                    BoxShadow(
+                      color: const Color(0xFF6C7A8B).withValues(alpha: 0.45),
+                      blurRadius: 9,
+                      offset: const Offset(3, 4),
+                      spreadRadius: -2,
+                    ),
+                    BoxShadow(
+                      color: Colors.white.withValues(alpha: 0.95),
+                      blurRadius: 6,
+                      offset: const Offset(-2, -2),
+                      spreadRadius: -2,
+                    ),
+                  ],
           ),
           child: const Icon(
             Icons.add_rounded,
@@ -1961,12 +2006,12 @@ class _DemoJumpButton extends StatelessWidget {
         onTap();
       },
       behavior: HitTestBehavior.opaque,
-      child: FrostedCapsule(
-        padding: const EdgeInsets.all(9),
+      child: SolidCapsule(
+        padding: const EdgeInsets.all(10),
         child: Icon(
           Icons.account_balance,
           size: 16,
-          color: active ? NkColors.gold300 : Colors.white,
+          color: active ? NkColors.gold300 : NkColors.slate500,
         ),
       ),
     );
@@ -2082,53 +2127,43 @@ class _WardPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return FrostedCapsule(
-      padding: const EdgeInsets.fromLTRB(12, 6, 6, 6),
+    return SolidCapsule(
+      // Even inset both sides now that the ward number is plain text — the
+      // asymmetric padding existed only to seat the blue circle.
+      padding: const EdgeInsets.fromLTRB(12, 7, 13, 7),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.account_balance, size: 15, color: Colors.white),
+          const Icon(Icons.account_balance, size: 15, color: NkColors.refBlue),
           const SizedBox(width: 8),
           if (constituency.isNotEmpty) ...[
             Text(
               constituency,
               style: const TextStyle(
-                fontSize: 13,
+                fontSize: 12.5,
                 fontWeight: FontWeight.w700,
-                color: Colors.white,
+                color: NkColors.slate900,
               ),
             ),
             const SizedBox(width: 8),
-            Container(
-                width: 1,
-                height: 14,
-                color: Colors.white.withValues(alpha: 0.45)),
+            Container(width: 1, height: 13, color: NkColors.slate200),
             const SizedBox(width: 8),
           ],
           Text(
             context.tr('Ward'),
             style: const TextStyle(
-              fontSize: 13,
+              fontSize: 12.5,
               fontWeight: FontWeight.w500,
-              color: Colors.white,
+              color: NkColors.slate500,
             ),
           ),
-          const SizedBox(width: 7),
-          Container(
-            constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
-            padding: const EdgeInsets.symmetric(horizontal: 7),
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: NkColors.refBlue.withValues(alpha: 0.62),
-              borderRadius: BorderRadius.circular(999),
-            ),
-            child: Text(
-              ward,
-              style: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w800,
-                color: Colors.white,
-              ),
+          const SizedBox(width: 5),
+          Text(
+            ward,
+            style: const TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w800,
+              color: NkColors.slate900,
             ),
           ),
         ],

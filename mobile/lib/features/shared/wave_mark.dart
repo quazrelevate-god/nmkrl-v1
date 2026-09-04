@@ -5,21 +5,31 @@ import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../core/theme.dart';
 
-/// The supplied நம்குரல் wordmark, rendered from its ORIGINAL vector asset —
-/// cream gradient lettering plus the `#004AAD` signal arcs. Never redraw this
-/// with text/fonts: the asset is the source of truth for the brand mark.
+/// The supplied நம்குரல் wordmark, rendered from its ORIGINAL vector assets.
+/// Never redraw this with text/fonts: the assets are the source of truth for
+/// the brand mark.
 ///
-/// The artwork's own aspect ratio is ~782:230, so callers size it by [height]
-/// and the width follows.
+/// Two authored variants, picked by the surface it sits on:
+///   • default — cream lettering + `#004AAD` arcs, for navy backgrounds
+///     (splash, login, the report sheet).
+///   • [onLight] — navy `#1A2744` lettering + gold `#C8963E` arcs, for white
+///     surfaces. The dark-background mark washes out on white, which is why
+///     the coordinator bar had to draw its own text instead of using this.
+///
+/// The artwork's aspect ratio is ~782:230, so callers size it by [height] and
+/// the width follows.
 class BrandLogo extends StatelessWidget {
-  const BrandLogo({super.key, this.height = 30});
+  const BrandLogo({super.key, this.height = 30, this.onLight = false});
 
   final double height;
+  final bool onLight;
 
   @override
   Widget build(BuildContext context) {
     return SvgPicture.asset(
-      'assets/brand/nammakural_wordmark.svg',
+      onLight
+          ? 'assets/brand/nammakural_wordmark_light.svg'
+          : 'assets/brand/nammakural_wordmark.svg',
       height: height,
       fit: BoxFit.contain,
       alignment: Alignment.centerLeft,

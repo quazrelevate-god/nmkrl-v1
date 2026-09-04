@@ -1,9 +1,8 @@
-import 'dart:ui' show ImageFilter;
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/i18n.dart';
 import '../../../core/theme.dart';
 import '../../../domain/models/issue.dart';
 import '../../../domain/profile_data.dart';
@@ -13,10 +12,15 @@ import '../../search/search_overlay.dart';
 import '../../shared/notification_bell.dart';
 import '../../shared/wave_mark.dart';
 
-/// Home app bar (v4) — a frosted capsule floating directly over the full-bleed
-/// map. Gold wordmark on the left; search, notifications and the avatar on the
-/// right. There is no solid bar, no greeting and no language toggle: the map
-/// reads through the blur, and language now lives in [ProfileScreen].
+/// Home app bar (v5) — a SOLID white capsule floating over the full-bleed map.
+///
+/// It used to be a frosted panel with a bare magnifier. Solid white lets the
+/// navy wordmark and the dark glyphs hold their contrast over any tile the map
+/// happens to draw underneath, and the search is a real field rather than an
+/// icon, so what it does is legible without tapping it.
+///
+/// Left to right: wordmark, the search field taking the free space, the
+/// notification bell, the avatar.
 class ProfileHeader extends ConsumerWidget {
   const ProfileHeader({
     super.key,
@@ -31,44 +35,45 @@ class ProfileHeader extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final accountName = ref.watch(prefsProvider).citizenName;
-    return FrostedCapsule(
-      padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
+    return SolidCapsule(
+      // Tighter on the right: the bell and avatar are round, so they carry
+      // their own optical margin and an equal numeric inset reads as too much.
+      padding: const EdgeInsets.fromLTRB(13, 8, 7, 8),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          const BrandLogo(height: 30),
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _AiSearchButton(
-                onTap: () => SearchOverlay.open(
-                  context,
-                  issues: searchIssues,
-                  onUpvote: onUpvote,
-                ),
+          // Every point spent here is a point the placeholder loses, and the
+          // placeholder is what tells a first-time user what can be searched.
+          const BrandLogo(height: 23, onLight: true),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _SearchField(
+              onTap: () => SearchOverlay.open(
+                context,
+                issues: searchIssues,
+                onUpvote: onUpvote,
               ),
-              const SizedBox(width: 2),
-              NotificationBell(
-                recipientType: 'citizen',
-                recipientId: ref.watch(userIdProvider),
-                dark: true, // white glyph on the smoky capsule
-              ),
-              const SizedBox(width: 4),
-              _ProfileAvatar(initials: ProfileData.initialsOf(accountName)),
-            ],
+            ),
           ),
+          const SizedBox(width: 4),
+          NotificationBell(
+            recipientType: 'citizen',
+            recipientId: ref.watch(userIdProvider),
+            // Dark glyph — the bar is white now.
+            dark: false,
+          ),
+          _ProfileAvatar(initials: ProfileData.initialsOf(accountName)),
         ],
       ),
     );
   }
 }
 
-/// The shared frosted-glass surface used by the floating map overlays (app bar
-/// + ward chip): a real backdrop blur under a translucent white fill, so the
-/// map stays legible underneath. Popups deliberately do NOT use this — they
-/// are solid white.
-class FrostedCapsule extends StatelessWidget {
-  const FrostedCapsule({
+/// Solid white capsule for the floating map overlays (app bar, ward chip,
+/// demo jump). Opaque rather than frosted, so dark type keeps its contrast
+/// whatever the map draws underneath; a hairline edge and a soft drop shadow
+/// separate it from the tiles without a heavy border.
+class SolidCapsule extends StatelessWidget {
+  const SolidCapsule({
     super.key,
     required this.child,
     this.padding = const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
@@ -79,30 +84,31 @@ class FrostedCapsule extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(999),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-        child: Container(
-          padding: padding,
-          decoration: BoxDecoration(
-            // Smoky white — light enough for dark glyphs, deep enough that the
-            // gold wordmark still reads against pale map tiles.
-            color: const Color(0xFF5A6577).withValues(alpha: 0.30),
-            borderRadius: BorderRadius.circular(999),
-            border:
-                Border.all(color: Colors.white.withValues(alpha: 0.28), width: 1),
+    return Container(
+      padding: padding,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: const Color(0xFFE8EBEF), width: 1),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.10),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
+            spreadRadius: -2,
           ),
-          child: child,
-        ),
+        ],
       ),
+      child: child,
     );
   }
 }
 
-/// Magnifier with a small sparkle — the AI-assisted grievance search.
-class _AiSearchButton extends StatelessWidget {
-  const _AiSearchButton({required this.onTap});
+/// The search entry point: a real field, not a bare icon. It does not take
+/// focus — tapping anywhere on it opens [SearchOverlay], which owns the actual
+/// input — so the placeholder is free to say what can be searched for.
+class _SearchField extends StatelessWidget {
+  const _SearchField({required this.onTap});
 
   final VoidCallback onTap;
 
@@ -111,18 +117,29 @@ class _AiSearchButton extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
-      child: SizedBox(
-        width: 40,
-        height: 40,
-        child: Stack(
-          alignment: Alignment.center,
+      child: Container(
+        height: 36,
+        padding: const EdgeInsets.symmetric(horizontal: 9),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF1F3F6),
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Row(
           children: [
-            const Icon(Icons.search, size: 22, color: Colors.white),
-            Positioned(
-              top: 8,
-              right: 6,
-              child: Icon(Icons.auto_awesome,
-                  size: 10, color: NkColors.gold300.withValues(alpha: 0.95)),
+            const Icon(Icons.search, size: 16, color: NkColors.slate500),
+            const SizedBox(width: 5),
+            Expanded(
+              child: Text(
+                context.tr('Search location, issue or ward'),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 11,
+                  height: 1.1,
+                  color: NkColors.slate400,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
             ),
           ],
         ),
@@ -147,14 +164,14 @@ class _ProfileAvatar extends StatelessWidget {
         );
       },
       child: Container(
-        padding: const EdgeInsets.all(2),
+        padding: const EdgeInsets.all(1.5),
         decoration: const BoxDecoration(
           gradient: nkGoldGradient,
           shape: BoxShape.circle,
         ),
         child: Container(
-          height: 34,
-          width: 34,
+          height: 31,
+          width: 31,
           alignment: Alignment.center,
           decoration: const BoxDecoration(
             // Brand blue from the logo SVG, not an approximated navy.
@@ -164,7 +181,7 @@ class _ProfileAvatar extends StatelessWidget {
           child: Text(
             initials,
             style: const TextStyle(
-              fontSize: 12.5,
+              fontSize: 12,
               fontWeight: FontWeight.w900,
               color: NkColors.gold300,
             ),

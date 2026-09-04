@@ -191,6 +191,7 @@ const Map<String, String> _ta = {
   'Search ticket no. or grievance nearby':
       'டிக்கெட் எண் அல்லது அருகிலுள்ள குறையைத் தேடுங்கள்',
   'Search grievances in this ward': 'இந்த வார்டில் குறைகளைத் தேடுங்கள்',
+  'Search location, issue or ward': 'இடம், குறை அல்லது வார்டைத் தேடுங்கள்',
   'In My Ward': 'என் வார்டில்',
   'My Reports': 'என் புகார்கள்',
   'Public grievances in your ward': 'உங்கள் வார்டில் பொது குறைகள்',
