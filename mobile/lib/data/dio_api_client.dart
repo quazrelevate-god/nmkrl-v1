@@ -390,6 +390,30 @@ class DioApiClient implements ApiClient {
       );
 
   @override
+  Future<({String name, String mobile})> fetchOfficerContact({
+    required String department,
+    required String subDept,
+    required String officer,
+  }) async {
+    try {
+      final res = await _dio.get<Map<String, dynamic>>(
+        '/api/departments/officer',
+        queryParameters: {
+          'dept': department,
+          'sub_dept': subDept,
+          'officer': officer,
+        },
+      );
+      final d = res.data ?? const {};
+      return (name: '${d['name'] ?? ''}', mobile: '${d['mobile'] ?? ''}');
+    } catch (_) {
+      // A missing contact must not block the dispatch — the sheet falls back
+      // to opening WhatsApp without a recipient.
+      return (name: '', mobile: '');
+    }
+  }
+
+  @override
   Future<({List<Map<String, dynamic>> items, String serverTime})>
       fetchNotifications({
     required String recipientType,

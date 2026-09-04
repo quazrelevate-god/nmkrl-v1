@@ -16,6 +16,7 @@ Run with:
 import os
 import shutil
 import sqlite3
+import time
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
@@ -82,19 +83,37 @@ def _backfill_zones_and_departments() -> None:
 
 
 def _db_is_empty() -> bool:
-    """True when the target DB file is missing or has no grievances yet."""
+    """True ONLY when the target DB genuinely holds no grievances.
+
+    A read failure is not emptiness. This used to `return True` on any
+    sqlite3.Error, which made "I could not read the database" indistinguishable
+    from "the database is new" — and the caller's response to empty is to copy
+    the demo seed over the file. A restart that raced an in-flight write, or a
+    volume still settling, was therefore enough to silently destroy every live
+    grievance, coordinator and assignment and replace them with demo data.
+    Observed in testing: a 1,037-grievance database wiped back to the 1,020-row
+    seed because a `kill -9` had left the file locked for a moment.
+
+    Only "no such table" actually proves a fresh file. Everything else means we
+    could not tell, and the safe answer to "should I overwrite live data?" when
+    the answer is unknown is no.
+    """
     if not os.path.exists(DB_PATH):
         return True
     try:
-        conn = sqlite3.connect(DB_PATH)
+        # Wait out a transient lock rather than treating it as an answer.
+        conn = sqlite3.connect(DB_PATH, timeout=15)
         try:
             n = conn.execute("SELECT COUNT(*) FROM issues").fetchone()[0]
         finally:
             conn.close()
         return n == 0
-    except sqlite3.Error:
-        # No schema yet (freshly-created empty file) → treat as empty.
-        return True
+    except sqlite3.Error as exc:
+        if "no such table" in str(exc).lower():
+            return True  # schema not created yet — a genuinely fresh file
+        print(f"[seed] NOT seeding: cannot read {DB_PATH} ({exc}). "
+              f"Refusing to overwrite a database whose contents are unknown.")
+        return False
 
 
 def _seed_if_needed() -> None:
@@ -110,6 +129,13 @@ def _seed_if_needed() -> None:
     seed_db = os.path.join(SEED_DIR, "fixmystreet.db")
     if os.path.exists(seed_db) and _db_is_empty():
         os.makedirs(os.path.dirname(DB_PATH) or ".", exist_ok=True)
+        # _db_is_empty() should already have ruled this out, but seeding is
+        # destructive and unrecoverable — keep a copy of anything non-trivial
+        # that was there, so a wrong answer costs a file rename, not the data.
+        if os.path.exists(DB_PATH) and os.path.getsize(DB_PATH) > 4096:
+            backup = f"{DB_PATH}.pre-seed-{int(time.time())}"
+            shutil.copy2(DB_PATH, backup)
+            print(f"[seed] Existing DB backed up → {backup}")
         shutil.copy2(seed_db, DB_PATH)
         print(f"[seed] Seeded demo DB → {DB_PATH}")
 
@@ -142,6 +168,12 @@ async def lifespan(app: FastAPI):
     # Parse zones.kml + wards.kml into in-memory shapely polygons exactly once.
     boundaries.load_boundaries()
     _backfill_zones_and_departments()
+    # Give every responsible-officer slot a desk number so the coordinator's
+    # WhatsApp dispatch has a chat to open. Idempotent; never overwrites a
+    # number configured in the admin console.
+    from routers.departments import seed_officer_numbers
+    with get_connection() as conn:
+        seed_officer_numbers(conn)
     yield
 
 

@@ -121,6 +121,16 @@ abstract class ApiClient {
   /// Departments → types → sub-types → sub-departments + responsible officers).
   Future<Map<String, dynamic>> fetchDepartmentsTree();
 
+  /// The desk contact configured for one responsible-officer slot, so the
+  /// Dept Transfer dispatch can open THAT officer's WhatsApp chat instead of
+  /// dropping the coordinator into a contact picker. Returns empty strings
+  /// when nothing is configured.
+  Future<({String name, String mobile})> fetchOfficerContact({
+    required String department,
+    required String subDept,
+    required String officer,
+  });
+
   // ── Notifications (routers/notifications.py) ──────────────────────────
 
   /// Poll for unseen notifications strictly newer than [since] (ISO ts).

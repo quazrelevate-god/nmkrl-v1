@@ -61,8 +61,12 @@ export default function DepartmentsPage() {
     let done = 0, total = 0;
     for (const g of gs) for (const o of g.officers) {
       total++;
+      // The MOBILE is what makes a slot usable — the coordinator app opens
+      // that number's WhatsApp chat to dispatch. A display name is optional
+      // (the taxonomy already names the designation), so requiring it here
+      // reported every seeded officer as unconfigured.
       const c = contacts[contactKey(deptName, g.subDept, o)];
-      if (c && c.name && c.mobile) done++;
+      if (c && c.mobile) done++;
     }
     return { done, total };
   }

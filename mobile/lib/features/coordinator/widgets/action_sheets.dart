@@ -483,6 +483,11 @@ class _TransferSheetState extends ConsumerState<TransferSheet> {
   bool _dispatchStage = false;
   bool _dispatched = false;
   bool _busy = false;
+  String? _commitError;
+  // Desk contact for the currently-routed officer, so the dispatch opens that
+  // officer's WhatsApp chat rather than a contact picker. Empty until resolved.
+  String _officerMobile = '';
+  String _officerContactName = '';
 
   @override
   void initState() {
@@ -513,6 +518,7 @@ class _TransferSheetState extends ConsumerState<TransferSheet> {
         _originalDept = _department;
         _officer = routing?.officer ?? '';
       });
+      await _loadOfficerContact();
     } catch (e) {
       if (mounted) setState(() => _loadError = 'Couldn\'t load department taxonomy — $e');
     }
@@ -550,25 +556,74 @@ class _TransferSheetState extends ConsumerState<TransferSheet> {
         'Kindly action this grievance at the earliest.';
   }
 
-  Future<void> _submit() async {
-    setState(() => _busy = true);
+  /// Move to the dispatch preview. Deliberately does NOT touch the backend.
+  ///
+  /// It used to post the transfer here, which meant the citizen was told
+  /// "your grievance was transferred to X" while the coordinator was still
+  /// looking at a preview they had not sent — and if they backed out with
+  /// "Edit dispatch", the citizen had already been notified of a transfer
+  /// that never happened. The button says "Preview"; now it only previews.
+  void _submit() => setState(() => _dispatchStage = true);
+
+  /// Commit the transfer: this is the point of no return, and the only place
+  /// the citizen's notification is raised.
+  Future<void> _commit() async {
+    setState(() {
+      _busy = true;
+      _commitError = null;
+    });
     try {
       await widget.onSubmit(_department, _notes.text.trim(), _officer,
           _evidence.photo, _evidence.recorder.file);
-      if (mounted) setState(() => _dispatchStage = true);
+      if (mounted) Navigator.of(context).pop();
+    } catch (e) {
+      // Stay on the dispatch stage so the coordinator can retry — closing here
+      // would look like it worked.
+      if (mounted) setState(() => _commitError = '$e');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
+  /// Resolve the routed officer's desk number. Re-run whenever the routing
+  /// changes, because overriding the department changes the officer too.
+  Future<void> _loadOfficerContact() async {
+    final r = _routing;
+    final officer = r?.officer ?? _officer;
+    if (officer.isEmpty) return;
+    final contact = await ref.read(apiClientProvider).fetchOfficerContact(
+          department: r?.govDept ?? _department,
+          subDept: r?.subDept ?? '',
+          officer: officer,
+        );
+    if (!mounted) return;
+    setState(() {
+      _officerMobile = contact.mobile;
+      _officerContactName = contact.name;
+    });
+  }
+
+  /// WhatsApp deep link for the routed officer.
+  ///
+  /// `wa.me/<91…>` opens that officer's chat with the dispatch pre-typed. With
+  /// no number configured it falls back to the old share-sheet behaviour, which
+  /// makes the coordinator choose a recipient by hand.
+  Uri get _waUri {
+    final text = Uri.encodeComponent(_waMessage);
+    final digits = _officerMobile.replaceAll(RegExp(r'\D'), '');
+    if (digits.isEmpty) {
+      return Uri.parse('https://wa.me/?text=$text');
+    }
+    // Stored numbers are local 10-digit; prefix India's country code.
+    final e164 = digits.length == 10 ? '91$digits' : digits;
+    return Uri.parse('https://wa.me/$e164?text=$text');
+  }
+
   Future<void> _openWhatsAppWeb() async {
     HapticFeedback.mediumImpact();
     setState(() => _dispatched = true);
-    final url = Uri.parse(
-      'https://web.whatsapp.com/send?text=${Uri.encodeComponent(_waMessage)}',
-    );
     try {
-      await launchUrl(url, mode: LaunchMode.externalApplication);
+      await launchUrl(_waUri, mode: LaunchMode.externalApplication);
     } catch (_) {
       /* best-effort — the toast + dispatched state still show */
     }
@@ -719,7 +774,16 @@ class _TransferSheetState extends ConsumerState<TransferSheet> {
                           style: const TextStyle(fontSize: 12)),
                     ),
                 ],
-                onChanged: (v) => setState(() => _department = v ?? _department),
+                onChanged: (v) {
+                  setState(() {
+                    _department = v ?? _department;
+                    // Clear the stale number so the header can never show the
+                    // previous department's officer next to a new routing.
+                    _officerMobile = '';
+                    _officerContactName = '';
+                  });
+                  _loadOfficerContact();
+                },
               ),
             ),
           ),
@@ -734,25 +798,13 @@ class _TransferSheetState extends ConsumerState<TransferSheet> {
           const SizedBox(height: 14),
           EvidenceSection(evidence: _evidence),
           const SizedBox(height: 14),
-          _busy
-              ? const Center(
-                  child: Padding(
-                    padding: EdgeInsets.all(12),
-                    child: SizedBox(
-                      height: 22,
-                      width: 22,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2.4, color: NkColors.brand),
-                    ),
-                  ),
-                )
-              : _submitButton(
-                  label: 'Submit & Preview Dispatch',
-                  icon: Icons.send,
-                  color: NkColors.brand,
-                  enabled: true,
-                  onTap: _submit,
-                ),
+          _submitButton(
+            label: 'Preview Dispatch',
+            icon: Icons.send,
+            color: NkColors.brand,
+            enabled: true,
+            onTap: _submit,
+          ),
         ] else ...[
           // ── WhatsApp Web dispatch preview ──
           ClipRRect(
@@ -793,7 +845,13 @@ class _TransferSheetState extends ConsumerState<TransferSheet> {
                                   fontWeight: FontWeight.w700,
                                   color: Colors.white,
                                 )),
-                            Text('via WhatsApp Web',
+                            Text(
+                                _officerMobile.isEmpty
+                                    ? 'No officer number on file — pick a '
+                                        'contact in WhatsApp'
+                                    : 'To ${_officerContactName.isEmpty ? _officer : _officerContactName} · +91 $_officerMobile',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
                                     fontSize: 10,
                                     color: NkColors.emerald100.withValues(alpha: 0.9))),
@@ -893,15 +951,42 @@ class _TransferSheetState extends ConsumerState<TransferSheet> {
               ],
             ),
           ),
-          const SizedBox(height: 14),
+          if (_commitError != null) ...[
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: NkColors.rose50,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(_commitError!,
+                  style: const TextStyle(
+                      fontSize: 12, color: NkColors.rose600)),
+            ),
+          ],
+          const SizedBox(height: 10),
+          // Nothing has been written yet — the citizen is told about this
+          // transfer only when 'Done' confirms it below.
+          Text(
+            _dispatched
+                ? 'Dispatched to the officer. Confirm to record the transfer '
+                    'and notify the citizen.'
+                : 'Send on WhatsApp, then confirm to record the transfer and '
+                    'notify the citizen.',
+            style: const TextStyle(fontSize: 10.5, color: NkColors.slate400),
+          ),
+          const SizedBox(height: 10),
           Row(
             children: [
               Expanded(
                 child: GestureDetector(
-                  onTap: () => setState(() {
-                    _dispatchStage = false;
-                    _dispatched = false;
-                  }),
+                  onTap: _busy
+                      ? null
+                      : () => setState(() {
+                            _dispatchStage = false;
+                            _dispatched = false;
+                            _commitError = null;
+                          }),
                   child: Container(
                     height: 42,
                     alignment: Alignment.center,
@@ -921,19 +1006,26 @@ class _TransferSheetState extends ConsumerState<TransferSheet> {
               const SizedBox(width: 8),
               Expanded(
                 child: GestureDetector(
-                  onTap: () => Navigator.of(context).pop(),
+                  onTap: _busy ? null : _commit,
                   child: Container(
                     height: 42,
                     alignment: Alignment.center,
                     decoration: BoxDecoration(
-                      color: NkColors.brand,
+                      color: NkColors.brand.withValues(alpha: _busy ? 0.6 : 1),
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: const Text('Done',
-                        style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.white)),
+                    child: _busy
+                        ? const SizedBox(
+                            height: 18,
+                            width: 18,
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2.2, color: Colors.white),
+                          )
+                        : const Text('Confirm transfer',
+                            style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.white)),
                   ),
                 ),
               ),
