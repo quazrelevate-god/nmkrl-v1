@@ -253,6 +253,12 @@ def init_db() -> None:
             # the close event so admin lists can show it without a join.
             ("closure_image_url", "TEXT"),
             ("closure_audio_url", "TEXT"),
+            # An optional written petition the citizen attaches at report time
+            # (PDF, doc or a scan). Optional by design — the photo and voice
+            # note stay the required pair; this is for people who arrive with
+            # paperwork already written.
+            ("document_url", "TEXT"),
+            ("document_name", "TEXT DEFAULT ''"),
         ]:
             try:
                 conn.execute(f"ALTER TABLE issues ADD COLUMN {col} {defn}")

@@ -65,6 +65,9 @@ async def report_issue(
     force: bool = Form(False),
     image: UploadFile = File(None),
     audio: UploadFile = File(None),
+    # Optional written petition (PDF / doc / scan). The photo and voice note
+    # remain the required pair; this is for citizens who arrive with paperwork.
+    document: UploadFile = File(None),
     conn=Depends(get_db),
 ):
     """Report a new street issue. Transcribe audio via Gemini, then check for
@@ -86,6 +89,8 @@ async def report_issue(
     # --- Persist uploaded media ---------------------------------------------
     image_url = None
     audio_url = None
+    document_url = None
+    document_name = ""
     audio_bytes = None
     audio_mime = "audio/webm"
 
@@ -95,6 +100,11 @@ async def report_issue(
         audio_bytes = await audio.read()
         audio_mime = audio.content_type or "audio/webm"
         audio_url = save_upload(audio_bytes, audio.filename, "audio")
+    if document is not None:
+        doc_bytes = await document.read()
+        if doc_bytes:
+            document_name = document.filename or "petition"
+            document_url = save_upload(doc_bytes, document_name, "document")
 
     # --- Gemini transcription -----------------------------------------------
     if audio_bytes:
@@ -142,9 +152,9 @@ async def report_issue(
         INSERT INTO issues (
             id, title, image_url, audio_url, transcript, transcript_ta,
             summary_highlights, latitude, longitude, area_name, ward_no, zone,
-            zone_name, department, ticket_number,
+            zone_name, department, ticket_number, document_url, document_name,
             status, upvotes, notify_reporter, created_at, created_by
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SUBMITTED', 0, 0, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SUBMITTED', 0, 0, ?, ?)
         """,
         (
             issue_id,
@@ -162,6 +172,8 @@ async def report_issue(
             zone_name,
             department,
             ticket_number(issue_id),
+            document_url,
+            document_name,
             created_at,
             user_id,
         ),

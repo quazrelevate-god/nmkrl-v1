@@ -11,8 +11,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ClipboardCheck, ShieldCheck, ImageIcon, Volume2, MapPin, Phone,
-  ThumbsUp, Search, X, Landmark, ArrowRightLeft, CheckCircle2, Ban, Send,
-  Sparkles, MessageSquare, UserCog, Camera, History, Loader2,
+  ThumbsUp, Search, X, Landmark, ArrowRightLeft, Ban, Send,
+  Sparkles, MessageSquare, UserCog, History, Loader2,
 } from "lucide-react";
 import { useAdminData } from "@/components/admin/AdminDataProvider";
 import TicketDrawer from "@/components/admin/TicketDrawer";
@@ -33,9 +33,6 @@ function matchesActionTab(issue, tab) {
       return issue.status === "SUBMITTED" && !!issue.coordinator_message;
     case "transfer": // routed to a department
       return issue.status === "FORWARDED";
-    case "close":    // coordinator marked resolved (awaiting citizen verify, or verified)
-      return (issue.status === "PENDING_VERIFICATION" || issue.status === "CLOSED")
-        && !!issue.assigned_coordinator;
     case "false":    // marked a false petition
       return issue.status === "FALSE";
     default:
@@ -54,7 +51,6 @@ const TABS = [
   { key: "pending",  label: "Pending Verification", icon: ClipboardCheck },
   { key: "redirect", label: "Redirected",           icon: ArrowRightLeft },
   { key: "transfer", label: "Transferred",          icon: Send },
-  { key: "close",    label: "Closed by Coordinator", icon: CheckCircle2 },
   { key: "false",    label: "False Petitions",      icon: Ban },
 ];
 
@@ -98,7 +94,7 @@ export default function PetitionReviewPage() {
   const counts = useMemo(() => {
     const c = { pending: pending.length, redirect: 0, transfer: 0, close: 0, false: 0 };
     for (const i of issues || []) {
-      for (const k of ["redirect", "transfer", "close", "false"]) {
+      for (const k of ["redirect", "transfer", "false"]) {
         if (matchesActionTab(i, k)) c[k]++;
       }
     }
@@ -372,54 +368,19 @@ function ActionPayload({ kind, issue }) {
       </div>
     );
   }
-  // redirect + close: the citizen-facing message, and for a close the proof of
-  // work the coordinator app required before it would let them close at all.
-  const isRedirect = kind === "redirect";
+  // Only redirect reaches here now — the closed-by-coordinator bucket is gone,
+  // and its closure evidence lives in the ticket drawer instead.
   return (
     <div className="mt-3 space-y-2">
       {msg && (
-        <div className={`rounded-xl border p-3 ${isRedirect ? "border-slate-200 bg-white" : "border-emerald-100 bg-emerald-50/50"}`}>
-          <p className={`mb-1 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide ${isRedirect ? "text-slate-500" : "text-emerald-600"}`}>
-            {isRedirect ? <MessageSquare size={11} /> : <CheckCircle2 size={11} />} {isRedirect ? "Redirect message" : "Resolution note"}
+        <div className="rounded-xl border border-slate-200 bg-white p-3">
+          <p className="mb-1 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-500">
+            <MessageSquare size={11} /> Redirect message
           </p>
           <p className="text-[13px] italic leading-snug text-slate-700">"{msg}"</p>
         </div>
       )}
-      {kind === "close" && <ClosureEvidence issue={issue} />}
       <Timeline issueId={issue.id} />
-    </div>
-  );
-}
-
-/* ── Closure evidence ─────────────────────────────────────────────────────
-   The coordinator app will not close a ticket without a live photo AND a voice
-   note. Both used to be discarded when the sheet closed, so a resolution could
-   only ever be taken on trust — this is that proof, at last. */
-function ClosureEvidence({ issue }) {
-  const photo = issue.closure_image_url;
-  const audio = issue.closure_audio_url;
-  if (!photo && !audio) {
-    return (
-      <p className="rounded-xl border border-dashed border-slate-200 px-3 py-2 text-[11px] text-slate-400">
-        No closure evidence on record — closed before evidence was captured.
-      </p>
-    );
-  }
-  return (
-    <div className="rounded-xl border border-emerald-100 bg-white p-3">
-      <p className="mb-2 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-emerald-600">
-        <Camera size={11} /> Closure evidence
-      </p>
-      <div className="flex flex-wrap items-center gap-3">
-        {photo && (
-          <a href={mediaUrl(photo)} target="_blank" rel="noreferrer" className="shrink-0">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={mediaUrl(photo)} alt="Closure photo"
-              className="h-20 w-20 rounded-lg object-cover ring-1 ring-slate-200" />
-          </a>
-        )}
-        {audio && <audio controls src={mediaUrl(audio)} className="h-9 min-w-[220px] flex-1" />}
-      </div>
     </div>
   );
 }

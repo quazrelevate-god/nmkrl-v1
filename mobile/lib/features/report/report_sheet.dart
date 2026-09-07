@@ -16,6 +16,8 @@ import '../../state/providers.dart';
 import '../shared/status_chip.dart';
 import 'widgets/success_overlay.dart';
 import 'widgets/swipe_to_confirm.dart';
+import 'package:file_picker/file_picker.dart';
+
 import 'widgets/voice_recorder.dart';
 
 const _kDailyMax = 1;
@@ -94,6 +96,9 @@ class _ReportSheetState extends ConsumerState<ReportSheet> {
   final _picker = ImagePicker();
   final _recorder = VoiceRecorderController();
   final List<XFile> _images = [];
+  // Optional written petition. Deliberately NOT part of _canSubmit — the photo
+  // and voice note stay the required pair.
+  PlatformFile? _document;
 
   bool _submitting = false;
   String? _error;
@@ -169,6 +174,8 @@ class _ReportSheetState extends ConsumerState<ReportSheet> {
         force: force,
         image: _images.isEmpty ? null : File(_images.first.path),
         audio: _recorder.file,
+        document: _document?.path == null ? null : File(_document!.path!),
+        documentName: _document?.name,
       );
 
       if (outcome.isDuplicate) {
@@ -256,11 +263,18 @@ class _ReportSheetState extends ConsumerState<ReportSheet> {
                 color: NkColors.refBlueInner,
                 borderRadius: BorderRadius.circular(30),
               ),
-              child: Row(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Expanded(child: _cameraTile()),
-                  const SizedBox(width: 8),
-                  Expanded(child: _voiceTile()),
+                  Row(
+                    children: [
+                      Expanded(child: _cameraTile()),
+                      const SizedBox(width: 8),
+                      Expanded(child: _voiceTile()),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  _documentStrip(),
                 ],
               ),
             ),
@@ -331,6 +345,107 @@ class _ReportSheetState extends ConsumerState<ReportSheet> {
   }
 
   // ── Upload tiles — fixed height, content swaps per state ──────────────────
+
+  Future<void> _pickDocument() async {
+    HapticFeedback.selectionClick();
+    try {
+      final res = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: const ['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png'],
+        withData: false,
+      );
+      final picked = res?.files.singleOrNull;
+      if (picked?.path != null) setState(() => _document = picked);
+    } catch (_) {
+      /* picker unavailable — the document is optional, so stay silent */
+    }
+  }
+
+  /// Human-readable size for the attached file, e.g. "412 KB".
+  String _docSize(PlatformFile f) {
+    final kb = f.size / 1024;
+    return kb < 1024
+        ? '${kb.toStringAsFixed(0)} KB'
+        : '${(kb / 1024).toStringAsFixed(1)} MB';
+  }
+
+  /// Compact optional strip under the two required tiles. One line tall so it
+  /// reads as a secondary offer rather than a third thing to do.
+  Widget _documentStrip() {
+    final doc = _document;
+    final attached = doc != null;
+    return GestureDetector(
+      onTap: _pickDocument,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        height: 44,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: attached ? 1 : 0.12),
+          borderRadius: BorderRadius.circular(22),
+          border: attached
+              ? null
+              : Border.all(
+                  color: Colors.white.withValues(alpha: 0.28),
+                  width: 1,
+                ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              attached ? Icons.description : Icons.attach_file,
+              size: 17,
+              color: attached
+                  ? NkColors.refBlue
+                  : Colors.white.withValues(alpha: 0.85),
+            ),
+            const SizedBox(width: 9),
+            Expanded(
+              child: Text(
+                attached
+                    ? doc.name
+                    : context.tr('Attach petition document (optional)'),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: attached ? FontWeight.w700 : FontWeight.w500,
+                  color: attached
+                      ? NkColors.slate900
+                      : Colors.white.withValues(alpha: 0.85),
+                ),
+              ),
+            ),
+            if (attached) ...[
+              const SizedBox(width: 8),
+              Text(
+                _docSize(doc),
+                style: const TextStyle(
+                  fontSize: 11,
+                  color: NkColors.slate400,
+                ),
+              ),
+              const SizedBox(width: 8),
+              GestureDetector(
+                onTap: () => setState(() => _document = null),
+                child: const Icon(Icons.close,
+                    size: 16, color: NkColors.slate400),
+              ),
+            ] else
+              Text(
+                'PDF · DOC',
+                style: TextStyle(
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.3,
+                  color: Colors.white.withValues(alpha: 0.55),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
 
   Widget _iconCircle(IconData icon,
           {Color bg = NkColors.slate100, Color fg = NkColors.refBlue}) =>

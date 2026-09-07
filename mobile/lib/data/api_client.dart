@@ -52,6 +52,10 @@ abstract class ApiClient {
     File? image,
     File? audio,
     String? audioMime,
+    /// Optional written petition (PDF / doc / scan) the citizen attaches.
+    /// Never required — the photo and voice note remain the mandatory pair.
+    File? document,
+    String? documentName,
   });
 
   Future<Issue> upvoteIssue(String issueId, String userId, {String name = ''});

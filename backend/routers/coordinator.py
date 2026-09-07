@@ -319,9 +319,12 @@ async def coord_close(
         "closed_at = ?, coordinator_message = ?, "
         "closure_image_url = COALESCE(?, closure_image_url), "
         "closure_audio_url = COALESCE(?, closure_audio_url) WHERE id = ?",
-        (now_iso(),
-         notes or "Coordinator has closed this ticket. Please verify the resolution.",
-         image_url, audio_url, issue_id),
+        # Store what the coordinator actually wrote — nothing if they wrote
+        # nothing. The old default filled the field with boilerplate that then
+        # surfaced as a "resolution note" in two UIs, reading as a note the
+        # coordinator had written. The citizen still gets the prompt to verify;
+        # it belongs in the notification below, not in this field.
+        (now_iso(), notes, image_url, audio_url, issue_id),
     )
     audit.record(
         conn, issue_id, action="close", actor_type="coordinator",

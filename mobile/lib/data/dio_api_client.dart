@@ -166,6 +166,8 @@ class DioApiClient implements ApiClient {
     File? image,
     File? audio,
     String? audioMime,
+    File? document,
+    String? documentName,
   }) async {
     try {
       final form = FormData.fromMap({
@@ -186,6 +188,13 @@ class DioApiClient implements ApiClient {
             // Native recordings are AAC in an MP4 container; the backend maps
             // audio/mp4 straight through to Gemini.
             contentType: MediaType.parse(audioMime ?? 'audio/mp4'),
+          ),
+        if (document != null)
+          'document': await MultipartFile.fromFile(
+            document.path,
+            // Keep the citizen's own filename — it is what admin sees in the
+            // ticket, and "Ward 58 water complaint.pdf" says more than a uuid.
+            filename: documentName ?? document.uri.pathSegments.last,
           ),
       });
       final res = await _dio.post<Map<String, dynamic>>(

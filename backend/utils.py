@@ -23,6 +23,7 @@ UPLOAD_DIR = (
 )
 IMAGE_DIR = os.path.join(UPLOAD_DIR, "images")
 AUDIO_DIR = os.path.join(UPLOAD_DIR, "audio")
+DOC_DIR = os.path.join(UPLOAD_DIR, "documents")
 
 # Earth's mean radius in meters.
 EARTH_RADIUS_M = 6_371_000
@@ -67,6 +68,7 @@ def ensure_upload_dirs() -> None:
     """Create upload folders if missing."""
     os.makedirs(IMAGE_DIR, exist_ok=True)
     os.makedirs(AUDIO_DIR, exist_ok=True)
+    os.makedirs(DOC_DIR, exist_ok=True)
 
 
 def save_upload(file_bytes: bytes, original_name: str, kind: str) -> str:
@@ -74,17 +76,18 @@ def save_upload(file_bytes: bytes, original_name: str, kind: str) -> str:
     Persist an uploaded blob to disk and return its public URL path
     (e.g. ``/uploads/images/<uuid>.jpg``) for storage in the DB.
 
-    ``kind`` is either "image" or "audio".
+    ``kind`` is "image", "audio" or "document".
     """
     ensure_upload_dirs()
-    ext = os.path.splitext(original_name or "")[1] or (".jpg" if kind == "image" else ".webm")
+    _defaults = {"image": ".jpg", "audio": ".webm", "document": ".pdf"}
+    _dirs = {"image": IMAGE_DIR, "audio": AUDIO_DIR, "document": DOC_DIR}
+    _subdirs = {"image": "images", "audio": "audio", "document": "documents"}
+    ext = os.path.splitext(original_name or "")[1] or _defaults.get(kind, ".bin")
     fname = f"{new_id()}{ext}"
-    target_dir = IMAGE_DIR if kind == "image" else AUDIO_DIR
-    path = os.path.join(target_dir, fname)
+    path = os.path.join(_dirs.get(kind, IMAGE_DIR), fname)
     with open(path, "wb") as fh:
         fh.write(file_bytes)
-    subdir = "images" if kind == "image" else "audio"
-    return f"/uploads/{subdir}/{fname}"
+    return f"/uploads/{_subdirs.get(kind, 'images')}/{fname}"
 
 
 _NOMINATIM_UA = "FixMyStreetIndia/1.0 (civic grievance PoC; contact: admin@fixmystreet.in)"

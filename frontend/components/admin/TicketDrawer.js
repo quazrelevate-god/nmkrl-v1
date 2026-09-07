@@ -16,7 +16,7 @@ import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import {
   X, Phone, User, MapPin, Building2, ThumbsUp, Sparkles, ImageIcon, Volume2,
-  ShieldCheck, Send, PlayCircle, CheckCircle2, Clock, Landmark, Hash, Flag,
+  ShieldCheck, Send, PlayCircle, CheckCircle2, Clock, Landmark, Hash, Flag, FileText,
   Route, CornerDownRight, UserCheck, AlertCircle,
 } from "lucide-react";
 import { mediaUrl, adminVerifyGrievance, adminForwardIssue, adminStartIssue, adminCloseIssue, fetchOfficerContacts } from "@/lib/api";
@@ -102,9 +102,12 @@ export default function TicketDrawer({ issue, onClose, onChanged }) {
   return (
     <div className="fixed inset-0 z-[80] flex">
       <div className="animate-scrim-in flex-1 bg-slate-900/40 backdrop-blur-[3px]" onClick={onClose} />
-      <div className="glass-panel-strong animate-drawer-in flex h-full w-[70%] min-w-0 flex-col">
+      {/* Solid white, not frosted: this drawer is a reading surface for
+          photos, transcripts and evidence, and the dashboard showing through
+          it put moving colour behind all of them. */}
+      <div className="animate-drawer-in flex h-full w-[70%] min-w-0 flex-col border-l border-slate-200 bg-white shadow-2xl">
         {/* Drawer header */}
-        <div className="flex items-center justify-between border-b border-white/50 px-6 py-3.5">
+        <div className="flex items-center justify-between border-b border-slate-200 px-6 py-3.5">
           <div className="flex items-center gap-3">
             <span className="w-1 self-stretch rounded-full" style={{ background: pm.dot }} />
             <div>
@@ -120,9 +123,9 @@ export default function TicketDrawer({ issue, onClose, onChanged }) {
         </div>
 
         {/* Two panes */}
-        <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] divide-x divide-white/40">
+        <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] divide-x divide-slate-200">
           {/* ── LEFT: media ── */}
-          <div className="min-h-0 overflow-y-auto bg-white/25 p-5 space-y-4">
+          <div className="min-h-0 overflow-y-auto bg-slate-50/70 p-5 space-y-4">
             <Section icon={ImageIcon} title="Photo submission">
               {issue.image_url ? (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -142,6 +145,44 @@ export default function TicketDrawer({ issue, onClose, onChanged }) {
                 <Empty>No audio submitted</Empty>
               )}
             </Section>
+
+            {issue.document_url && (
+              <Section icon={FileText} title="Petition document">
+                <a href={mediaUrl(issue.document_url)} target="_blank" rel="noreferrer"
+                  className="flex items-center gap-2.5 rounded-xl bg-white p-3 ring-1 ring-slate-200 transition hover:ring-brand-200">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand/10 text-brand">
+                    <FileText size={16} />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[13px] font-bold text-slate-800">
+                      {issue.document_name || "Attached petition"}
+                    </span>
+                    <span className="block text-[11px] text-slate-400">Uploaded by the citizen · opens in a new tab</span>
+                  </span>
+                </a>
+              </Section>
+            )}
+
+            {(issue.closure_image_url || issue.closure_audio_url) && (
+              <Section icon={CheckCircle2} title="Closure evidence">
+                <div className="space-y-2.5 rounded-xl bg-white p-3 ring-1 ring-emerald-100">
+                  {issue.closure_image_url && (
+                    <a href={mediaUrl(issue.closure_image_url)} target="_blank" rel="noreferrer">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={mediaUrl(issue.closure_image_url)} alt="Closure proof"
+                        className="w-full rounded-lg object-cover ring-1 ring-slate-200" style={{ maxHeight: 220 }} />
+                    </a>
+                  )}
+                  {issue.closure_audio_url && (
+                    /* eslint-disable-next-line jsx-a11y/media-has-caption */
+                    <audio controls src={mediaUrl(issue.closure_audio_url)} className="w-full" />
+                  )}
+                  <p className="text-[11px] text-slate-400">
+                    Captured by the coordinator at the moment of closing.
+                  </p>
+                </div>
+              </Section>
+            )}
 
             <Section icon={MapPin} title="Location">
               {issue.latitude != null && issue.longitude != null ? (
@@ -188,7 +229,7 @@ export default function TicketDrawer({ issue, onClose, onChanged }) {
                   {issue.summary_highlights?.length > 0 && (
                     <div className="mt-2 flex flex-wrap gap-1.5">
                       {issue.summary_highlights.map((h, i) => (
-                        <span key={i} className="rounded-full bg-white/80 px-2.5 py-0.5 text-[11px] font-medium text-brand ring-1 ring-brand-200">{h}</span>
+                        <span key={i} className="rounded-full bg-white px-2.5 py-0.5 text-[11px] font-medium text-brand ring-1 ring-brand-200">{h}</span>
                       ))}
                     </div>
                   )}

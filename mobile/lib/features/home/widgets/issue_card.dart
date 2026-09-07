@@ -559,9 +559,18 @@ class IssueCard extends StatelessWidget {
                           ),
                         ],
 
-                        // Coordinator message
+                        // Coordinator message.
+                        //
+                        // Hidden once the ticket is closed: the closure's real
+                        // record is the live photo and voice note the app makes
+                        // mandatory, and when the coordinator types nothing the
+                        // backend used to substitute boilerplate ("Coordinator
+                        // has closed this ticket…") which then read as a
+                        // resolution note that nobody wrote.
                         if (issue.coordinatorMessage != null &&
-                            issue.coordinatorMessage!.isNotEmpty) ...[
+                            issue.coordinatorMessage!.isNotEmpty &&
+                            issue.status != 'PENDING_VERIFICATION' &&
+                            issue.status != 'CLOSED') ...[
                           const SizedBox(height: 12),
                           Container(
                             padding: const EdgeInsets.all(10),

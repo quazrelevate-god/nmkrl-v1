@@ -24,6 +24,8 @@ dependencies:
   # Device capabilities
   geolocator: ^13.0.2
   image_picker: ^1.1.2
+  # Attach a written petition (PDF / doc / image) alongside the photo + voice
+  file_picker: ^8.1.7
   record: ^7.1.1
   audioplayers: ^6.1.0
   path_provider: ^2.1.5
