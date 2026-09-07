@@ -126,7 +126,7 @@ class HomeScreen extends ConsumerStatefulWidget {
 }
 
 class _HomeScreenState extends ConsumerState<HomeScreen>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   // Location
   LatLng? _geoCoords;
   LatLng? _override; // demo: jump to an Egmore ward
@@ -313,6 +313,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _tabAnimCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 320),
@@ -325,9 +326,20 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _tabAnimCtrl.dispose();
     _sheetCtrl.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // See the coordinator screen: polling pauses in the background, so a
+    // status that changed while away would otherwise stay stale on return.
+    if (state != AppLifecycleState.resumed) return;
+    _loadHistory();
+    final w = _currentWard;
+    if (w != null) _loadWard(w);
   }
 
 
@@ -1082,7 +1094,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               child: NotificationPoller(
                 recipientType: 'citizen',
                 recipientId: ref.watch(userIdProvider),
-                onStatusChange: (_) {
+                onAnyNotification: () {
                   _loadHistory();
                   final w = _currentWard;
                   if (w != null) _loadWard(w);

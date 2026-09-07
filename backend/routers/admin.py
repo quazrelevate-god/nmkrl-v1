@@ -15,6 +15,7 @@ from pydantic import BaseModel
 
 import audit
 from database import get_db
+from routers.notifications import emit_status_change, emit_to_coordinator
 from utils import CHENNAI_AC_MAP, now_iso, serialize_issue
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -146,6 +147,26 @@ def list_users(q: str = Query(None), conn=Depends(get_db)):
     return {"count": len(users), "users": users}
 
 
+def _announce(conn, row, kind: str, citizen_msg: str, coord_msg: str,
+              action: str, from_status: str) -> None:
+    """Tell everyone attached to a grievance that admin moved it.
+
+    All four admin actions changed the status and told nobody: the citizen
+    watching their report and the coordinator holding it both had to reload by
+    hand to notice. They also left no trace in the history, so an admin move
+    was the one transition the timeline could not explain.
+    """
+    try:
+        emit_status_change(conn, row, kind, citizen_msg)
+        emit_to_coordinator(conn, row, kind, coord_msg)
+    except Exception:
+        pass  # best-effort; never fail the state change behind it
+    audit.record(
+        conn, row["id"], action=action, actor_type="admin", actor_id="admin",
+        from_status=from_status, to_status=row["status"], note=coord_msg,
+    )
+
+
 @router.post("/issues/{issue_id}/verify")
 def verify_grievance(issue_id: str, conn=Depends(get_db)):
     """Authority approves a freshly submitted grievance: SUBMITTED -> ACTIVE.
@@ -163,6 +184,10 @@ def verify_grievance(issue_id: str, conn=Depends(get_db)):
         )
     conn.execute("UPDATE issues SET status = 'ACTIVE' WHERE id = ?", (issue_id,))
     row = conn.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
+    _announce(conn, row, "assigned",
+              "Your grievance has been verified and is now public.",
+              "A grievance in your ward was verified by the MLA office.",
+              "admin_verify", issue["status"])
     return serialize_issue(row)
 
 
@@ -183,6 +208,10 @@ def forward_issue(issue_id: str, conn=Depends(get_db)):
         )
     conn.execute("UPDATE issues SET status = 'FORWARDED' WHERE id = ?", (issue_id,))
     row = conn.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
+    _announce(conn, row, "transfer",
+              "Your grievance was forwarded to the responsible department.",
+              "A grievance you hold was forwarded by the MLA office.",
+              "admin_forward", issue["status"])
     return serialize_issue(row)
 
 
@@ -201,6 +230,10 @@ def close_issue(issue_id: str, conn=Depends(get_db)):
         (issue_id,),
     )
     row = conn.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
+    _announce(conn, row, "closed",
+              "Your grievance is marked resolved — please approve or reject to confirm.",
+              "A grievance you hold was closed by the MLA office.",
+              "admin_close", issue["status"])
     result = serialize_issue(row)
     result["notification_sent_to"] = issue["created_by"]
     return result
@@ -218,6 +251,10 @@ def mark_in_progress(issue_id: str, conn=Depends(get_db)):
         )
     conn.execute("UPDATE issues SET status = 'IN_PROGRESS' WHERE id = ?", (issue_id,))
     row = conn.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
+    _announce(conn, row, "escalated",
+              "Work has started on your grievance.",
+              "A grievance you hold moved to In Progress.",
+              "admin_progress", issue["status"])
     return serialize_issue(row)
 
 

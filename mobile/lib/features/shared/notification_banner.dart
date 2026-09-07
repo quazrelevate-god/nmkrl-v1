@@ -25,6 +25,7 @@ class NotificationPoller extends ConsumerStatefulWidget {
     this.pollInterval = const Duration(seconds: 15),
     this.onNewGrievanceInMyWard,
     this.onStatusChange,
+    this.onAnyNotification,
   });
 
   final String recipientType; // 'citizen' | 'coordinator'
@@ -37,6 +38,14 @@ class NotificationPoller extends ConsumerStatefulWidget {
 
   /// Citizen-side callback: a status change on one of my reports.
   final void Function(Map<String, dynamic> notif)? onStatusChange;
+
+  /// Fires once per poll that returned anything, whatever the kind.
+  ///
+  /// The typed callbacks above only cover the two kinds each side originally
+  /// cared about, so anything else — a citizen approving a closure, an admin
+  /// moving a ticket — popped a banner over a list that never reloaded. Screens
+  /// use this to refresh regardless of what arrived.
+  final void Function()? onAnyNotification;
 
   @override
   ConsumerState<NotificationPoller> createState() => _NotificationPollerState();
@@ -113,6 +122,8 @@ class _NotificationPollerState extends ConsumerState<NotificationPoller> {
           widget.onStatusChange?.call(n);
         }
       }
+      // One refresh per poll, not one per notification.
+      widget.onAnyNotification?.call();
       setState(() => _queue.addAll(res.items.reversed));
       _showNext();
     } catch (_) {

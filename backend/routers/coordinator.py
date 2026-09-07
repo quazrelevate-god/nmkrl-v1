@@ -287,6 +287,12 @@ def coord_redirect(
         note=description,
     )
     row = _load(conn, issue_id)
+    # Every other coordinator action told the citizen; this one silently moved
+    # their grievance backwards, so it looked like nothing had happened.
+    emit_status_change(
+        conn, row, "redirect",
+        "Your grievance is being re-assigned to another team.",
+    )
     return serialize_issue(row)
 
 

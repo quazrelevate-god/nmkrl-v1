@@ -64,8 +64,8 @@ class CoordinatorHomeScreen extends ConsumerStatefulWidget {
       _CoordinatorHomeScreenState();
 }
 
-class _CoordinatorHomeScreenState
-    extends ConsumerState<CoordinatorHomeScreen> {
+class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
+    with WidgetsBindingObserver {
   BoundaryData? _boundaries;
   List<Issue> _wardIssues = [];
   Issue? _selected;
@@ -136,6 +136,7 @@ class _CoordinatorHomeScreenState
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _ward = _me.homeWard;
     _loadBoundaries();
     _loadWard();
@@ -143,9 +144,18 @@ class _CoordinatorHomeScreenState
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _sheetCtrl.dispose();
     _sheetExtent.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Polling stops while the app is backgrounded, so anything that happened
+    // in the meantime is invisible on return. Reloading here is what makes
+    // reopening the app show the truth without a force-quit.
+    if (state == AppLifecycleState.resumed) _loadWard();
   }
 
   Future<void> _loadBoundaries() async {
@@ -578,9 +588,12 @@ class _CoordinatorHomeScreenState
               child: NotificationPoller(
                 recipientType: 'coordinator',
                 recipientId: _me.username,
-                onNewGrievanceInMyWard: (_) {
-                  _loadWard();
-                },
+                // Any notification means something moved underneath this list:
+                // a new grievance, a citizen signing off a closure, an admin
+                // action. Reload on all of them — reloading only for arrivals
+                // is what left a closed ticket reading "Pending verification"
+                // until the app was force-quit.
+                onAnyNotification: _loadWard,
               ),
             ),
 

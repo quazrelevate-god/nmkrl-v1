@@ -415,20 +415,19 @@ def verify_issue(
               else "Citizen rejected the resolution."),
     )
     row = conn.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
-    # Notify the owning coordinator that the citizen rejected the closure.
-    if response == "REJECTED" and row["assigned_coordinator"]:
-        try:
-            from routers.notifications import _insert
-            _insert(
-                conn,
-                recipient_type="coordinator",
-                recipient_id=row["assigned_coordinator"],
-                kind="rejected",
-                issue_id=issue_id,
-                title=row["title"] or "Grievance rejected",
-                message="Citizen rejected the resolution — review ASAP.",
-                data={"ward_no": row["ward_no"]},
-            )
-        except Exception:
-            pass
+    # Tell the owning coordinator either way. Rejection was already covered;
+    # approval was not, so a coordinator's screen sat on "Pending verification"
+    # after the citizen had already signed the work off — the status only
+    # caught up if they force-quit the app.
+    try:
+        from routers.notifications import emit_to_coordinator
+        emit_to_coordinator(
+            conn, row,
+            "resolved" if response == "APPROVED" else "rejected",
+            "Citizen approved the resolution — grievance closed."
+            if response == "APPROVED"
+            else "Citizen rejected the resolution — review ASAP.",
+        )
+    except Exception:
+        pass  # notifications are best-effort; never fail the verification
     return serialize_issue(row)

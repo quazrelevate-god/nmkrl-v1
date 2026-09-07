@@ -70,6 +70,30 @@ def emit_status_change(conn, issue_row, kind: str, message: str) -> None:
     )
 
 
+def emit_to_coordinator(conn, issue_row, kind: str, message: str) -> None:
+    """Notify the coordinator who owns this grievance.
+
+    The mirror of [emit_status_change]. Without it the coordinator app only
+    ever heard about grievances ARRIVING — a citizen approving a closure, or an
+    admin moving a ticket, changed the row underneath a screen that had no
+    reason to reload, so the coordinator kept looking at a stale status until
+    they force-quit the app.
+    """
+    owner = (issue_row["assigned_coordinator"] or "").strip() if issue_row else ""
+    if not owner:
+        return
+    _insert(
+        conn,
+        recipient_type="coordinator",
+        recipient_id=owner,
+        kind=kind,
+        issue_id=issue_row["id"],
+        title=issue_row["title"] or "Grievance update",
+        message=message,
+        data={"status": issue_row["status"], "ward_no": issue_row["ward_no"]},
+    )
+
+
 def emit_new_grievance(conn, issue_row) -> None:
     """Notify every coordinator whose home_ward matches the new grievance."""
     ward_no = issue_row["ward_no"]
