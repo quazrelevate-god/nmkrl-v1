@@ -194,6 +194,22 @@ const Map<String, String> _ta = {
   'Search location, issue or ward': 'இடம், குறை அல்லது வார்டைத் தேடுங்கள்',
   'Attach petition document (optional)':
       'மனு ஆவணத்தை இணைக்கவும் (விருப்பத்தேர்வு)',
+  // App-open PIN
+  'Create a PIN': 'கடவு எண்ணை உருவாக்கவும்',
+  'Confirm your PIN': 'கடவு எண்ணை உறுதிப்படுத்தவும்',
+  'Enter your PIN': 'உங்கள் கடவு எண்ணை உள்ளிடவும்',
+  'Four digits to open the app. You will be asked for this each time.':
+      'செயலியைத் திறக்க நான்கு இலக்கங்கள். ஒவ்வொரு முறையும் இது கேட்கப்படும்.',
+  'Enter the same four digits once more.':
+      'அதே நான்கு இலக்கங்களை மீண்டும் உள்ளிடவும்.',
+  'Four digits to unlock the app.': 'செயலியைத் திறக்க நான்கு இலக்கங்கள்.',
+  'Those did not match. Start again.':
+      'அவை பொருந்தவில்லை. மீண்டும் தொடங்கவும்.',
+  'Wrong PIN. Try again.': 'தவறான கடவு எண். மீண்டும் முயற்சிக்கவும்.',
+  'Forgot PIN? Sign in again':
+      'கடவு எண் மறந்துவிட்டதா? மீண்டும் உள்நுழையவும்',
+  'Tap to enter': 'உள்ளிட தட்டவும்',
+  'Welcome back': 'மீண்டும் வருக',
   'In My Ward': 'என் வார்டில்',
   'My Reports': 'என் புகார்கள்',
   'Public grievances in your ward': 'உங்கள் வார்டில் பொது குறைகள்',

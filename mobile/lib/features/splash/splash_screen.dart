@@ -26,17 +26,15 @@ const _splashWash = RadialGradient(
   stops: [0.0, 0.5, 1.0],
 );
 
-/// Subtle vignette over the whole scene — corners fall away so the wordmark
-/// sits in the light. Kept low so it reads as depth, not as a dark frame.
-const _splashVignette = RadialGradient(
-  center: Alignment.center,
-  radius: 0.98,
-  colors: [Color(0x00000000), Color(0x1F000000), Color(0x40000000)],
-  stops: [0.45, 0.8, 1.0],
-);
-// Light-beige palette for the solid wordmark gradient.
-const _beigeLight = Color(0xFFFBF3DC);
-const _beigeMid = Color(0xFFE7CE96);
+// Gold palette for the wordmark gradient.
+//
+// The sheen used to run to #FBF3DC at BOTH ends of the ramp, which is very
+// nearly white — so every glyph extremity that landed near the gradient's
+// start or finish (the dot on ம், the top of ல், the base of கு) rendered
+// white instead of gold, and the wordmark looked half-painted. Both ends are
+// unambiguously gold now, and the ramp only varies enough to keep the sheen.
+const _beigeLight = Color(0xFFF6E3B0);
+const _beigeMid = Color(0xFFDDBE74);
 
 /// Animated government splash. Gold particles hold along the Tamil Nadu state
 /// outline, then swarm along randomized curved paths and settle into the shape
@@ -163,7 +161,14 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
   }
 
   Future<String> _runRealAppInit() async {
-    if (ref.read(authProvider)) return '/home';
+    if (ref.read(authProvider)) {
+      // A returning citizen meets the PIN, not the mobile-number screen. An
+      // account with no PIN yet (anything created before PINs existed) is sent
+      // to create one first.
+      final prefs = ref.read(prefsProvider);
+      if (!prefs.hasPin) return '/set-pin';
+      return ref.read(pinLockProvider) ? '/home' : '/lock';
+    }
     if (ref.read(coordinatorAuthProvider) != null) return '/coordinator';
     return '/login';
   }
@@ -300,36 +305,40 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
                               stops: [0.0, 0.5, 1.0],
                             ).createShader(rect),
                             blendMode: BlendMode.srcIn,
+                            // No text shadow here, deliberately. BlendMode.srcIn
+                            // paints the shader wherever the CHILD has alpha —
+                            // and a blurred shadow has alpha everywhere around
+                            // the glyphs. The gradient was therefore filling the
+                            // shadow's soft rectangle, which is the translucent
+                            // box that appeared under the wordmark whenever the
+                            // glow pulsed; and where that blur spilled past the
+                            // shader's rect the gradient clamped to its lightest
+                            // stop, leaving the near-white edge along the top.
+                            // The breathing glow is the radial layer behind the
+                            // text, which is outside the mask and unaffected.
                             child: FittedBox(
                               fit: BoxFit.contain,
                               child: Text(
                                 _wordmark,
-                                style: TextStyle(
+                                style: const TextStyle(
                                   fontWeight: FontWeight.w900,
-                                  color: Colors.white,
-                                  height: 1.0,
-                                  shadows: [
-                                    Shadow(
-                                      color: _gold.withValues(
-                                          alpha: 0.55 * glowPulse),
-                                      blurRadius: 28,
-                                    ),
-                                  ],
+                                  // Gold, not white. A ShaderMask only masks
+                                  // what paints INSIDE its bounds, and Tamil
+                                  // combining marks — the dot on ம், the tail
+                                  // of கு — sat outside them, escaping the
+                                  // mask and showing this colour raw. That was
+                                  // the white on the glyph tips.
+                                  color: _beigeMid,
+                                  // No height: 1.0 either. Forcing the line box
+                                  // to the font size is what pushed those marks
+                                  // outside the bounds in the first place;
+                                  // the font's own metrics leave room for them.
                                 ),
                               ),
                             ),
                           ),
                         ),
                       ),
-                    ),
-                  ),
-
-                  // Vignette last, over the whole scene — the wordmark is
-                  // centred so only the corners are touched.
-                  const IgnorePointer(
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(gradient: _splashVignette),
-                      child: SizedBox.expand(),
                     ),
                   ),
                 ],

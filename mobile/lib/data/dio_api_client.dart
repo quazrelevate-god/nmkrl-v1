@@ -103,6 +103,33 @@ class DioApiClient implements ApiClient {
   }
 
   @override
+  Future<void> setPin({required String userId, required String pinHash}) async {
+    try {
+      await _dio.post<Map<String, dynamic>>(
+        '/api/auth/set-pin',
+        data: FormData.fromMap({'user_id': userId, 'pin_hash': pinHash}),
+      );
+    } catch (e) {
+      _friendly(e);
+    }
+  }
+
+  @override
+  Future<bool> verifyPin(
+      {required String userId, required String pinHash}) async {
+    try {
+      final res = await _dio.post<Map<String, dynamic>>(
+        '/api/auth/verify-pin',
+        data: FormData.fromMap({'user_id': userId, 'pin_hash': pinHash}),
+      );
+      return res.data?['ok'] == true;
+    } catch (_) {
+      // Offline or unreachable: the caller falls back to the local hash.
+      return false;
+    }
+  }
+
+  @override
   Future<BoundaryData> fetchBoundaries() => _get(
         '/api/boundaries',
         parse: (d) => BoundaryData.fromJson(d as Map<String, dynamic>),

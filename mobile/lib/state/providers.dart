@@ -60,6 +60,8 @@ class AuthNotifier extends Notifier<bool> {
         .read(apiClientProvider)
         .citizenLogin(name: name, phone: phone, otp: otp);
     await ref.read(prefsProvider).saveAccount(user);
+    // A fresh sign-in IS the authentication; the PIN gate is for later opens.
+    ref.read(pinLockProvider.notifier).unlock();
     state = true;
     await PushService.instance.bind(
       api: ref.read(apiClientProvider),
@@ -74,11 +76,29 @@ class AuthNotifier extends Notifier<bool> {
     // this token is bound to, and the next account here would inherit alerts.
     await PushService.instance.unbind(ref.read(apiClientProvider));
     await ref.read(prefsProvider).clearSession();
+    ref.read(pinLockProvider.notifier).lock();
     state = false;
   }
 }
 
 final authProvider = NotifierProvider<AuthNotifier, bool>(AuthNotifier.new);
+
+/// Whether the app-open PIN has been satisfied in THIS run of the app.
+///
+/// Deliberately not persisted: the lock exists to be met on every cold start,
+/// so it resets when the process does. Signing in fresh, or setting a PIN,
+/// unlocks it for the rest of the run.
+class PinLockNotifier extends Notifier<bool> {
+  @override
+  bool build() => false;
+
+  void unlock() => state = true;
+
+  void lock() => state = false;
+}
+
+final pinLockProvider =
+    NotifierProvider<PinLockNotifier, bool>(PinLockNotifier.new);
 
 /// Ids of the grievances this account has already supported.
 ///

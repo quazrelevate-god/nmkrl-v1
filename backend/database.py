@@ -273,6 +273,14 @@ def init_db() -> None:
             )
         except Exception:
             pass
+        # App-open PIN. Stores a HASH the client computes as
+        # sha256("<user_id>:<pin>") — the server never receives the four
+        # digits themselves, and the user id is the per-account salt, so the
+        # same PIN on two accounts stores two different hashes.
+        try:
+            conn.execute("ALTER TABLE users ADD COLUMN pin_hash TEXT DEFAULT ''")
+        except Exception:
+            pass
         # upvotes.name carries the verified upvoter name (OTP-gated public upvotes).
         try:
             conn.execute("ALTER TABLE upvotes ADD COLUMN name TEXT DEFAULT ''")

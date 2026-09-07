@@ -7,7 +7,10 @@ plugins {
 
 android {
     namespace = "com.nammakural.namma_kural"
-    compileSdk = flutter.compileSdkVersion
+    // Pinned above flutter.compileSdkVersion: file_picker pulls in
+    // flutter_plugin_android_lifecycle, which requires callers to compile
+    // against API 36. The Flutter SDK on this machine still defaults lower.
+    compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
     compileOptions {

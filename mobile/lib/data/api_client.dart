@@ -24,6 +24,14 @@ abstract class ApiClient {
     required String otp,
   });
 
+  /// Store this account's app-open PIN. [pinHash] is
+  /// `sha256("<userId>:<pin>")` — the plain digits never leave the device.
+  Future<void> setPin({required String userId, required String pinHash});
+
+  /// Check a PIN against the server's copy. Used only when there is no local
+  /// hash to compare against (a reinstall, or a second device).
+  Future<bool> verifyPin({required String userId, required String pinHash});
+
   Future<BoundaryData> fetchBoundaries();
 
   Future<LocateResult> locate(double lat, double lng);

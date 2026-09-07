@@ -19,6 +19,7 @@ returned user id, so all activity belongs to the authenticated account.
 """
 
 import hashlib
+import hmac
 import os
 import random
 import re
@@ -49,7 +50,15 @@ def _hash_otp(otp: str) -> str:
 
 
 def _serialize_user(row) -> dict:
-    return {"id": row["id"], "name": row["name"], "phone": row["phone"]}
+    # has_pin decides where the app sends the user after login: straight in, or
+    # through the "create your PIN" screen. Accounts created before PINs
+    # existed report False and are taken through the same setup.
+    return {
+        "id": row["id"],
+        "name": row["name"],
+        "phone": row["phone"],
+        "has_pin": bool((row["pin_hash"] or "").strip()),
+    }
 
 
 def _send_otp_via_apm(phone10: str) -> str | None:
@@ -216,3 +225,57 @@ def coordinator_login(
         "home_ward": row["home_ward"],
         "must_change_password": bool(row["must_change_password"]),
     }
+
+
+# ── App-open PIN ──────────────────────────────────────────────────────────
+#
+# The four digits never leave the device. The client sends
+# sha256("<user_id>:<pin>") and the server only ever compares strings, so a
+# leaked database yields hashes salted per account rather than PINs. Four
+# digits is a small space by nature — this is a convenience lock on a device
+# the person already holds, not a second factor.
+
+
+def _clean_hash(value: str) -> str:
+    v = (value or "").strip().lower()
+    if len(v) != 64 or any(c not in "0123456789abcdef" for c in v):
+        raise HTTPException(status_code=400, detail="Malformed PIN.")
+    return v
+
+
+@router.post("/set-pin")
+def set_pin(
+    user_id: str = Form(...),
+    pin_hash: str = Form(...),
+    conn=Depends(get_db),
+):
+    """Set or replace the app-open PIN for an account."""
+    digest = _clean_hash(pin_hash)
+    row = conn.execute("SELECT id FROM users WHERE id = ?", (user_id,)).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Account not found.")
+    conn.execute("UPDATE users SET pin_hash = ? WHERE id = ?", (digest, user_id))
+    return {"ok": True, "has_pin": True}
+
+
+@router.post("/verify-pin")
+def verify_pin(
+    user_id: str = Form(...),
+    pin_hash: str = Form(...),
+    conn=Depends(get_db),
+):
+    """Check a PIN against the stored hash.
+
+    The app unlocks against its own local copy so it works offline; this is the
+    path for a reinstall or a second device, where there is nothing cached yet.
+    """
+    digest = _clean_hash(pin_hash)
+    row = conn.execute(
+        "SELECT pin_hash FROM users WHERE id = ?", (user_id,)
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Account not found.")
+    stored = (row["pin_hash"] or "").strip()
+    if not stored:
+        return {"ok": False, "has_pin": False}
+    return {"ok": hmac.compare_digest(stored, digest), "has_pin": True}

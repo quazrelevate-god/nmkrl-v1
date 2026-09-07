@@ -21,6 +21,7 @@ class Prefs {
   static const _accountIdKey = 'nk_account_id';
   static const _legacyUserIdKey = 'fms_user_id';
   static const _citizenNotifCursorKey = 'nk_citizen_notif_cursor';
+  static const _pinHashKey = 'nk_citizen_pin_hash';
 
   String get citizenNotifCursor =>
       _prefs.getString(_citizenNotifCursorKey) ?? '';
@@ -29,6 +30,18 @@ class Prefs {
       _prefs.setString(_citizenNotifCursorKey, isoTs);
 
   bool get authed => _prefs.getBool(_authedKey) ?? false;
+
+  /// Cached `sha256("<user_id>:<pin>")` for this account.
+  ///
+  /// Held locally so the app-open lock works with no network — the phone is
+  /// already in the person's hand, and making them wait on a round trip to
+  /// open their own app would be the wrong trade. The server holds the same
+  /// hash as the source of truth for a reinstall or a second device.
+  String get pinHash => _prefs.getString(_pinHashKey) ?? '';
+
+  bool get hasPin => pinHash.isNotEmpty;
+
+  Future<void> setPinHash(String hash) => _prefs.setString(_pinHashKey, hash);
 
   Future<void> setAuthed(bool v) => _prefs.setBool(_authedKey, v);
 
@@ -49,8 +62,13 @@ class Prefs {
     await _prefs.setBool(_authedKey, true);
   }
 
-  /// Sign out: end the session but keep name/phone to prefill the next login.
-  Future<void> clearSession() => _prefs.setBool(_authedKey, false);
+  /// Sign out: end the session and drop this account's PIN, so the next
+  /// person on this phone cannot unlock into it. Name and phone stay to
+  /// prefill the next login.
+  Future<void> clearSession() async {
+    await _prefs.remove(_pinHashKey);
+    await _prefs.setBool(_authedKey, false);
+  }
 
   /// The id every backend action is stamped with — the authenticated
   /// account's id. Falls back to the legacy per-device id only for the brief

@@ -8,6 +8,7 @@ import 'core/theme.dart';
 import 'features/coordinator/coordinator_home_screen.dart';
 import 'features/home/home_screen.dart';
 import 'features/login/login_screen.dart';
+import 'features/login/pin_screens.dart';
 import 'features/splash/splash_screen.dart';
 import 'state/providers.dart';
 
@@ -57,21 +58,33 @@ final _routerProvider = Provider<GoRouter>((ref) {
   final citizenAuthed = ValueNotifier(ref.read(authProvider));
   final coordAuthed =
       ValueNotifier(ref.read(coordinatorAuthProvider) != null);
+  final unlocked = ValueNotifier(ref.read(pinLockProvider));
   ref.listen(authProvider, (_, next) => citizenAuthed.value = next);
   ref.listen(coordinatorAuthProvider,
       (_, next) => coordAuthed.value = next != null);
+  ref.listen(pinLockProvider, (_, next) => unlocked.value = next);
   ref.onDispose(citizenAuthed.dispose);
   ref.onDispose(coordAuthed.dispose);
+  ref.onDispose(unlocked.dispose);
 
   return GoRouter(
     initialLocation: '/splash',
-    refreshListenable: Listenable.merge([citizenAuthed, coordAuthed]),
+    refreshListenable:
+        Listenable.merge([citizenAuthed, coordAuthed, unlocked]),
     redirect: (context, state) {
       final loc = state.matchedLocation;
       if (loc == '/splash') return null; // splash decides for itself
       // /login always reachable — it hosts the citizen↔coordinator toggle.
-      if (loc == '/home' && !citizenAuthed.value) return '/login';
       if (loc == '/coordinator' && !coordAuthed.value) return '/login';
+      if (loc == '/home') {
+        if (!citizenAuthed.value) return '/login';
+        // A signed-in citizen still has to clear the PIN gate. An account
+        // without one — every account created before PINs existed — is sent
+        // to set it rather than being let past.
+        final prefs = ref.read(prefsProvider);
+        if (!prefs.hasPin) return '/set-pin';
+        if (!unlocked.value) return '/lock';
+      }
       return null;
     },
     routes: [
@@ -90,6 +103,14 @@ final _routerProvider = Provider<GoRouter>((ref) {
             child: child,
           ),
         ),
+      ),
+      GoRoute(
+        path: '/set-pin',
+        builder: (context, state) => const SetPinScreen(),
+      ),
+      GoRoute(
+        path: '/lock',
+        builder: (context, state) => const PinLockScreen(),
       ),
       GoRoute(
         path: '/home',
