@@ -3,25 +3,29 @@
 /**
  * Performance — glassmorphism analytics workspace.
  *   • Density map (heatmap) with ward / zone / constituency filters.
- *   • MLA social-media trending mentions (mock) tied to the selected AC.
+ *   • Community Pulse — polls, threads and replies from the citizen feed.
  *   • Grievance KPIs + charts computed from real data.
- *   • Community Pulse — engagement KPIs from the citizen app's feed.
- *   • Content Moderation — community posts flagged as abusive / violating.
+ *
+ * Charts live in components/admin/charts.js. Each form is chosen for the job
+ * its data does rather than reusing one bar component six times, and every
+ * multi-hue set was run through the CVD validator.
  */
 
 import { useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import {
   LayoutDashboard, Flame, ThumbsUp, Ticket, CheckCircle2, TimerOff, Clock, Gauge,
-  MapPin, Megaphone, TrendingUp, Users, MessageCircle,
-  Share2, BarChart3, Sparkles, ShieldAlert, ShieldCheck, Trash2, Heart, X,
+  MapPin, TrendingUp, Sparkles, Activity, Layers, Building2,
 } from "lucide-react";
 import { useAdminData } from "@/components/admin/AdminDataProvider";
 import { departmentMeta } from "@/lib/departments";
-import { derivePriority, PRIORITY_META, slaBreached, daysOpen } from "@/lib/adminModel";
+import { derivePriority, slaBreached, daysOpen } from "@/lib/adminModel";
 import { CONSTITUENCIES, issueInConstituency, shortAC, constituenciesForWard } from "@/lib/constituencies";
-import { communityKpis, FLAGGED_CONTENT } from "@/lib/communityInsights";
-import NammKuralPulse from "@/components/admin/NammKuralPulse";
+import CommunityPulse from "@/components/admin/CommunityPulse";
+import {
+  VIZ, ChartCard, TrendChart, Funnel, Donut, StackedShare, RankedBars,
+  RankedTable, StatTile,
+} from "@/components/admin/charts";
 
 const AdminHeatMap = dynamic(() => import("@/components/AdminHeatMap"), {
   ssr: false,
@@ -36,8 +40,6 @@ export default function PerformancePage() {
   const [zone, setZone] = useState("");
   const [ward, setWard] = useState("");
   const [ac, setAc] = useState("");
-  const [flagged, setFlagged] = useState(FLAGGED_CONTENT);
-  const [resolvedMod, setResolvedMod] = useState({});
   const [kpiFilter, setKpiFilter] = useState(null); // click a KPI card to plot it on the map
 
   const zoneOptions = useMemo(() => {
@@ -62,7 +64,6 @@ export default function PerformancePage() {
   }, [scoped]);
 
   const kpi = useMemo(() => computeKpis(scoped), [scoped]);
-  const community = useMemo(() => communityKpis(), []);
 
   // KPI cards double as map filters: clicking one plots its grievances at their
   // real coordinates in the same colour as the card's number.
@@ -84,11 +85,6 @@ export default function PerformancePage() {
         label: activeKpi.label,
       }
     : null;
-
-  function actMod(id, kind) {
-    setResolvedMod((m) => ({ ...m, [id]: kind }));
-    setTimeout(() => setFlagged((f) => f.filter((x) => x.id !== id)), 260);
-  }
 
   return (
     <>
@@ -154,8 +150,8 @@ export default function PerformancePage() {
             </div>
         </div>
 
-        {/* நம் குரல் pulse — media + social listening briefing for the MLA */}
-        <NammKuralPulse ac={ac || DEFAULT_AC} isDefault={!ac} />
+        {/* Community pulse — polls, threads and replies from the citizen feed */}
+        <CommunityPulse ac={ac} />
 
         {/* Grievance KPIs */}
         <SectionTitle icon={Ticket}>
@@ -177,70 +173,65 @@ export default function PerformancePage() {
           ))}
         </div>
 
-        {/* Charts */}
+        {/* ── Charts ──────────────────────────────────────────────────────
+            Six forms, one per job: trend, funnel, part-to-whole, ordered
+            share, magnitude, and a table where colour would stop helping. */}
+        <SectionTitle icon={Activity}>Analytics</SectionTitle>
+
+        <ChartCard
+          title="Intake vs resolution"
+          subtitle="Grievances reported and closed per day, last 30 days"
+          right={
+            <span className="flex items-center gap-3 text-[11px] text-slate-500">
+              <span className="flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full" style={{ background: VIZ.series1 }} /> Reported
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full" style={{ background: VIZ.series2 }} /> Resolved
+              </span>
+            </span>
+          }
+        >
+          <TrendChart series={kpi.trend} />
+        </ChartCard>
+
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <Card title="Status funnel"><Bars data={kpi.statusBars} /></Card>
-          <Card title="Priority split">
-            <div className="flex items-center gap-5">
-              <Donut segments={kpi.priorityDonut} total={kpi.total} />
-              <div className="space-y-2">
-                {kpi.priorityDonut.map((s) => (
-                  <div key={s.label} className="flex items-center gap-2 text-sm">
-                    <span className="h-3 w-3 rounded-sm" style={{ background: s.color }} />
-                    <span className="font-semibold text-slate-700">{s.label}</span>
-                    <span className="text-slate-400">{s.value}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </Card>
-          <Card title="Department load"><Bars data={kpi.deptBars} empty="No routed grievances yet" /></Card>
-          <Card title="Average resolution & ageing">
-            <div className="grid grid-cols-2 gap-3">
-              <Stat label="Avg days open" value={kpi.avgOpen} suffix="d" />
-              <Stat label="Oldest open" value={kpi.oldest} suffix="d" />
-              <Stat label="Avg upvotes" value={kpi.avgUpvotes} />
-              <Stat label="On-track SLA" value={`${kpi.onTrackRate}%`} />
-            </div>
-          </Card>
-          <Card title="Hotspot zones"><Bars data={kpi.zoneBars} empty="No zoned grievances" /></Card>
-          <Card title="Hotspot constituencies"><Bars data={kpi.acBars} empty="No mapped constituencies" /></Card>
+          <ChartCard title="Lifecycle funnel" subtitle="How far grievances get, and where they stall">
+            <Funnel stages={kpi.funnel} />
+          </ChartCard>
+
+          <ChartCard title="Priority mix" subtitle="Derived from age, supports and SLA">
+            <Donut segments={kpi.priorityDonut} total={kpi.total} label="grievances" />
+          </ChartCard>
+
+          <ChartCard title="Ageing of open grievances" subtitle="Days since reported — darker is older">
+            <StackedShare
+              segments={kpi.ageing}
+              caption={`${kpi.avgOpen} days average, oldest open ${kpi.oldest} days.`}
+            />
+          </ChartCard>
+
+          <ChartCard title="Department load" subtitle="Top five by routed volume">
+            <RankedBars data={kpi.deptBars} empty="No routed grievances yet" />
+          </ChartCard>
         </div>
 
-        {/* Community Pulse */}
-        <SectionTitle icon={Sparkles}>Community pulse · citizen app engagement</SectionTitle>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-          <Kpi label="Posts" value={community.posts} icon={Megaphone} tone="text-slate-800" />
-          <Kpi label="Engaged Voices" value={community.voices} icon={Users} tone="text-brand" />
-          <Kpi label="Likes" value={fmt(community.likes)} icon={Heart} tone="text-rose-500" />
-          <Kpi label="Comments" value={fmt(community.comments)} icon={MessageCircle} tone="text-amber-600" />
-          <Kpi label="Shares" value={fmt(community.shares)} icon={Share2} tone="text-emerald-600" />
-          <Kpi label="Poll Votes" value={fmt(community.pollVotes)} icon={BarChart3} tone="text-violet-600" />
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <ChartCard title="Hotspot zones" subtitle="Where the volume is concentrated">
+            <RankedTable rows={kpi.zoneBars} headers={["Zone", "Count", "Share"]} empty="No zoned grievances" />
+          </ChartCard>
+          <ChartCard title="Hotspot constituencies" subtitle="Grievances by assembly constituency">
+            <RankedTable rows={kpi.acBars} headers={["Constituency", "Count", "Share"]} empty="No mapped constituencies" />
+          </ChartCard>
         </div>
-        {community.top && (
-          <div className="glass-panel flex flex-wrap items-center gap-2 rounded-2xl px-4 py-3 text-sm">
-            <span className="rounded-md bg-gradient-to-r from-amber-400 to-amber-500 px-2 py-0.5 text-[11px] font-bold text-brand-dark">TOP POST</span>
-            <span className="font-semibold text-slate-800">{community.top.title}</span>
-            <span className="text-slate-400">by {community.top.author}</span>
-            <span className="ml-auto flex items-center gap-1 font-bold text-brand"><TrendingUp size={14} /> {fmt(community.top.eng)} engagements</span>
-          </div>
-        )}
 
-        {/* Content Moderation */}
-        <SectionTitle icon={ShieldAlert}>
-          Content moderation · flagged community content
-          {flagged.length > 0 && <span className="rounded-full bg-red-500 px-2 py-0.5 text-[11px] font-bold text-white">{flagged.length}</span>}
-        </SectionTitle>
-        <div className="glass-panel-strong overflow-hidden rounded-2xl">
-          {flagged.length === 0 ? (
-            <div className="flex flex-col items-center gap-2 py-12 text-center text-slate-400">
-              <ShieldCheck size={36} className="text-emerald-400" />
-              <p className="font-semibold">Queue clear — no flagged community content pending review.</p>
-            </div>
-          ) : flagged.map((f) => (
-            <ModerationRow key={f.id} item={f} resolved={resolvedMod[f.id]} onAct={actMod} />
-          ))}
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <StatTile label="Avg days open" value={kpi.avgOpen} suffix="d" icon={Clock} />
+          <StatTile label="Oldest open" value={kpi.oldest} suffix="d" icon={TimerOff} tone="text-rose-600" />
+          <StatTile label="Avg supports" value={kpi.avgUpvotes} icon={ThumbsUp} />
+          <StatTile label="On-track SLA" value={kpi.onTrackRate} suffix="%" icon={Gauge} tone="text-emerald-600" />
         </div>
+
       </div>
     </>
   );
@@ -248,46 +239,6 @@ export default function PerformancePage() {
 
 const selectCls = "rounded-lg border border-white/60 bg-white/60 px-2.5 py-1.5 text-xs font-semibold text-slate-700 outline-none backdrop-blur focus:border-brand";
 const fmt = (n) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`);
-
-/* ── Moderation row ── */
-function ModerationRow({ item, resolved, onAct }) {
-  const high = item.severity === "High";
-  return (
-    <div className={`flex flex-wrap items-start gap-3 border-t border-white/40 px-5 py-4 first:border-t-0 ${resolved ? "opacity-40" : ""}`}
-      style={{ transition: "opacity .25s ease" }}>
-      <span className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${high ? "bg-red-100 text-red-600" : "bg-amber-100 text-amber-700"}`}>
-        <ShieldAlert size={16} />
-      </span>
-      <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className={`rounded-md px-2 py-0.5 text-[10px] font-bold ${high ? "bg-red-500 text-white" : "bg-amber-400 text-amber-950"}`}>{item.severity}</span>
-          <span className="text-sm font-bold text-slate-800">{item.reason}</span>
-          <span className="text-[11px] text-slate-400">· model score {item.score}</span>
-        </div>
-        <p className="mt-1 rounded-lg bg-red-50/60 px-3 py-2 text-sm italic text-slate-700 ring-1 ring-red-100">“{item.text}”</p>
-        <p className="mt-1 text-[11px] text-slate-400">@{item.author} · {item.area} · {item.context}</p>
-      </div>
-      <div className="flex shrink-0 items-center gap-2">
-        {resolved ? (
-          <span className="text-xs font-bold text-slate-500">{resolved === "remove" ? "Removed" : "Kept"}</span>
-        ) : (
-          <>
-            <button onClick={() => onAct(item.id, "keep")} title="Verify as safe / keep"
-              style={{ transition: "all .25s ease" }}
-              className="flex items-center gap-1 rounded-lg border border-slate-300 bg-white/70 px-3 py-1.5 text-xs font-bold text-slate-600 hover:-translate-y-px hover:bg-white">
-              <ShieldCheck size={13} /> Keep
-            </button>
-            <button onClick={() => onAct(item.id, "remove")} title="Remove violating content"
-              style={{ transition: "all .25s ease" }}
-              className="flex items-center gap-1 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-bold text-white hover:-translate-y-px hover:bg-red-700">
-              <Trash2 size={13} /> Remove
-            </button>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
 
 /* ── analytics ── */
 function computeKpis(issues) {
@@ -308,34 +259,76 @@ function computeKpis(issues) {
   const avgUpvotes = total ? Math.round(issues.reduce((s, i) => s + (i.upvotes || 0), 0) / total * 10) / 10 : 0;
   const onTrackRate = openIssues.length ? Math.round((1 - breached / Math.max(1, openIssues.length)) * 100) : 100;
 
-  const statusBars = [
-    { label: "Pending", value: pending, color: "#7c3aed" },
-    { label: "Open", value: open, color: "#7a1c1c" },
-    { label: "In Progress", value: inProgress, color: "#f59e0b" },
-    { label: "Resolved", value: resolved, color: "#059669" },
+  // Funnel: each stage is everything that reached AT LEAST that far, so the
+  // widths read as drop-off rather than as four unrelated buckets.
+  const reachedCoordinator = total - pending;
+  const reachedDept = by("FORWARDED") + by("IN_PROGRESS") + resolved;
+  const funnel = [
+    { label: "Reported", value: total },
+    { label: "Picked up by a coordinator", value: reachedCoordinator },
+    { label: "Routed to a department", value: reachedDept },
+    { label: "Resolved", value: resolved },
+  ];
+
+  // Ageing of what is still open — an ordered scale, so a sequential ramp.
+  const buckets = [0, 0, 0, 0];
+  for (const i of openIssues) {
+    const d = daysOpen(i);
+    buckets[d <= 3 ? 0 : d <= 7 ? 1 : d <= 14 ? 2 : 3]++;
+  }
+  const ageing = [
+    { label: "0–3 days", value: buckets[0] },
+    { label: "4–7 days", value: buckets[1] },
+    { label: "8–14 days", value: buckets[2] },
+    { label: "15+ days", value: buckets[3] },
+  ];
+
+  // 30-day intake vs resolution. Both series are grievances per day — one
+  // unit, one axis; never a second scale.
+  const DAYS = 30;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const dayKey = (d) => new Date(d).toISOString().slice(0, 10);
+  const reportedBy = {}, resolvedBy = {};
+  for (const i of issues) {
+    if (i.created_at) reportedBy[dayKey(i.created_at)] = (reportedBy[dayKey(i.created_at)] || 0) + 1;
+    const done = i.resolved_at || i.closed_at;
+    if (done) resolvedBy[dayKey(done)] = (resolvedBy[dayKey(done)] || 0) + 1;
+  }
+  const axis = [];
+  for (let k = DAYS - 1; k >= 0; k--) {
+    const d = new Date(today); d.setDate(d.getDate() - k);
+    axis.push({ key: dayKey(d), label: d.toLocaleDateString("en-IN", { day: "numeric", month: "short" }) });
+  }
+  const trend = [
+    { label: "Reported", color: "#2a78d6", fill: true, points: axis.map((a) => ({ label: a.label, value: reportedBy[a.key] || 0 })) },
+    { label: "Resolved", color: "#1baf7a", points: axis.map((a) => ({ label: a.label, value: resolvedBy[a.key] || 0 })) },
   ];
   const prio = { High: 0, Medium: 0, Low: 0 };
   for (const i of issues) prio[derivePriority(i)]++;
+  // Validated trio (red / yellow / aqua): passes CVD separation and the
+  // normal-vision floor. Every slice is labelled beside the ring, which is
+  // what the contrast warning against white obliges.
   const priorityDonut = [
-    { label: "High", value: prio.High, color: PRIORITY_META.High.dot },
-    { label: "Medium", value: prio.Medium, color: PRIORITY_META.Medium.dot },
-    { label: "Low", value: prio.Low, color: PRIORITY_META.Low.dot },
+    { label: "High", value: prio.High, color: "#e34948" },
+    { label: "Medium", value: prio.Medium, color: "#eda100" },
+    { label: "Low", value: prio.Low, color: "#1baf7a" },
   ];
   const deptCount = {};
   for (const i of issues) if (i.department) { const k = departmentMeta(i.department).short; deptCount[k] = (deptCount[k] || 0) + 1; }
-  const deptBars = topBars(deptCount, "#c99a2e");
+  const deptBars = topBars(deptCount);
   const zoneCount = {};
   for (const i of issues) if (i.zone) { const k = `Zone ${i.zone}`; zoneCount[k] = (zoneCount[k] || 0) + 1; }
-  const zoneBars = topBars(zoneCount, "#7a1c1c");
+  const zoneBars = topBars(zoneCount, 6);
   const acCount = {};
   for (const i of issues) for (const a of constituenciesForWard(i.ward_no)) { const k = shortAC(a); acCount[k] = (acCount[k] || 0) + 1; }
-  const acBars = topBars(acCount, "#6366f1");
+  const acBars = topBars(acCount, 6);
 
   return { total, pending, open, inProgress, resolved, breached, resolutionRate,
-    avgOpen, oldest, avgUpvotes, onTrackRate, statusBars, priorityDonut, deptBars, zoneBars, acBars };
+    avgOpen, oldest, avgUpvotes, onTrackRate, funnel, ageing, trend,
+    priorityDonut, deptBars, zoneBars, acBars };
 }
-function topBars(countMap, color, n = 5) {
-  return Object.entries(countMap).map(([label, value]) => ({ label, value, color }))
+function topBars(countMap, n = 5) {
+  return Object.entries(countMap).map(([label, value]) => ({ label, value }))
     .sort((a, b) => b.value - a.value).slice(0, n);
 }
 
@@ -362,58 +355,6 @@ function Kpi({ label, value, icon: Icon, tone, color, active, onClick }) {
     >
       <div className="mb-1 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-400"><Icon size={12} /> {label}</div>
       <p className={`text-2xl font-extrabold ${tone}`}>{value}</p>
-    </div>
-  );
-}
-function Card({ title, children }) {
-  return (
-    <div className="glass-panel rounded-2xl p-5">
-      <p className="mb-3 text-sm font-bold text-slate-700">{title}</p>
-      {children}
-    </div>
-  );
-}
-function Bars({ data, empty = "No data" }) {
-  const max = Math.max(1, ...data.map((d) => d.value));
-  if (!data.length || max === 0) return <p className="py-6 text-center text-xs text-slate-400">{empty}</p>;
-  return (
-    <div className="space-y-2.5">
-      {data.map((d) => (
-        <div key={d.label}>
-          <div className="mb-0.5 flex items-center justify-between text-[12px]">
-            <span className="font-semibold text-slate-600">{d.label}</span>
-            <span className="text-slate-400">{d.value}</span>
-          </div>
-          <div className="h-2.5 overflow-hidden rounded-full bg-slate-200/70">
-            <div className="h-full rounded-full" style={{ width: `${(d.value / max) * 100}%`, background: d.color, transition: "width .5s cubic-bezier(.22,1,.36,1)" }} />
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-function Donut({ segments, total }) {
-  const size = 108, stroke = 18, r = (size - stroke) / 2, circ = 2 * Math.PI * r;
-  let offset = 0;
-  const sum = segments.reduce((s, x) => s + x.value, 0) || 1;
-  return (
-    <svg width={size} height={size} className="shrink-0 -rotate-90">
-      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#e2e8f0" strokeWidth={stroke} />
-      {segments.map((s) => {
-        const len = (s.value / sum) * circ;
-        const el = <circle key={s.label} cx={size / 2} cy={size / 2} r={r} fill="none" stroke={s.color}
-          strokeWidth={stroke} strokeDasharray={`${len} ${circ - len}`} strokeDashoffset={-offset} />;
-        offset += len; return el;
-      })}
-      <text x="50%" y="50%" transform={`rotate(90 ${size / 2} ${size / 2})`} textAnchor="middle" dominantBaseline="central" fontSize="20" fontWeight="800" fill="#0f172a">{total}</text>
-    </svg>
-  );
-}
-function Stat({ label, value, suffix = "" }) {
-  return (
-    <div className="rounded-xl bg-white/50 p-3 ring-1 ring-white/50">
-      <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{label}</p>
-      <p className="text-xl font-extrabold text-slate-800">{value}{suffix}</p>
     </div>
   );
 }

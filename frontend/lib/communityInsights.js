@@ -159,6 +159,130 @@ export function communityKpis() {
 }
 
 /**
+ * COMMUNITY PULSE
+ * ===============
+ * Analytics over what the citizen community actually does in the app — posts,
+ * polls, comment threads and official replies. Phase 1 has no social-media or
+ * news ingestion, so nothing here is scraped or inferred: every number below
+ * is counted from the same FEED the citizens read.
+ *
+ * Scoped by constituency when one is selected, city-wide when not. Posts carry
+ * an `area` ("Mylapore, Chennai"), which is matched against the AC name.
+ */
+
+/** Does this post belong to the given constituency? Empty ac = everything. */
+function inAc(post, ac) {
+  if (!ac) return true;
+  const area = (post.area || "").toLowerCase();
+  // AC names arrive as "24 - Mylapore"; compare on the name half only.
+  const name = ac.replace(/^\d+\s*-\s*/, "").trim().toLowerCase();
+  return area.includes(name) || name.includes(area.split(",")[0].trim());
+}
+
+/** Flatten a threaded comment tree into a list, tracking depth. */
+function flattenComments(nodes = [], depth = 0, out = []) {
+  for (const n of nodes) {
+    out.push({ ...n, depth });
+    flattenComments(n.replies || [], depth + 1, out);
+  }
+  return out;
+}
+
+export function communityPulse(ac = "") {
+  const posts = FEED.filter((p) => inAc(p, ac));
+
+  let likes = 0, shares = 0, officialReplies = 0, maxDepth = 0;
+  const allComments = [];
+  const byRole = {};
+  const byType = { image: 0, video: 0, poll: 0, text: 0 };
+  const areaCount = {};
+  const threads = [];
+
+  for (const p of posts) {
+    likes += p.likes || 0;
+    shares += p.shares || 0;
+    byType[p.type] = (byType[p.type] || 0) + 1;
+    const area = (p.area || "").split(",")[0].trim();
+    if (area) areaCount[area] = (areaCount[area] || 0) + 1;
+
+    const flat = flattenComments(p.comments);
+    allComments.push(...flat);
+    for (const c of flat) {
+      maxDepth = Math.max(maxDepth, c.depth + 1);
+      const role = c.roleTint || "resident";
+      byRole[role] = (byRole[role] || 0) + 1;
+      if (c.official) officialReplies++;
+      if (role === "official") officialReplies++;
+    }
+    threads.push({
+      id: p.id,
+      title: p.title || p.question || "Untitled",
+      area,
+      type: p.type,
+      comments: flat.length,
+      replies: flat.filter((c) => c.depth > 0).length,
+      likes: p.likes || 0,
+      answered: flat.some((c) => c.official || c.roleTint === "official"),
+    });
+  }
+
+  // Polls, with their option splits — the one place the community states a
+  // preference outright rather than leaving it to be inferred from sentiment.
+  const polls = posts
+    .filter((p) => p.type === "poll")
+    .map((p) => {
+      const total = p.totalVotes || (p.options || []).reduce((s, o) => s + o.votes, 0) || 1;
+      const opts = (p.options || [])
+        .map((o) => ({ ...o, pct: Math.round((o.votes / total) * 100) }))
+        .sort((a, b) => b.votes - a.votes);
+      return {
+        id: p.id,
+        question: p.question || p.title,
+        area: (p.area || "").split(",")[0].trim(),
+        daysLeft: p.daysLeft ?? null,
+        total,
+        options: opts,
+        leader: opts[0],
+        // How decisive the community was: the gap between first and second.
+        margin: opts.length > 1 ? opts[0].pct - opts[1].pct : 100,
+      };
+    });
+
+  const comments = allComments.length;
+  const engagement = likes + shares + comments;
+  const answeredThreads = threads.filter((t) => t.answered).length;
+
+  return {
+    scope: ac || "All constituencies",
+    posts: posts.length,
+    likes,
+    shares,
+    comments,
+    engagement,
+    // Replies to replies — conversation, not just reaction.
+    replyDepth: maxDepth,
+    replies: allComments.filter((c) => c.depth > 0).length,
+    officialReplies,
+    answeredThreads,
+    responseRate: threads.length ? Math.round((answeredThreads / threads.length) * 100) : 0,
+    // mkComment() renames commenterName → name when it builds the node.
+    voices: new Set(allComments.map((c) => c.name).filter(Boolean)).size,
+    polls,
+    pollVotes: polls.reduce((s, p) => s + p.total, 0),
+    byType,
+    byRole,
+    topThreads: [...threads].sort((a, b) => b.comments - a.comments).slice(0, 5),
+    unanswered: threads.filter((t) => !t.answered && t.comments > 0)
+      .sort((a, b) => b.comments - a.comments).slice(0, 4),
+    areas: Object.entries(areaCount)
+      .map(([label, value]) => ({ label, value }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 6),
+    avgEngagement: posts.length ? Math.round(engagement / posts.length) : 0,
+  };
+}
+
+/**
  * NAMM KURAL PULSE
  * ================
  * Editorial-style briefing for a constituency's MLA — deterministic mock data
