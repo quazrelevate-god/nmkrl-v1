@@ -1,11 +1,19 @@
 "use client";
 
 /**
- * WhatsAppModal (mock)
- * --------------------
- * Showcases an *upcoming* feature: dispatching a grievance to the routed
- * department's WhatsApp as a templatized message. Nothing is actually sent —
- * "Send" just simulates the hand-off so stakeholders can see the flow.
+ * WhatsAppModal
+ * -------------
+ * Dispatches a grievance to the routed responsible officer on WhatsApp.
+ *
+ * This used to be a mock: "Send" set a flag and nothing left the browser, even
+ * though the routing chain had already resolved a named officer and the admin
+ * console held their number. It opens that officer's chat now, with the
+ * message pre-typed, and tells the caller so the ticket can move to Forwarded
+ * — sending IS forwarding, which is why there is no longer a second button
+ * claiming to do it.
+ *
+ * With no number on file it falls back to WhatsApp's share sheet, the same
+ * behaviour the coordinator app has, rather than pretending it dispatched.
  */
 
 import { useState } from "react";
@@ -13,9 +21,12 @@ import { X, Send, Check, MapPin, CalendarClock } from "lucide-react";
 import { departmentMeta, slaDeadline } from "@/lib/departments";
 import { ticketNumber } from "@/lib/ticket";
 
-export default function WhatsAppModal({ issue, onClose }) {
+export default function WhatsAppModal({ issue, officer, contact, onDispatched, onClose }) {
   const [sent, setSent] = useState(false);
   if (!issue) return null;
+
+  const mobile = (contact?.mobile || "").replace(/\D/g, "");
+  const officerName = contact?.name || officer || "";
 
   const dept = issue.department || "Unassigned";
   const meta = departmentMeta(dept);
@@ -36,9 +47,20 @@ export default function WhatsAppModal({ issue, onClose }) {
 *Details:* ${issue.transcript || highlights || "—"}
 *Location:* ${loc}
 *Reported:* ${new Date(issue.created_at).toLocaleDateString("en-IN")}
-*SLA Deadline:* ${deadline}
+*SLA Deadline:* ${deadline}${officerName ? `\n*Responsible officer:* ${officerName}` : ""}
 
 Kindly action this grievance before the SLA deadline.`;
+
+  function dispatch() {
+    // Stored numbers are local 10-digit; prefix India's country code.
+    const e164 = mobile.length === 10 ? `91${mobile}` : mobile;
+    const url = e164
+      ? `https://wa.me/${e164}?text=${encodeURIComponent(message)}`
+      : `https://wa.me/?text=${encodeURIComponent(message)}`;
+    window.open(url, "_blank", "noopener,noreferrer");
+    setSent(true);
+    onDispatched?.();
+  }
 
   return (
     <div className="fixed inset-0 z-[700] flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
@@ -59,7 +81,7 @@ Kindly action this grievance before the SLA deadline.`;
 
         {/* Upcoming-feature notice */}
         <div className="bg-amber-50 px-4 py-1.5 text-center text-[11px] font-medium text-amber-700">
-          Demo — “Send to Department WhatsApp” is an upcoming feature
+          {mobile ? `Dispatching to +91 ${mobile}` : "No number configured for this officer"}
         </div>
 
         {/* Chat surface */}
@@ -79,11 +101,15 @@ Kindly action this grievance before the SLA deadline.`;
 
         {/* Send bar */}
         <div className="flex items-center gap-2 border-t border-slate-200 bg-white px-3 py-2.5">
-          <div className="flex-1 truncate rounded-full bg-slate-100 px-4 py-2 text-xs text-slate-400">
-            Templatized grievance message ready…
+          <div className="flex-1 truncate rounded-full bg-slate-100 px-4 py-2 text-xs text-slate-500">
+            {sent
+              ? "Opened in WhatsApp — ticket marked Forwarded."
+              : mobile
+                ? `To ${officerName || "the officer"} · +91 ${mobile}`
+                : "No officer number on file — pick a contact in WhatsApp"}
           </div>
           <button
-            onClick={() => setSent(true)}
+            onClick={dispatch}
             disabled={sent}
             className="flex h-10 w-10 items-center justify-center rounded-full bg-[#25D366] text-white shadow disabled:opacity-60"
           >

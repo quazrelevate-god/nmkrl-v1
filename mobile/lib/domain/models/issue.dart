@@ -6,6 +6,8 @@ class Issue {
     required this.title,
     this.imageUrl,
     this.audioUrl,
+    this.closureImageUrl,
+    this.closureAudioUrl,
     this.transcript,
     this.transcriptTa,
     this.ticketNo,
@@ -30,6 +32,12 @@ class Issue {
   final String title;
   final String? imageUrl;
   final String? audioUrl;
+
+  /// Proof of work captured when the grievance was closed — the live photo and
+  /// voice note the coordinator app requires. Shown to the citizen with the
+  /// verify prompt, so they are approving something they can actually see.
+  final String? closureImageUrl;
+  final String? closureAudioUrl;
   final String? transcript;
 
   /// Tamil translation of the transcript (Gemini returns both). Shown in
@@ -80,6 +88,8 @@ class Issue {
       title: '${json['title'] ?? 'Street Issue'}',
       imageUrl: json['image_url'] as String?,
       audioUrl: json['audio_url'] as String?,
+      closureImageUrl: json['closure_image_url'] as String?,
+      closureAudioUrl: json['closure_audio_url'] as String?,
       transcript: json['transcript'] as String?,
       transcriptTa: (json['transcript_ta'] as String?)?.trim().isEmpty ?? true
           ? null

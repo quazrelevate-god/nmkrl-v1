@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart' show LatLngBounds;
@@ -8,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 
+import '../../core/env.dart';
 import '../../core/theme.dart';
 import '../../core/i18n.dart';
 import '../../domain/constituencies.dart';
@@ -1447,6 +1449,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             'Authority marked this issue as RESOLVED. Has it really been fixed?',
             style: TextStyle(fontSize: 12, color: NkColors.slate500),
           ),
+          // The proof the coordinator was required to capture. Asking someone
+          // to approve a repair they cannot see is asking them to guess.
+          _ClosureProof(issue: issue),
           const SizedBox(height: 8),
           Row(
             children: [
@@ -2178,6 +2183,183 @@ class _WardPill extends StatelessWidget {
               color: NkColors.slate900,
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+
+/// The coordinator's proof of work, shown to the citizen with the verify
+/// prompt: the live photo, the voice note, and whatever note was typed.
+class _ClosureProof extends StatefulWidget {
+  const _ClosureProof({required this.issue});
+
+  final Issue issue;
+
+  @override
+  State<_ClosureProof> createState() => _ClosureProofState();
+}
+
+class _ClosureProofState extends State<_ClosureProof> {
+  final _player = AudioPlayer();
+  bool _playing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _player.onPlayerComplete.listen((_) {
+      if (mounted) setState(() => _playing = false);
+    });
+  }
+
+  @override
+  void dispose() {
+    _player.dispose();
+    super.dispose();
+  }
+
+  Future<void> _toggle(String url) async {
+    HapticFeedback.selectionClick();
+    if (_playing) {
+      await _player.stop();
+      if (mounted) setState(() => _playing = false);
+      return;
+    }
+    await _player.play(UrlSource(url));
+    if (mounted) setState(() => _playing = true);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final photo = Env.mediaUrl(widget.issue.closureImageUrl);
+    final audio = Env.mediaUrl(widget.issue.closureAudioUrl);
+    final note = (widget.issue.coordinatorMessage ?? '').trim();
+    if (photo == null && audio == null && note.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return Container(
+      margin: const EdgeInsets.only(top: 10),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: NkColors.emerald100),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.verified_outlined,
+                  size: 13, color: NkColors.emerald600),
+              const SizedBox(width: 6),
+              Text(
+                context.tr('Proof of work'),
+                style: const TextStyle(
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.5,
+                  color: NkColors.emerald600,
+                ),
+              ),
+            ],
+          ),
+          if (photo != null || audio != null) ...[
+            const SizedBox(height: 8),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                if (photo != null)
+                  GestureDetector(
+                    onTap: () => showDialog<void>(
+                      context: context,
+                      builder: (_) => GestureDetector(
+                        onTap: () => Navigator.of(context).pop(),
+                        child: Container(
+                          color: Colors.black87,
+                          alignment: Alignment.center,
+                          child: InteractiveViewer(
+                            child: Image.network(photo, fit: BoxFit.contain),
+                          ),
+                        ),
+                      ),
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Image.network(
+                        photo,
+                        height: 56,
+                        width: 56,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => Container(
+                          height: 56,
+                          width: 56,
+                          color: NkColors.slate100,
+                          alignment: Alignment.center,
+                          child: const Icon(Icons.broken_image_outlined,
+                              size: 18, color: NkColors.slate400),
+                        ),
+                      ),
+                    ),
+                  ),
+                if (photo != null && audio != null) const SizedBox(width: 10),
+                if (audio != null)
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => _toggle(audio),
+                      behavior: HitTestBehavior.opaque,
+                      child: Container(
+                        height: 40,
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                        decoration: BoxDecoration(
+                          color: NkColors.emerald50,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              _playing
+                                  ? Icons.stop_circle_outlined
+                                  : Icons.play_circle_outline,
+                              size: 20,
+                              color: NkColors.emerald600,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                context.tr(_playing
+                                    ? 'Playing…'
+                                    : "Coordinator's voice note"),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.w600,
+                                  color: NkColors.emerald700,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ],
+          if (note.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              note,
+              style: const TextStyle(
+                fontSize: 11.5,
+                height: 1.35,
+                fontStyle: FontStyle.italic,
+                color: NkColors.slate600,
+              ),
+            ),
+          ],
         ],
       ),
     );

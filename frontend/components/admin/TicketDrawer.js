@@ -16,11 +16,11 @@ import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import {
   X, Phone, User, MapPin, Building2, ThumbsUp, Sparkles, ImageIcon, Volume2,
-  ShieldCheck, Send, PlayCircle, CheckCircle2, Clock, Landmark, Hash, Flag, FileText,
+  ShieldCheck, Send, CheckCircle2, Clock, Landmark, Hash, Flag, FileText, Mic, Square, Camera,
   ChevronDown, ExternalLink, Loader2,
   Route, CornerDownRight, UserCheck, AlertCircle,
 } from "lucide-react";
-import { mediaUrl, adminVerifyGrievance, adminForwardIssue, adminStartIssue, adminCloseIssue, fetchOfficerContacts, summariseDocument } from "@/lib/api";
+import { mediaUrl, adminVerifyGrievance, adminForwardIssue, adminCloseIssue, fetchOfficerContacts, summariseDocument } from "@/lib/api";
 import { departmentMeta } from "@/lib/departments";
 import { loadDeptTree, resolveRouting } from "@/lib/deptRouting";
 
@@ -59,6 +59,7 @@ export default function TicketDrawer({ issue, onClose, onChanged }) {
   const [busy, setBusy] = useState(null);
   const [error, setError] = useState(null);
   const [wa, setWa] = useState(false);
+  const [resolve, setResolve] = useState(false);
   const [routing, setRouting] = useState(null);
   const [contact, setContact] = useState(null);
 
@@ -97,7 +98,6 @@ export default function TicketDrawer({ issue, onClose, onChanged }) {
     finally { setBusy(null); }
   }
 
-  const canForward = issue.status === "ACTIVE" || issue.status === "IN_PROGRESS";
   const canDispatch = issue.department && ["ACTIVE", "FORWARDED", "IN_PROGRESS"].includes(issue.status);
 
   return (
@@ -305,14 +305,8 @@ export default function TicketDrawer({ issue, onClose, onChanged }) {
               {issue.status === "SUBMITTED" && (
                 <ActionBtn onClick={() => run("verify", adminVerifyGrievance)} busy={busy === "verify"} primary icon={ShieldCheck}>Verify Grievance</ActionBtn>
               )}
-              {canForward && (
-                <ActionBtn onClick={() => run("forward", adminForwardIssue)} busy={busy === "forward"} icon={Send}>Forward to Department</ActionBtn>
-              )}
-              {(issue.status === "ACTIVE" || issue.status === "FORWARDED") && (
-                <ActionBtn onClick={() => run("start", adminStartIssue)} busy={busy === "start"} icon={PlayCircle}>Accept &amp; Start</ActionBtn>
-              )}
               {["ACTIVE", "FORWARDED", "IN_PROGRESS"].includes(issue.status) && (
-                <ActionBtn onClick={() => run("close", adminCloseIssue)} busy={busy === "close"} success icon={CheckCircle2}>Mark Resolved</ActionBtn>
+                <ActionBtn onClick={() => setResolve(true)} success icon={CheckCircle2}>Mark Resolved</ActionBtn>
               )}
               {issue.status === "PENDING_VERIFICATION" && (
                 <p className="flex items-center gap-1.5 text-sm font-medium text-amber-700"><Clock size={15} /> Awaiting citizen verification…</p>
@@ -325,7 +319,31 @@ export default function TicketDrawer({ issue, onClose, onChanged }) {
         </div>
       </div>
 
-      {wa && <WhatsAppModal issue={issue} onClose={() => setWa(false)} />}
+      {wa && (
+        <WhatsAppModal
+          issue={issue}
+          officer={routing?.officer}
+          contact={contact}
+          // Sending IS forwarding — the status moves on the dispatch rather
+          // than on a separate button that claimed the same thing.
+          onDispatched={async () => {
+            if (issue.status === "ACTIVE" || issue.status === "IN_PROGRESS") {
+              try {
+                await adminForwardIssue(issue.id);
+                onChanged?.();
+              } catch { /* the message still went; leave the status alone */ }
+            }
+          }}
+          onClose={() => setWa(false)}
+        />
+      )}
+      {resolve && (
+        <ResolveModal
+          issue={issue}
+          onClose={() => setResolve(false)}
+          onDone={() => { setResolve(false); onChanged?.(); }}
+        />
+      )}
     </div>
   );
 }
@@ -524,6 +542,151 @@ function DocumentSummary({ issue }) {
       {state.status === "error" && (
         <p className="mt-1.5 text-[11.5px] text-rose-600">{state.message}</p>
       )}
+    </div>
+  );
+}
+
+
+/* ── Mark Resolved ────────────────────────────────────────────────────────
+   Closing used to be a bare button. The coordinator app has required a photo
+   and a note to close since the evidence work; admin could close with nothing,
+   which made the two routes to the same status mean different things. */
+function ResolveModal({ issue, onClose, onDone }) {
+  const [photo, setPhoto] = useState(null);
+  const [preview, setPreview] = useState(null);
+  const [note, setNote] = useState("");
+  const [voice, setVoice] = useState(null);
+  const [recording, setRecording] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const recorderRef = useState(() => ({ rec: null, chunks: [] }))[0];
+
+  // A note is compulsory, in either form — typed or spoken.
+  const hasNote = note.trim().length > 0 || !!voice;
+  const ready = !!photo && hasNote;
+
+  function pick(e) {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    setPhoto(f);
+    setPreview(URL.createObjectURL(f));
+  }
+
+  async function toggleRecord() {
+    if (recording) {
+      recorderRef.rec?.stop();
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const rec = new MediaRecorder(stream);
+      recorderRef.rec = rec;
+      recorderRef.chunks = [];
+      rec.ondataavailable = (e) => e.data.size && recorderRef.chunks.push(e.data);
+      rec.onstop = () => {
+        stream.getTracks().forEach((t) => t.stop());
+        setVoice(new Blob(recorderRef.chunks, { type: "audio/webm" }));
+        setRecording(false);
+      };
+      rec.start();
+      setRecording(true);
+    } catch {
+      setError("Microphone unavailable — type a note instead.");
+    }
+  }
+
+  async function submit() {
+    setBusy(true); setError(null);
+    try {
+      await adminCloseIssue(issue.id, { note: note.trim(), photo, voice });
+      onDone();
+    } catch (err) {
+      setError(err.message);
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[700] flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+      <div className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3.5">
+          <div>
+            <p className="text-[15px] font-extrabold text-slate-900">Mark resolved</p>
+            <p className="text-[11.5px] text-slate-400">{ticketNo(issue)} · proof of work is required</p>
+          </div>
+          <button onClick={onClose} className="rounded-full p-1.5 text-slate-400 hover:bg-slate-100"><X size={18} /></button>
+        </div>
+
+        <div className="space-y-4 p-5">
+          <div>
+            <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-slate-500">
+              Photo of the completed work <span className="text-rose-500">*</span>
+            </p>
+            <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-slate-300 p-3 hover:border-brand">
+              <input type="file" accept="image/*" capture="environment" className="hidden" onChange={pick} />
+              {preview ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={preview} alt="" className="h-14 w-14 rounded-lg object-cover ring-1 ring-slate-200" />
+              ) : (
+                <span className="flex h-14 w-14 items-center justify-center rounded-lg bg-slate-100 text-slate-400"><Camera size={20} /></span>
+              )}
+              <span className="min-w-0 flex-1">
+                <span className="block text-[13px] font-bold text-slate-700">
+                  {photo ? photo.name : "Attach a photo"}
+                </span>
+                <span className="block text-[11.5px] text-slate-400">
+                  {photo ? "Click to replace" : "Shows the citizen what was actually done"}
+                </span>
+              </span>
+            </label>
+          </div>
+
+          <div>
+            <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-slate-500">
+              Resolution note <span className="text-rose-500">*</span>
+              <span className="ml-1 font-medium normal-case text-slate-400">— typed or spoken</span>
+            </p>
+            <textarea
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              rows={3}
+              placeholder="What was done, by whom, and when."
+              className="w-full resize-none rounded-xl border border-slate-300 px-3 py-2.5 text-[13px] outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
+            />
+            <div className="mt-2 flex items-center gap-2">
+              <button type="button" onClick={toggleRecord}
+                className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] font-bold ${
+                  recording ? "bg-rose-50 text-rose-600" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                }`}>
+                {recording ? <Square size={12} /> : <Mic size={12} />}
+                {recording ? "Stop recording" : voice ? "Re-record" : "Record instead"}
+              </button>
+              {voice && !recording && (
+                <span className="flex items-center gap-1 text-[11.5px] font-semibold text-emerald-600">
+                  <CheckCircle2 size={12} /> Voice note attached
+                </span>
+              )}
+            </div>
+          </div>
+
+          {error && <p className="rounded-lg bg-rose-50 px-3 py-2 text-[12px] font-semibold text-rose-600">{error}</p>}
+
+          <button
+            type="button"
+            onClick={submit}
+            disabled={!ready || busy}
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 py-3 text-[13.5px] font-bold text-white transition hover:bg-emerald-700 disabled:opacity-45"
+          >
+            <CheckCircle2 size={16} />
+            {busy ? "Submitting…" : "Mark resolved & notify citizen"}
+          </button>
+          {!ready && (
+            <p className="-mt-1 text-center text-[11.5px] text-slate-400">
+              {!photo ? "Attach a photo" : "Add a note, typed or spoken"} to continue.
+            </p>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

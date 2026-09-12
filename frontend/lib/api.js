@@ -306,10 +306,17 @@ export async function adminForwardIssue(issueId) {
 }
 
 /** Admin: mark resolved -> PENDING_VERIFICATION. */
-export async function adminCloseIssue(issueId) {
+export async function adminCloseIssue(issueId, { note = "", photo = null, voice = null } = {}) {
+  // Proof of work travels with the closure, the same pair the coordinator app
+  // has always required, so both routes to "resolved" mean the same thing.
+  const body = new FormData();
+  body.append("note", note);
+  if (photo) body.append("photo", photo, photo.name || "proof.jpg");
+  if (voice) body.append("voice", voice, "proof.webm");
   const res = await fetch(`${API_BASE}/api/admin/issues/${issueId}/close`, {
     method: "POST",
     headers: adminHeaders(),
+    body,
   });
   return handle(res);
 }

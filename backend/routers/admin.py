@@ -11,7 +11,7 @@ Authority/triage endpoints:
   * POST /api/admin/issues/{id}/summarise-document - read the attached petition
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel
 
 import json
@@ -220,7 +220,21 @@ def forward_issue(issue_id: str, conn=Depends(get_db)):
 
 
 @router.post("/issues/{issue_id}/close")
-def close_issue(issue_id: str, conn=Depends(get_db)):
+async def close_issue(
+    issue_id: str,
+    note: str = Form(""),
+    photo: UploadFile = File(None),
+    voice: UploadFile = File(None),
+    conn=Depends(get_db),
+):
+    """Mark resolved, with proof of work.
+
+    The coordinator app has required a photo and a note to close since the
+    evidence work; admin could close with nothing at all, which made the two
+    routes to the same status mean different things. The console now demands
+    the same proof, and it is stored in the same columns so the citizen and the
+    timeline see one kind of closure however it was reached.
+    """
     issue = conn.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
     if issue is None:
         raise HTTPException(status_code=404, detail="Issue not found")
@@ -229,9 +243,15 @@ def close_issue(issue_id: str, conn=Depends(get_db)):
             status_code=409,
             detail=f"Only open issues can be resolved (status={issue['status']})",
         )
+    image_url, audio_url = await audit.store_evidence(photo, voice)
     conn.execute(
-        "UPDATE issues SET status = 'PENDING_VERIFICATION', notify_reporter = 1 WHERE id = ?",
-        (issue_id,),
+        """UPDATE issues
+              SET status = 'PENDING_VERIFICATION', notify_reporter = 1,
+                  closed_at = ?, coordinator_message = ?,
+                  closure_image_url = COALESCE(?, closure_image_url),
+                  closure_audio_url = COALESCE(?, closure_audio_url)
+            WHERE id = ?""",
+        (now_iso(), note.strip(), image_url, audio_url, issue_id),
     )
     row = conn.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
     _announce(conn, row, "closed",

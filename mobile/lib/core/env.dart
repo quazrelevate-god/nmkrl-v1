@@ -24,4 +24,13 @@ class Env {
     'API_BASE',
     defaultValue: kReleaseMode ? _prodBackend : 'http://10.0.2.2:8000',
   );
+
+  /// Resolve a stored media path ("/uploads/images/x.jpg") to a fetchable URL.
+  /// Already-absolute URLs pass through; an empty path yields null so callers
+  /// can branch on it directly.
+  static String? mediaUrl(String? path) {
+    if (path == null || path.isEmpty) return null;
+    if (path.startsWith('http')) return path;
+    return '$apiBase$path';
+  }
 }
