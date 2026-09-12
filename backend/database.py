@@ -259,6 +259,9 @@ def init_db() -> None:
             # paperwork already written.
             ("document_url", "TEXT"),
             ("document_name", "TEXT DEFAULT ''"),
+            # Cached result of the manual "AI Summary (Document)" action, so
+            # re-opening a grievance does not re-bill the model. JSON blob.
+            ("document_summary", "TEXT DEFAULT ''"),
         ]:
             try:
                 conn.execute(f"ALTER TABLE issues ADD COLUMN {col} {defn}")

@@ -220,6 +220,18 @@ export async function fetchIssueTimeline(issueId) {
   return handle(res);
 }
 
+/** Admin: read the citizen's attached petition with Gemini and return a
+ *  point-wise summary. A manual action — reading a document costs a model
+ *  call, so it is never triggered just by opening a ticket. Cached server-side
+ *  after the first read; pass refresh to re-read. */
+export async function summariseDocument(issueId, { refresh = false } = {}) {
+  const res = await fetch(
+    `${API_BASE}/api/admin/issues/${issueId}/summarise-document${refresh ? "?refresh=true" : ""}`,
+    { method: "POST", headers: adminHeaders() }
+  );
+  return handle(res);
+}
+
 /** Admin: per-coordinator workload and outcomes (assigned / escalated /
  *  resolved / false, closure rate and average turnaround). */
 export async function fetchCoordinatorPerformance() {

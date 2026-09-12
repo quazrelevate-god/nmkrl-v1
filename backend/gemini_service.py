@@ -432,3 +432,109 @@ def process_audio(audio_bytes: bytes, mime_type: str = "audio/webm") -> dict:
     except Exception as exc:
         print(f"[gemini_service] Exception: {type(exc).__name__}: {exc}", file=sys.stderr)
         return _mock_result(f"{type(exc).__name__}: {exc}")
+
+
+# ── Petition document summary ─────────────────────────────────────────────
+
+_DOC_PROMPT = """You are reading a citizen's written petition attached to a
+municipal grievance in Chennai, India. The document may be in Tamil, in
+English, or mixed. It may be a scan, so read any text in the images too.
+
+Return ONLY a JSON object, no markdown fences, with these keys:
+  "language":  the document's main language, "Tamil" | "English" | "Mixed"
+  "title":     a short factual title for what is being asked, max 10 words
+  "summary":   2-3 sentences in English stating what the petitioner wants
+  "points":    6-10 DETAILED bullet points in English, each a full sentence,
+               covering: what the problem is, where exactly, how long it has
+               gone on, who is affected, what has already been tried, what the
+               petitioner is asking for, and any dates, names, reference
+               numbers, amounts or measurements the document states
+  "asks":      the specific actions requested, as short strings
+  "points_ta": the same bullets translated into Tamil
+
+Never invent facts. If the document does not state something, leave it out.
+If the document is unreadable, set "summary" to "" and "points" to []."""
+
+# What Gemini will accept inline for a document part.
+_DOC_MIMES = {
+    ".pdf": "application/pdf",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+    ".txt": "text/plain",
+}
+
+
+def summarise_document(doc_bytes: bytes, filename: str = "") -> dict:
+    """Read an attached petition and return a detailed, point-wise summary.
+
+    Tamil and English both go straight to the model — it reads either, and a
+    scan is handled as an image. Never raises: the admin console shows whatever
+    comes back, and a failure has to say so rather than break the page.
+    """
+    api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+    if not api_key:
+        return {"ok": False, "reason": "No GEMINI_API_KEY configured"}
+    if not doc_bytes:
+        return {"ok": False, "reason": "Empty document"}
+
+    ext = os.path.splitext(filename or "")[1].lower()
+    mime = _DOC_MIMES.get(ext)
+    if mime is None:
+        # .doc/.docx are not accepted inline by the model. Say so plainly
+        # rather than sending bytes it will reject.
+        return {
+            "ok": False,
+            "reason": f"Cannot read {ext or 'this file type'} — "
+                      "attach a PDF, an image or a text file.",
+        }
+
+    try:
+        from google.genai import types
+
+        response = _generate(
+            [
+                types.Content(
+                    role="user",
+                    parts=[
+                        types.Part(text=_DOC_PROMPT),
+                        types.Part.from_bytes(data=doc_bytes, mime_type=mime),
+                    ],
+                )
+            ],
+            label="Document summary",
+        )
+        text = (response.text or "").strip()
+        if text.startswith("```"):
+            text = text.strip("`")
+            if text.lower().startswith("json"):
+                text = text[4:]
+            text = text.strip()
+        parsed = json.loads(text)
+
+        def _list(key):
+            v = parsed.get(key, [])
+            if not isinstance(v, list):
+                v = [str(v)]
+            return [str(x).strip() for x in v if str(x).strip()]
+
+        points = _list("points")
+        if not points and not str(parsed.get("summary", "")).strip():
+            return {"ok": False, "reason": "Nothing readable in the document"}
+
+        return {
+            "ok": True,
+            "language": str(parsed.get("language", "")).strip(),
+            "title": str(parsed.get("title", "")).strip(),
+            "summary": str(parsed.get("summary", "")).strip(),
+            "points": points,
+            "points_ta": _list("points_ta"),
+            "asks": _list("asks"),
+        }
+    except json.JSONDecodeError as exc:
+        print(f"[gemini_service] doc summary parse failed: {exc}", file=sys.stderr)
+        return {"ok": False, "reason": "Could not parse the model's response"}
+    except Exception as exc:  # noqa: BLE001
+        print(f"[gemini_service] doc summary failed: {exc}", file=sys.stderr)
+        return {"ok": False, "reason": f"{exc}"}

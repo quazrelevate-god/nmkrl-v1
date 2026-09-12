@@ -8,10 +8,14 @@ Authority/triage endpoints:
   * POST /api/admin/issues/{id}/progress - ACTIVE -> IN_PROGRESS
   * GET  /api/admin/issues/{id}/timeline - append-only action history
   * GET  /api/admin/coordinator-performance - per-coordinator workload + outcomes
+  * POST /api/admin/issues/{id}/summarise-document - read the attached petition
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
+
+import json
+import os
 
 import audit
 from database import get_db
@@ -388,3 +392,54 @@ def coordinator_performance(conn=Depends(get_db)):
               AND status NOT IN ('CLOSED', 'FALSE')"""
     ).fetchone()["n"]
     return {"count": len(stats), "unassigned": unassigned, "coordinators": stats}
+
+
+@router.post("/issues/{issue_id}/summarise-document")
+def summarise_attached_document(
+    issue_id: str,
+    refresh: bool = Query(False),
+    conn=Depends(get_db),
+):
+    """Read the citizen's attached petition and return a point-wise summary.
+
+    Deliberately a manual action, not something the report path does: reading a
+    document costs a model call, most grievances have no document, and an admin
+    opening a ticket to glance at it should not trigger one. The result is
+    cached on the row so the button is paid for once; `refresh=true` re-reads.
+    """
+    row = conn.execute(
+        "SELECT document_url, document_name, document_summary FROM issues WHERE id = ?",
+        (issue_id,),
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Issue not found")
+    if not (row["document_url"] or "").strip():
+        raise HTTPException(
+            status_code=400, detail="This grievance has no attached document."
+        )
+
+    cached = (row["document_summary"] or "").strip()
+    if cached and not refresh:
+        try:
+            return {**json.loads(cached), "cached": True}
+        except ValueError:
+            pass  # corrupt cache — fall through and re-read
+
+    from gemini_service import summarise_document
+    from utils import UPLOAD_DIR
+
+    # document_url is "/uploads/documents/<file>"; map it back onto disk.
+    rel = row["document_url"].replace("/uploads", "", 1).lstrip("/")
+    path = os.path.join(UPLOAD_DIR, rel)
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="The attached file is missing.")
+    with open(path, "rb") as fh:
+        data = fh.read()
+
+    result = summarise_document(data, row["document_name"] or os.path.basename(path))
+    if result.get("ok"):
+        conn.execute(
+            "UPDATE issues SET document_summary = ? WHERE id = ?",
+            (json.dumps(result), issue_id),
+        )
+    return {**result, "cached": False}

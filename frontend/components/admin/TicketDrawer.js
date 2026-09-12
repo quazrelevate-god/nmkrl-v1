@@ -17,9 +17,10 @@ import dynamic from "next/dynamic";
 import {
   X, Phone, User, MapPin, Building2, ThumbsUp, Sparkles, ImageIcon, Volume2,
   ShieldCheck, Send, PlayCircle, CheckCircle2, Clock, Landmark, Hash, Flag, FileText,
+  ChevronDown, ExternalLink, Loader2,
   Route, CornerDownRight, UserCheck, AlertCircle,
 } from "lucide-react";
-import { mediaUrl, adminVerifyGrievance, adminForwardIssue, adminStartIssue, adminCloseIssue, fetchOfficerContacts } from "@/lib/api";
+import { mediaUrl, adminVerifyGrievance, adminForwardIssue, adminStartIssue, adminCloseIssue, fetchOfficerContacts, summariseDocument } from "@/lib/api";
 import { departmentMeta } from "@/lib/departments";
 import { loadDeptTree, resolveRouting } from "@/lib/deptRouting";
 
@@ -147,19 +148,8 @@ export default function TicketDrawer({ issue, onClose, onChanged }) {
             </Section>
 
             {issue.document_url && (
-              <Section icon={FileText} title="Petition document">
-                <a href={mediaUrl(issue.document_url)} target="_blank" rel="noreferrer"
-                  className="flex items-center gap-2.5 rounded-xl bg-white p-3 ring-1 ring-slate-200 transition hover:ring-brand-200">
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand/10 text-brand">
-                    <FileText size={16} />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[13px] font-bold text-slate-800">
-                      {issue.document_name || "Attached petition"}
-                    </span>
-                    <span className="block text-[11px] text-slate-400">Uploaded by the citizen · opens in a new tab</span>
-                  </span>
-                </a>
+              <Section icon={FileText} title="Document submission">
+                <DocumentPreview issue={issue} />
               </Section>
             )}
 
@@ -224,7 +214,7 @@ export default function TicketDrawer({ issue, onClose, onChanged }) {
               <p className="font-bold text-slate-800">{issue.title || <span className="italic text-slate-400">No headline</span>}</p>
               {(issue.transcript || issue.summary_highlights?.length > 0) && (
                 <div className="mt-2 rounded-xl border border-brand/15 bg-brand-50/50 p-3">
-                  <p className="mb-1.5 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-brand"><Sparkles size={12} /> AI Summary</p>
+                  <p className="mb-1.5 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-brand"><Sparkles size={12} /> AI Summary (Voice Note)</p>
                   {issue.transcript && <p className="text-sm italic leading-snug text-slate-700">“{issue.transcript}”</p>}
                   {issue.summary_highlights?.length > 0 && (
                     <div className="mt-2 flex flex-wrap gap-1.5">
@@ -235,6 +225,12 @@ export default function TicketDrawer({ issue, onClose, onChanged }) {
                   )}
                 </div>
               )}
+
+              {/* Reading the attached petition is a separate, manual action:
+                  it costs a model call, most grievances have no document, and
+                  opening a ticket to glance at it should not trigger one. The
+                  button only exists when there is something to read. */}
+              {issue.document_url && <DocumentSummary issue={issue} />}
             </div>
 
             {/* Department routing — AI-resolved chain to the responsible officer */}
@@ -385,5 +381,149 @@ function ActionBtn({ onClick, busy, primary, success, icon: Icon, children }) {
     <button onClick={onClick} disabled={busy} className={`flex items-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-bold transition disabled:opacity-60 ${cls}`}>
       <Icon size={15} /> {busy ? "Working…" : children}
     </button>
+  );
+}
+
+
+/* ── Petition document ────────────────────────────────────────────────────
+   A single bar the same width as the photo and audio cards above it, so the
+   left column reads as one stack rather than one item breaking the rhythm.
+   Clicking expands an inline preview; the file itself is one click further,
+   in a new tab. */
+function DocumentPreview({ issue }) {
+  const [open, setOpen] = useState(false);
+  const url = mediaUrl(issue.document_url);
+  const name = issue.document_name || "Attached petition";
+  const isPdf = /\.pdf$/i.test(name) || /\.pdf$/i.test(issue.document_url || "");
+  const isImage = /\.(png|jpe?g|webp)$/i.test(name);
+
+  return (
+    <div className="overflow-hidden rounded-xl bg-white ring-1 ring-slate-200">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center gap-2.5 p-3 text-left transition hover:bg-slate-50"
+      >
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand/10 text-brand">
+          <FileText size={16} />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[13px] font-bold text-slate-800">{name}</span>
+          <span className="block text-[11px] text-slate-400">
+            Uploaded by the citizen · {open ? "click to collapse" : "click to preview"}
+          </span>
+        </span>
+        <ChevronDown
+          size={16}
+          className={`shrink-0 text-slate-400 transition-transform ${open ? "rotate-180" : ""}`}
+        />
+      </button>
+
+      {open && (
+        <div className="border-t border-slate-100 p-3">
+          {isPdf ? (
+            <object data={url} type="application/pdf" className="h-[420px] w-full rounded-lg ring-1 ring-slate-200">
+              <p className="p-4 text-[12px] text-slate-500">
+                This browser cannot show the PDF inline.
+              </p>
+            </object>
+          ) : isImage ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={url} alt={name} className="w-full rounded-lg object-contain ring-1 ring-slate-200" style={{ maxHeight: 420 }} />
+          ) : (
+            <p className="rounded-lg bg-slate-50 p-4 text-[12px] text-slate-500">
+              No inline preview for this file type.
+            </p>
+          )}
+          <a href={url} target="_blank" rel="noreferrer"
+            className="mt-2.5 inline-flex items-center gap-1.5 text-[12px] font-bold text-brand hover:underline">
+            Open in a new tab <ExternalLink size={12} />
+          </a>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── AI Summary (Document) ────────────────────────────────────────────────
+   Manual by design. The model reads Tamil and English alike, and a scan is
+   handled as an image; the result is cached server-side so the button is paid
+   for once per document. */
+function DocumentSummary({ issue }) {
+  const [state, setState] = useState({ status: "idle" });
+
+  async function run(refresh = false) {
+    setState({ status: "loading" });
+    try {
+      const data = await summariseDocument(issue.id, { refresh });
+      setState(
+        data.ok
+          ? { status: "done", data }
+          : { status: "error", message: data.reason || "Could not read the document." }
+      );
+    } catch (err) {
+      setState({ status: "error", message: err.message });
+    }
+  }
+
+  if (state.status === "done") {
+    const d = state.data;
+    return (
+      <div className="mt-2 rounded-xl border border-amber-200/70 bg-amber-50/50 p-3">
+        <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+          <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-amber-700">
+            <FileText size={12} /> AI Summary (Document)
+            {d.language && (
+              <span className="rounded-full bg-white px-1.5 py-0.5 text-[10px] font-bold text-amber-700 ring-1 ring-amber-200">
+                {d.language}
+              </span>
+            )}
+          </p>
+          <button type="button" onClick={() => run(true)}
+            className="text-[11px] font-bold text-amber-700 hover:underline">
+            Re-read
+          </button>
+        </div>
+        {d.title && <p className="text-[13px] font-bold text-slate-800">{d.title}</p>}
+        {d.summary && <p className="mt-1 text-[13px] leading-snug text-slate-700">{d.summary}</p>}
+        {d.points?.length > 0 && (
+          <ul className="mt-2.5 space-y-1.5">
+            {d.points.map((pt, i) => (
+              <li key={i} className="flex gap-2 text-[12.5px] leading-snug text-slate-700">
+                <span className="mt-[7px] h-1 w-1 shrink-0 rounded-full bg-amber-600" />
+                {pt}
+              </li>
+            ))}
+          </ul>
+        )}
+        {d.asks?.length > 0 && (
+          <div className="mt-2.5">
+            <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-amber-700">Asking for</p>
+            <div className="flex flex-wrap gap-1.5">
+              {d.asks.map((a, i) => (
+                <span key={i} className="rounded-full bg-white px-2.5 py-0.5 text-[11px] font-medium text-amber-800 ring-1 ring-amber-200">{a}</span>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-2">
+      <button
+        type="button"
+        onClick={() => run(false)}
+        disabled={state.status === "loading"}
+        className="flex w-full items-center justify-center gap-2 rounded-xl border border-amber-300 bg-amber-50/60 px-3 py-2.5 text-[12.5px] font-bold text-amber-800 transition hover:bg-amber-50 disabled:opacity-60"
+      >
+        {state.status === "loading" ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />}
+        {state.status === "loading" ? "Reading the document…" : "AI Summary (Document)"}
+      </button>
+      {state.status === "error" && (
+        <p className="mt-1.5 text-[11.5px] text-rose-600">{state.message}</p>
+      )}
+    </div>
   );
 }
