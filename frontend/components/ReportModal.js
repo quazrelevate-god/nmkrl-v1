@@ -3,20 +3,21 @@
 /**
  * ReportModal
  * -----------
- * "Report Street Issue" floating glass pop-up (opened from the [+] in the pill
- * nav). Streamlined flow: capture photo(s) and/or a voice note, then swipe to
- * submit. No title, no OTP — a full-screen success animation acknowledges the
- * submission. Fair-use limit: 1 grievance/day (highlighted at the top).
+ * Grievance submission sheet, opened from the [+] in the pill nav. Ported from
+ * the Flutter app's report sheet so both clients present the same object:
  *
- *   • Camera + voice recorder sit side-by-side above the swipe control.
- *   • Captured photo thumbnails stack above the camera tile.
- *   • The voice playback preview sits above the recorder tile.
+ *   Layer 1  bottom-attached navy sheet, top corners only
+ *   Layer 2  slightly lighter inner container holding the tiles
+ *   Layer 3  two FIXED-HEIGHT white tiles (photo / voice)
+ *
+ * The tiles never resize: adding a photo or finishing a recording swaps their
+ * contents in place, so the sheet's height is constant across every state.
+ * Both attachments are required; the swipe stays inert and self-describing
+ * until both exist. Ends in the full-screen success acknowledgement.
  */
 
 import { useEffect, useRef, useState } from "react";
-import {
-  MapPin, RotateCcw, Camera, Mic, Square, Trash2, X, Play, Pause, TriangleAlert,
-} from "lucide-react";
+import { Camera, Mic, Square, Trash2, Play, Pause, ShieldCheck } from "lucide-react";
 import SwipeToConfirm from "@/components/SwipeToConfirm";
 import SuccessOverlay from "@/components/SuccessOverlay";
 import { reportIssue, confirmIssue } from "@/lib/api";
@@ -27,42 +28,8 @@ import { dailyState, consumeDaily, GRIEVANCE_LIMIT_KEY } from "@/lib/dailyLimit"
 
 const DAILY_MAX = 1;
 
-/* Compact voice playback pill shown above the recorder tile. */
-function AudioPill({ url, seconds, onDelete }) {
-  const ref = useRef(null);
-  const [playing, setPlaying] = useState(false);
-  const mm = String(Math.floor(seconds / 60)).padStart(2, "0");
-  const ss = String(seconds % 60).padStart(2, "0");
-
-  function toggle() {
-    const el = ref.current;
-    if (!el) return;
-    if (playing) { el.pause(); } else { el.play(); }
-    setPlaying((p) => !p);
-  }
-
-  return (
-    <div className="flex items-center gap-2 rounded-xl bg-brand-50 px-2 py-1.5 ring-1 ring-brand-100">
-      <button type="button" onClick={toggle} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand text-white">
-        {playing ? <Pause size={13} /> : <Play size={13} className="ml-0.5" />}
-      </button>
-      <div className="flex h-4 flex-1 items-center gap-[2px]">
-        {Array.from({ length: 14 }).map((_, i) => (
-          <span key={i} className="w-0.5 rounded-full bg-brand/40" style={{ height: `${30 + ((i * 37) % 70)}%` }} />
-        ))}
-      </div>
-      <span className="shrink-0 font-mono text-[11px] font-semibold text-brand">{mm}:{ss}</span>
-      <button type="button" onClick={onDelete} className="shrink-0 text-slate-400 hover:text-rose-500" title="Delete recording">
-        <Trash2 size={14} />
-      </button>
-      {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-      <audio ref={ref} src={url} onEnded={() => setPlaying(false)} className="hidden" />
-    </div>
-  );
-}
-
 export default function ReportModal({ open, onClose }) {
-  const { coords, areaName, status: geoStatus, refresh } = useGeolocation();
+  const { coords } = useGeolocation();
   const recorder = useRecorder();
 
   const [userId, setUserId] = useState("demo-user");
@@ -75,6 +42,17 @@ export default function ReportModal({ open, onClose }) {
   const [resetToken, setResetToken] = useState(0);
 
   const cameraInputRef = useRef(null);
+  const audioRef = useRef(null);
+  const [playing, setPlaying] = useState(false);
+
+  // Both attachments are mandatory — see the guard in submit().
+  const canSubmit = images.length > 0 && !!recorder.audioBlob;
+
+  function togglePlay() {
+    const el = audioRef.current;
+    if (!el) return;
+    if (el.paused) { el.play(); setPlaying(true); } else { el.pause(); setPlaying(false); }
+  }
 
   useEffect(() => { setUserId(getUserId()); }, []);
   useEffect(() => { if (open) setLimit(dailyState(GRIEVANCE_LIMIT_KEY, DAILY_MAX)); }, [open]);
@@ -108,7 +86,19 @@ export default function ReportModal({ open, onClose }) {
     setError(null);
     // Fair-use counter is display-only for the demo — never blocks submission.
     if (!coords) { setError("Waiting for your location…"); bumpReset(); return; }
-    if (images.length === 0 && !recorder.audioBlob) { setError("Add a photo or a voice note to describe the issue."); bumpReset(); return; }
+    // BOTH are required, matching the Flutter sheet: the photo is what a
+    // coordinator triages on, the voice note is the citizen's account of it.
+    const noPhoto = images.length === 0;
+    const noVoice = !recorder.audioBlob;
+    if (noPhoto || noVoice) {
+      setError(
+        noPhoto && noVoice ? "Add both a photo and a voice note to submit."
+        : noPhoto ? "Add a photo — a voice note alone is not enough."
+        : "Record a voice note — a photo alone is not enough."
+      );
+      bumpReset();
+      return;
+    }
 
     setSubmitting(true);
     try {
@@ -156,127 +146,136 @@ export default function ReportModal({ open, onClose }) {
   return (
     <>
       {open && (
-        <div className="absolute inset-0 z-[600] flex items-center justify-center px-4 pb-24 pt-6">
+        <div className="absolute inset-0 z-[600] flex flex-col justify-end">
           {/* Scrim */}
           <div className="animate-scrim-in absolute inset-0 bg-slate-900/45 backdrop-blur-md" onClick={handleClose} />
 
-          {/* Floating iOS glass card */}
-          <div className="animate-modal-float glass-strong relative z-10 flex max-h-full w-full flex-col overflow-hidden rounded-[30px] shadow-[0_30px_80px_-20px_rgba(15,23,42,0.55)] ring-1 ring-black/5">
-            <div className="mx-auto mt-2.5 h-1 w-10 shrink-0 rounded-full bg-slate-300/80" />
-            <div className="no-scrollbar overflow-y-auto px-4 pb-5 pt-1">
-              {/* Header */}
-              <div className="flex items-start justify-between pt-1">
-                <div>
-                  <h1 className="text-xl font-extrabold tracking-tight text-slate-900">Report Street Issue</h1>
-                  <p className="text-xs text-slate-500">Help us build better and safer streets</p>
-                </div>
-                <button onClick={handleClose} className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-200/70 text-slate-500 hover:bg-slate-300/70">
-                  <X size={17} />
-                </button>
-              </div>
+          {/* Layer 1 — flat navy outer, only the top corners rounded so it
+              reads as a bottom-attached sheet, not a floating card. The nav
+              pill hides itself while this is open, so the sheet needs no
+              clearance below the swipe — dismissal is a scrim tap. The inline
+              padding adds the home-indicator inset on installed PWAs. */}
+          <div className="animate-sheet-up relative z-10 w-full rounded-t-[28px] bg-brand px-3.5 pb-5 pt-2.5 shadow-[0_-18px_60px_-12px_rgba(15,23,42,0.55)]"
+            style={{ paddingBottom: "calc(1.25rem + env(safe-area-inset-bottom))" }}>
+            {/* Grip */}
+            <div className="mx-auto h-1 w-[42px] rounded-full bg-white/30" />
 
-              {/* Fair-use counter — display only, never enforced (demo) */}
-              <div className="mt-3 flex items-center gap-2.5 rounded-2xl bg-amber-50 px-3.5 py-2.5 text-amber-800 ring-1 ring-amber-200">
-                <TriangleAlert size={16} className="shrink-0" />
-                <p className="text-[12.5px] font-semibold leading-snug">
-                  Fair-use: <b>1 grievance per day</b> · {Math.max(0, limit.remaining)} of {limit.max} remaining today
-                </p>
-              </div>
-
-              {/* Location */}
-              <section className="mt-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
-                <div className="flex items-start justify-between">
-                  <div className="flex items-start gap-2">
-                    <MapPin size={16} className="mt-0.5 shrink-0 text-brand" />
-                    <div>
-                      <p className="text-sm font-semibold text-slate-800">Current Location</p>
-                      {coords ? (
-                        areaName
-                          ? <p className="text-xs font-medium text-slate-700">{areaName}</p>
-                          : <p className="text-xs text-slate-400">{coords.lat.toFixed(4)}° N, {coords.lng.toFixed(4)}° E</p>
-                      ) : <p className="text-xs text-slate-400">Locating…</p>}
-                    </div>
-                  </div>
-                  <span className={`rounded-full px-2 py-1 text-[10px] font-semibold ${
-                    geoStatus === "ready" ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"
-                  }`}>
-                    {geoStatus === "ready" ? `±${Math.round(coords?.accuracy || 0)} m`
-                      : geoStatus === "fallback" ? "Default location" : "Locating…"}
+            {/* Layer 2 — lighter inner container wrapping the two tiles. */}
+            <div className="mt-4 rounded-[30px] bg-[#234874] p-2">
+              <div className="grid grid-cols-2 gap-2">
+                {/* ── Photo tile ── */}
+                <button
+                  type="button"
+                  onClick={() => cameraInputRef.current?.click()}
+                  className="flex h-[82px] items-center gap-1 rounded-3xl bg-white pl-2 pr-1 py-2.5 text-left transition active:scale-[0.99]"
+                >
+                  {images.length > 0 ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={images[0].url} alt="" className="h-11 w-11 shrink-0 rounded-xl object-cover" />
+                  ) : (
+                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-slate-100 text-brand">
+                      <Camera size={22} />
+                    </span>
+                  )}
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[12.5px] font-extrabold leading-tight text-slate-900">
+                      {images.length > 0 ? "Photo added" : "Upload Photo"}
+                    </span>
+                    <span className="mt-0.5 block text-[11.5px] leading-snug text-slate-500">
+                      {images.length > 0 ? "Tap to add another" : "Camera or gallery"}
+                    </span>
                   </span>
-                </div>
-                <button onClick={refresh} className="mt-1.5 flex items-center gap-1 text-xs font-medium text-brand">
-                  <RotateCcw size={12} /> Refresh location
-                </button>
-              </section>
-
-              {/* Capture row — camera + voice side by side, previews above each */}
-              <div className="mt-3 grid grid-cols-2 items-end gap-3">
-                {/* Camera column */}
-                <div className="flex flex-col gap-2">
                   {images.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5">
-                      {images.map((img) => (
-                        <div key={img.id} className="relative">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={img.url} alt="" className="h-11 w-11 rounded-lg object-cover ring-1 ring-slate-200" />
-                          <button onClick={() => removeImage(img.id)} className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-slate-800 text-white">
-                            <X size={11} />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      aria-label="Remove photo"
+                      onClick={(e) => { e.stopPropagation(); removeImage(images[0].id); }}
+                      onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); removeImage(images[0].id); } }}
+                      className="shrink-0 text-slate-400 hover:text-rose-500"
+                    >
+                      <Trash2 size={15} />
+                    </span>
                   )}
-                  <button
-                    onClick={() => cameraInputRef.current?.click()}
-                    className="flex flex-col items-center justify-center gap-1 rounded-2xl bg-brand-50 py-3.5 text-xs font-semibold text-brand ring-1 ring-brand-100 transition active:scale-[0.98]"
-                  >
-                    <Camera size={22} />
-                    {images.length > 0 ? `Add photo (${images.length})` : "Capture photo"}
-                  </button>
-                </div>
+                </button>
 
-                {/* Voice column */}
-                <div className="flex flex-col gap-2">
-                  {recorder.audioUrl && !recorder.isRecording && (
-                    <AudioPill url={recorder.audioUrl} seconds={recorder.seconds} onDelete={recorder.reset} />
-                  )}
-                  <button
-                    onClick={recorder.isRecording ? recorder.stop : recorder.start}
-                    className={`flex flex-col items-center justify-center gap-1 rounded-2xl py-3.5 text-xs font-semibold ring-1 transition active:scale-[0.98] ${
-                      recorder.isRecording
-                        ? "recording-pulse bg-rose-500 text-white ring-rose-300"
-                        : "bg-brand-50 text-brand ring-brand-100"
+                {/* ── Voice tile ── */}
+                <button
+                  type="button"
+                  onClick={recorder.isRecording ? recorder.stop : (recorder.audioUrl ? undefined : recorder.start)}
+                  className="flex h-[82px] items-center gap-1 rounded-3xl bg-white pl-2 pr-1 py-2.5 text-left transition active:scale-[0.99]"
+                >
+                  <span
+                    onClick={(e) => { if (recorder.audioUrl && !recorder.isRecording) { e.stopPropagation(); togglePlay(); } }}
+                    className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${
+                      recorder.isRecording ? "recording-pulse bg-rose-500 text-white" : "bg-slate-100 text-brand"
                     }`}
                   >
-                    {recorder.isRecording ? (
-                      <>
-                        <Square size={20} className="fill-white" />
-                        <span className="font-mono">{mm}:{ss} · Stop</span>
-                      </>
-                    ) : (
-                      <>
-                        <Mic size={22} />
-                        {recorder.audioUrl ? "Re-record" : "Record voice"}
-                      </>
-                    )}
-                  </button>
-                </div>
+                    {recorder.isRecording ? <Square size={18} className="fill-current" />
+                      : recorder.audioUrl ? (playing ? <Pause size={20} /> : <Play size={20} className="ml-0.5" />)
+                      : <Mic size={22} />}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[12.5px] font-extrabold leading-tight text-slate-900">
+                      {recorder.isRecording ? "Recording…" : recorder.audioUrl ? "Voice note" : "Record Voice"}
+                    </span>
+                    <span className="mt-0.5 block font-mono text-[11.5px] leading-snug text-slate-500">
+                      {recorder.isRecording ? `${mm}:${ss} · Tap to stop`
+                        : recorder.audioUrl ? `${mm}:${ss}`
+                        : "Describe the issue"}
+                    </span>
+                  </span>
+                  {recorder.audioUrl && !recorder.isRecording && (
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      aria-label="Delete recording"
+                      onClick={(e) => { e.stopPropagation(); setPlaying(false); recorder.reset(); }}
+                      onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); recorder.reset(); } }}
+                      className="shrink-0 text-slate-400 hover:text-rose-500"
+                    >
+                      <Trash2 size={15} />
+                    </span>
+                  )}
+                </button>
               </div>
-              <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={onPickImage} />
-              {recorder.error && <p className="mt-2 text-xs text-rose-500">{recorder.error}</p>}
+            </div>
 
-              {error && <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-600">{error}</div>}
+            <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={onPickImage} />
+            {recorder.audioUrl && (
+              <audio ref={audioRef} src={recorder.audioUrl} onEnded={() => setPlaying(false)} className="hidden" />
+            )}
 
-              {/* Swipe to submit */}
-              <div className="mt-4">
-                <SwipeToConfirm
-                  label={submitting ? "Submitting…" : "Swipe to submit grievance"}
-                  busyLabel="Submitting…"
-                  onConfirm={submit}
-                  busy={submitting}
-                  resetToken={resetToken}
-                />
-              </div>
+            {(error || recorder.error) && (
+              <p className="mt-2.5 text-center text-xs text-[#FFB4B4]">{error || recorder.error}</p>
+            )}
+
+            {/* Fair-use policy row — aligned with the tiles above. */}
+            <div className="mt-4 flex items-center justify-center gap-2">
+              <ShieldCheck size={16} className="shrink-0 text-white/[0.66]" />
+              <p className="truncate text-[13px] text-white/80">
+                Fair use policy: you can report {limit.max} grievance per day
+              </p>
+            </div>
+
+            {/* Swipe to submit — inert until BOTH attachments exist. */}
+            <div className="mt-4">
+              <SwipeToConfirm
+                label={canSubmit ? "Swipe to submit grievance" : "Add a photo and a voice note"}
+                busyLabel="Submitting…"
+                onConfirm={submit}
+                busy={submitting}
+                disabled={!canSubmit}
+                resetToken={resetToken}
+                height={62}
+                knobWidth={84}
+                radius={22}
+                uppercase
+                trackStyle={{ background: "#ffffff" }}
+                knobStyle={{ background: "#ffffff", color: "#1A3556", boxShadow: "0 2px 8px rgba(15,23,42,0.12)" }}
+                labelColor="#8B90A0"
+                fillStyle={{ background: "rgba(26,53,86,0.08)" }}
+              />
             </div>
           </div>
         </div>
