@@ -209,6 +209,9 @@ const Map<String, String> _ta = {
   'Forgot PIN? Sign in again':
       'கடவு எண் மறந்துவிட்டதா? மீண்டும் உள்நுழையவும்',
   'Tap to enter': 'உள்ளிட தட்டவும்',
+  'Sign in again': 'மீண்டும் உள்நுழையவும்',
+  'This account is no longer available. Sign in again.':
+      'இந்தக் கணக்கு இனி கிடைக்கவில்லை. மீண்டும் உள்நுழையவும்.',
   'Welcome back': 'மீண்டும் வருக',
   'In My Ward': 'என் வார்டில்',
   'My Reports': 'என் புகார்கள்',

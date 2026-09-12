@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -247,41 +246,54 @@ class _CitizenLoginFormState extends ConsumerState<_CitizenLoginForm> {
     }
   }
 
+  /// Flat fields sitting directly on the navy — no card behind them.
+  ///
+  /// Same surface language as the PIN screens and the home bar's search: a
+  /// barely-there fill, a hairline edge, and gold only on focus. White-filled
+  /// inputs needed the frosted panel to sit on; without it they would be four
+  /// bright slabs floating on a dark screen.
   InputDecoration _dec(String hint) => InputDecoration(
         hintText: hint,
-        hintStyle: const TextStyle(color: NkColors.slate400, fontSize: 14),
+        hintStyle: TextStyle(
+          color: Colors.white.withValues(alpha: 0.38),
+          fontSize: 14,
+        ),
         isDense: true,
         filled: true,
-        // Brighter than the frosted panel behind it, so the field reads as a
-        // lit inset in the glass rather than a flat white block on white.
-        fillColor: Colors.white.withValues(alpha: 0.92),
+        fillColor: Colors.white.withValues(alpha: 0.08),
         contentPadding:
-            const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: NkColors.slate200),
+          borderRadius: BorderRadius.circular(14),
+          borderSide:
+              BorderSide(color: Colors.white.withValues(alpha: 0.20)),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: NkColors.brand, width: 1.6),
+          borderRadius: BorderRadius.circular(14),
+          borderSide: const BorderSide(color: NkColors.gold300, width: 1.5),
         ),
       );
 
+  /// Input text has to be light now that the field is dark.
+  static const _inputStyle = TextStyle(
+    fontSize: 15,
+    fontWeight: FontWeight.w600,
+    color: Colors.white,
+  );
+
   Widget _label(IconData icon, String text) => Padding(
-        padding: const EdgeInsets.only(bottom: 6),
+        padding: const EdgeInsets.only(bottom: 8),
         child: Row(
           children: [
-            // slate700, not slate500: the frosted panel is translucent over
-            // navy, so mid-grey labels lose contrast against it.
-            Icon(icon, size: 12, color: NkColors.slate700),
+            Icon(icon, size: 12, color: Colors.white.withValues(alpha: 0.55)),
             const SizedBox(width: 6),
             Text(
               text.toUpperCase(),
-              style: const TextStyle(
-                fontSize: 11,
+              style: TextStyle(
+                fontSize: 10.5,
                 fontWeight: FontWeight.w700,
-                letterSpacing: 0.6,
-                color: NkColors.slate700,
+                letterSpacing: 0.8,
+                color: Colors.white.withValues(alpha: 0.55),
               ),
             ),
           ],
@@ -340,14 +352,14 @@ class _CitizenLoginFormState extends ConsumerState<_CitizenLoginForm> {
           ),
         ),
         const SizedBox(height: 28),
-        _GlassCard(
-          child: Column(
+        Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               _label(Icons.person_outline, 'Full name'),
               TextField(
                 controller: _name,
                 textCapitalization: TextCapitalization.words,
+                style: _inputStyle,
                 decoration: _dec('As per your records'),
               ),
               const SizedBox(height: 16),
@@ -356,18 +368,19 @@ class _CitizenLoginFormState extends ConsumerState<_CitizenLoginForm> {
                 children: [
                   Container(
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 12),
+                        horizontal: 12, vertical: 14),
                     decoration: BoxDecoration(
-                      color: NkColors.slate50,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: NkColors.slate200),
+                      color: Colors.white.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.20)),
                     ),
-                    child: const Text(
+                    child: Text(
                       '+91',
                       style: TextStyle(
-                        fontSize: 14,
+                        fontSize: 15,
                         fontWeight: FontWeight.w600,
-                        color: NkColors.slate500,
+                        color: Colors.white.withValues(alpha: 0.75),
                       ),
                     ),
                   ),
@@ -376,6 +389,7 @@ class _CitizenLoginFormState extends ConsumerState<_CitizenLoginForm> {
                     child: TextField(
                       controller: _mobile,
                       keyboardType: TextInputType.phone,
+                      style: _inputStyle,
                       decoration: _dec('98xxx xxxxx'),
                     ),
                   ),
@@ -442,6 +456,7 @@ class _CitizenLoginFormState extends ConsumerState<_CitizenLoginForm> {
                                     fontSize: 18,
                                     fontWeight: FontWeight.w700,
                                     letterSpacing: 8,
+                                    color: Colors.white,
                                   ),
                                   decoration:
                                       _dec('••••••').copyWith(counterText: ''),
@@ -480,15 +495,17 @@ class _CitizenLoginFormState extends ConsumerState<_CitizenLoginForm> {
                   padding: const EdgeInsets.symmetric(
                       horizontal: 12, vertical: 8),
                   decoration: BoxDecoration(
-                    color: NkColors.rose50,
-                    borderRadius: BorderRadius.circular(10),
+                    color: NkColors.rose500.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                        color: NkColors.rose500.withValues(alpha: 0.35)),
                   ),
                   child: Text(
                     _error!,
                     style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                      color: NkColors.rose600,
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFFFFB4B4),
                     ),
                   ),
                 ),
@@ -502,12 +519,12 @@ class _CitizenLoginFormState extends ConsumerState<_CitizenLoginForm> {
                   child: Container(
                     height: 48,
                     decoration: BoxDecoration(
-                      gradient: nkBrandGradient,
-                      borderRadius: BorderRadius.circular(12),
+                      gradient: nkGoldGradient,
+                      borderRadius: BorderRadius.circular(14),
                       boxShadow: [
                         BoxShadow(
-                          color: NkColors.brand.withValues(alpha: 0.3),
-                          blurRadius: 16,
+                          color: NkColors.gold300.withValues(alpha: 0.28),
+                          blurRadius: 18,
                           offset: const Offset(0, 8),
                         ),
                       ],
@@ -527,14 +544,14 @@ class _CitizenLoginFormState extends ConsumerState<_CitizenLoginForm> {
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               Icon(Icons.login,
-                                  size: 16, color: Colors.white),
+                                  size: 16, color: NkColors.brandDark),
                               SizedBox(width: 8),
                               Text(
                                 'Login',
                                 style: TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w700,
-                                  color: Colors.white,
+                                  fontSize: 14.5,
+                                  fontWeight: FontWeight.w800,
+                                  color: NkColors.brandDark,
                                 ),
                               ),
                             ],
@@ -564,7 +581,6 @@ class _CitizenLoginFormState extends ConsumerState<_CitizenLoginForm> {
                 ],
               ),
             ],
-          ),
         ),
         const SizedBox(height: 32),
       ],
@@ -621,25 +637,40 @@ class _CoordinatorLoginFormState extends ConsumerState<_CoordinatorLoginForm> {
     }
   }
 
+  /// Flat fields sitting directly on the navy — no card behind them.
+  ///
+  /// Same surface language as the PIN screens and the home bar's search: a
+  /// barely-there fill, a hairline edge, and gold only on focus. White-filled
+  /// inputs needed the frosted panel to sit on; without it they would be four
+  /// bright slabs floating on a dark screen.
   InputDecoration _dec(String hint) => InputDecoration(
         hintText: hint,
-        hintStyle: const TextStyle(color: NkColors.slate400, fontSize: 14),
+        hintStyle: TextStyle(
+          color: Colors.white.withValues(alpha: 0.38),
+          fontSize: 14,
+        ),
         isDense: true,
         filled: true,
-        // Brighter than the frosted panel behind it, so the field reads as a
-        // lit inset in the glass rather than a flat white block on white.
-        fillColor: Colors.white.withValues(alpha: 0.92),
+        fillColor: Colors.white.withValues(alpha: 0.08),
         contentPadding:
-            const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: NkColors.slate200),
+          borderRadius: BorderRadius.circular(14),
+          borderSide:
+              BorderSide(color: Colors.white.withValues(alpha: 0.20)),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: NkColors.brand, width: 1.6),
+          borderRadius: BorderRadius.circular(14),
+          borderSide: const BorderSide(color: NkColors.gold300, width: 1.5),
         ),
       );
+
+  /// Input text has to be light now that the field is dark.
+  static const _inputStyle = TextStyle(
+    fontSize: 15,
+    fontWeight: FontWeight.w600,
+    color: Colors.white,
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -696,8 +727,7 @@ class _CoordinatorLoginFormState extends ConsumerState<_CoordinatorLoginForm> {
           ),
         ),
         const SizedBox(height: 28),
-        _GlassCard(
-          child: Column(
+        Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(context.tr('Welcome back 👋'),
@@ -727,6 +757,7 @@ class _CoordinatorLoginFormState extends ConsumerState<_CoordinatorLoginForm> {
               TextField(
                 controller: _username,
                 autocorrect: false,
+                style: _inputStyle,
                 decoration: _dec('e.g. raja'),
               ),
               const SizedBox(height: 14),
@@ -745,6 +776,7 @@ class _CoordinatorLoginFormState extends ConsumerState<_CoordinatorLoginForm> {
               TextField(
                 controller: _password,
                 obscureText: true,
+                style: _inputStyle,
                 decoration: _dec('••••••••'),
               ),
               if (_error != null) ...[
@@ -772,12 +804,12 @@ class _CoordinatorLoginFormState extends ConsumerState<_CoordinatorLoginForm> {
                   child: Container(
                     height: 48,
                     decoration: BoxDecoration(
-                      gradient: nkBrandGradient,
-                      borderRadius: BorderRadius.circular(12),
+                      gradient: nkGoldGradient,
+                      borderRadius: BorderRadius.circular(14),
                       boxShadow: [
                         BoxShadow(
-                          color: NkColors.brand.withValues(alpha: 0.3),
-                          blurRadius: 16,
+                          color: NkColors.gold300.withValues(alpha: 0.28),
+                          blurRadius: 18,
                           offset: const Offset(0, 8),
                         ),
                       ],
@@ -796,14 +828,15 @@ class _CoordinatorLoginFormState extends ConsumerState<_CoordinatorLoginForm> {
                         : const Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Icon(Icons.login, size: 16, color: Colors.white),
+                              Icon(Icons.login,
+                                  size: 16, color: NkColors.brandDark),
                               SizedBox(width: 8),
                               Text(
                                 'Sign In',
                                 style: TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w700,
-                                  color: Colors.white,
+                                  fontSize: 14.5,
+                                  fontWeight: FontWeight.w800,
+                                  color: NkColors.brandDark,
                                 ),
                               ),
                             ],
@@ -812,7 +845,6 @@ class _CoordinatorLoginFormState extends ConsumerState<_CoordinatorLoginForm> {
                 ),
               ),
             ],
-          ),
         ),
         const SizedBox(height: 20),
         Padding(
@@ -839,42 +871,3 @@ class _CoordinatorLoginFormState extends ConsumerState<_CoordinatorLoginForm> {
 /// reads through the panel instead of being hidden by a flat white block. The
 /// fill stays high enough that the dark labels and inputs inside keep their
 /// contrast — frosted, not see-through.
-class _GlassCard extends StatelessWidget {
-  const _GlassCard({required this.child});
-
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(24),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
-        child: Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(24),
-            // Top-lit: brighter at the top edge, as glass catches light.
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                Colors.white.withValues(alpha: 0.82),
-                Colors.white.withValues(alpha: 0.70),
-              ],
-            ),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.55)),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.35),
-                blurRadius: 40,
-                offset: const Offset(0, 18),
-              ),
-            ],
-          ),
-          child: child,
-        ),
-      ),
-    );
-  }
-}

@@ -92,7 +92,13 @@ class ReportSheet extends ConsumerStatefulWidget {
   ConsumerState<ReportSheet> createState() => _ReportSheetState();
 }
 
-class _ReportSheetState extends ConsumerState<ReportSheet> {
+/// Height of the swipe block (control + the gap above it). The sheet is
+/// translated down by exactly this much while the attachments are incomplete,
+/// so the slider sits below the screen edge and everything above it stays put.
+const double _kSwipeBlockHeight = 78;
+
+class _ReportSheetState extends ConsumerState<ReportSheet>
+    with SingleTickerProviderStateMixin {
   final _picker = ImagePicker();
   final _recorder = VoiceRecorderController();
   final List<XFile> _images = [];
@@ -104,6 +110,18 @@ class _ReportSheetState extends ConsumerState<ReportSheet> {
   String? _error;
   int _resetToken = 0;
 
+  /// 0 = slider hidden below the fold, 1 = fully revealed.
+  ///
+  /// Slow and eased on purpose. This is the moment the form becomes
+  /// submittable, so it should feel like the sheet rising to meet the user
+  /// rather than a control snapping into place.
+  late final AnimationController _reveal = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 520),
+    reverseDuration: const Duration(milliseconds: 380),
+    value: 0,
+  );
+
   @override
   void initState() {
     super.initState();
@@ -112,8 +130,22 @@ class _ReportSheetState extends ConsumerState<ReportSheet> {
 
   @override
   void dispose() {
+    _reveal.dispose();
     _recorder.dispose();
     super.dispose();
+  }
+
+  /// Keep the reveal in step with readiness. Driven from build so it responds
+  /// to every path that can change the attachments — camera, recorder, delete.
+  void _syncReveal() {
+    final want = _canSubmit;
+    if (want && _reveal.status != AnimationStatus.forward && !_reveal.isCompleted) {
+      _reveal.forward();
+    } else if (!want &&
+        _reveal.status != AnimationStatus.reverse &&
+        !_reveal.isDismissed) {
+      _reveal.reverse();
+    }
   }
 
   Future<void> _capturePhoto() async {
@@ -227,7 +259,20 @@ class _ReportSheetState extends ConsumerState<ReportSheet> {
   Widget build(BuildContext context) {
     final viewInset = MediaQuery.of(context).viewInsets.bottom;
     final safeBottom = MediaQuery.paddingOf(context).bottom;
-    return Container(
+    _syncReveal();
+    return AnimatedBuilder(
+      animation: _reveal,
+      builder: (context, child) => Transform.translate(
+        // Sheet slides down by the height of the swipe block, putting the
+        // slider past the bottom edge. Everything above it holds position.
+        offset: Offset(
+          0,
+          (1 - Curves.easeOutCubic.transform(_reveal.value)) *
+              _kSwipeBlockHeight,
+        ),
+        child: child,
+      ),
+      child: Container(
       width: double.infinity,
       decoration: const BoxDecoration(
         // Layer 1 — flat navy outer, only the top corners rounded so it reads
@@ -340,6 +385,7 @@ class _ReportSheetState extends ConsumerState<ReportSheet> {
             ),
           ],
         ),
+      ),
       ),
     );
   }

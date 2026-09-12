@@ -243,6 +243,9 @@ class _SetPinScreenState extends ConsumerState<SetPinScreen> {
   String _first = '';
   String? _error;
   bool _busy = false;
+  /// True once the server has told us this account no longer exists, which no
+  /// amount of retyping can fix.
+  bool _stranded = false;
 
   bool get _confirming => _first.isNotEmpty;
 
@@ -292,15 +295,27 @@ class _SetPinScreenState extends ConsumerState<SetPinScreen> {
       ref.read(pinLockProvider.notifier).unlock();
       if (mounted) context.go('/home');
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _busy = false;
-          _error = '$e';
-          _first = '';
-          _ctrl.clear();
-        });
-      }
+      if (!mounted) return;
+      // A 404 here means the device is holding a session for an account the
+      // server no longer has — a restored backup, a wiped database, a user
+      // deleted in admin. Retyping cannot fix that, so offer the way out
+      // rather than leaving the person on a screen they cannot leave.
+      final gone = '$e'.toLowerCase().contains('not found');
+      setState(() {
+        _busy = false;
+        _stranded = gone;
+        _error = gone
+            ? context.tr('This account is no longer available. Sign in again.')
+            : '$e';
+        _first = '';
+        _ctrl.clear();
+      });
     }
+  }
+
+  Future<void> _signOut() async {
+    await ref.read(authProvider.notifier).signOut();
+    if (mounted) context.go('/login');
   }
 
   @override
@@ -315,7 +330,19 @@ class _SetPinScreenState extends ConsumerState<SetPinScreen> {
         _PinBoxes(filled: _ctrl.text.length, error: _error != null),
         _pinError(_error),
         const SizedBox(height: 22),
-        if (_busy)
+        if (_stranded)
+          TextButton(
+            onPressed: _signOut,
+            child: Text(
+              context.tr('Sign in again'),
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: NkColors.gold300,
+              ),
+            ),
+          )
+        else if (_busy)
           const SizedBox(
             height: 22,
             width: 22,
