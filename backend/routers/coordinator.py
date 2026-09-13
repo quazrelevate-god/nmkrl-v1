@@ -30,6 +30,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Upload
 
 import audit
 from database import get_db
+from session_auth import coordinator_session, require_same_coordinator
 from utils import now_iso, serialize_issue
 from routers.notifications import emit_status_change
 
@@ -102,6 +103,7 @@ def coordinator_ward_issues(
     ward_no: int,
     coordinator: str = Query(""),
     sort: str = Query("recent"),
+    session_username: str = Depends(coordinator_session),
     conn=Depends(get_db),
 ):
     """Ward grievances scoped for `coordinator`:
@@ -109,6 +111,7 @@ def coordinator_ward_issues(
        — grievances assigned to <coordinator>
        — hides grievances assigned to another coordinator
     """
+    coordinator = require_same_coordinator(session_username, coordinator)
     order = "upvotes DESC, created_at DESC" if sort == "priority" else "created_at DESC"
     if coordinator:
         _reject_if_disabled(conn, coordinator)
@@ -129,9 +132,14 @@ def coordinator_ward_issues(
 
 
 @router.get("/mine/{coordinator}")
-def coordinator_my_reports(coordinator: str, conn=Depends(get_db)):
+def coordinator_my_reports(
+    coordinator: str,
+    session_username: str = Depends(coordinator_session),
+    conn=Depends(get_db),
+):
     """Every grievance a coordinator has taken ownership of, across all wards.
     Used by the mobile ward dropdown to show a per-ward assigned count."""
+    coordinator = require_same_coordinator(session_username, coordinator)
     rows = conn.execute(
         """SELECT * FROM issues WHERE assigned_coordinator = ?
            ORDER BY created_at DESC""",
@@ -144,11 +152,13 @@ def coordinator_my_reports(coordinator: str, conn=Depends(get_db)):
 def coord_verify(
     issue_id: str,
     coordinator: str = Form(...),
+    session_username: str = Depends(coordinator_session),
     conn=Depends(get_db),
 ):
     """Coordinator takes ownership: any → ACTIVE. Sets assigned_coordinator
     so the ticket vanishes from every other coordinator's ward tab."""
     prev = _load(conn, issue_id)
+    coordinator = require_same_coordinator(session_username, coordinator)
     _reject_if_disabled(conn, coordinator)
     if not _known_coordinator(conn, coordinator):
         raise HTTPException(
@@ -188,6 +198,7 @@ async def coord_transfer(
     notes: str = Form(""),
     officer: str = Form(""),
     coordinator: str = Form(""),
+    session_username: str = Depends(coordinator_session),
     photo: UploadFile = File(None),
     voice: UploadFile = File(None),
     conn=Depends(get_db),
@@ -198,6 +209,7 @@ async def coord_transfer(
     message — admin could not filter or count on a name buried in prose.
     """
     prev = _load(conn, issue_id)
+    coordinator = require_same_coordinator(session_username, coordinator)
     _authorize(conn, prev, coordinator)
     image_url, audio_url = await audit.store_evidence(photo, voice)
     if officer:
@@ -231,6 +243,7 @@ async def coord_escalate(
     issue_id: str,
     description: str = Form(...),
     coordinator: str = Form(""),
+    session_username: str = Depends(coordinator_session),
     photo: UploadFile = File(None),
     voice: UploadFile = File(None),
     conn=Depends(get_db),
@@ -238,6 +251,7 @@ async def coord_escalate(
     """Escalate: → IN_PROGRESS + escalated_at now(). Mobile groups these into
     a dedicated 'Escalated' tab and keeps them out of 'My Reports'."""
     prev = _load(conn, issue_id)
+    coordinator = require_same_coordinator(session_username, coordinator)
     _authorize(conn, prev, coordinator)
     image_url, audio_url = await audit.store_evidence(photo, voice)
     conn.execute(
@@ -268,10 +282,12 @@ def coord_redirect(
     issue_id: str,
     description: str = Form(...),
     coordinator: str = Form(""),
+    session_username: str = Depends(coordinator_session),
     conn=Depends(get_db),
 ):
     """Redirect: → SUBMITTED with a delay-apology message."""
     prev = _load(conn, issue_id)
+    coordinator = require_same_coordinator(session_username, coordinator)
     _authorize(conn, prev, coordinator)
     msg = (
         "Sorry for the delay, will re-assign another team to resolve this issue faster. "
@@ -301,6 +317,7 @@ async def coord_close(
     issue_id: str,
     notes: str = Form(""),
     coordinator: str = Form(""),
+    session_username: str = Depends(coordinator_session),
     photo: UploadFile = File(None),
     voice: UploadFile = File(None),
     conn=Depends(get_db),
@@ -312,6 +329,7 @@ async def coord_close(
     proof of work arrives here and is stored on both the event and the issue.
     """
     prev = _load(conn, issue_id)
+    coordinator = require_same_coordinator(session_username, coordinator)
     _authorize(conn, prev, coordinator)
     image_url, audio_url = await audit.store_evidence(photo, voice)
     conn.execute(
@@ -346,6 +364,7 @@ async def coord_mark_false(
     reason: str = Form(...),
     details: str = Form(""),
     coordinator: str = Form(""),
+    session_username: str = Depends(coordinator_session),
     photo: UploadFile = File(None),
     voice: UploadFile = File(None),
     conn=Depends(get_db),
@@ -353,6 +372,7 @@ async def coord_mark_false(
     """Mark false: → FALSE with the coordinator's reason. Also records
     ownership so it lands in the acting coordinator's Previous tab."""
     prev = _load(conn, issue_id)
+    coordinator = require_same_coordinator(session_username, coordinator)
     _authorize(conn, prev, coordinator)
     image_url, audio_url = await audit.store_evidence(photo, voice)
     msg = f"Marked as false petition. Reason: {reason}" + (f" — {details}" if details else "")
@@ -382,7 +402,11 @@ async def coord_mark_false(
 
 
 @router.get("/issues/{issue_id}/timeline")
-def coord_timeline(issue_id: str, conn=Depends(get_db)):
+def coord_timeline(
+    issue_id: str,
+    session_username: str = Depends(coordinator_session),
+    conn=Depends(get_db),
+):
     """Everything that has happened to a grievance, oldest first.
 
     `issues.coordinator_message` only ever holds the LAST note written, so this

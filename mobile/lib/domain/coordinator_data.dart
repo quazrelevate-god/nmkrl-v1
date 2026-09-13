@@ -13,6 +13,7 @@ class Coordinator {
     required this.constituency,
     required this.homeWard,
     this.mustChangePassword = false,
+    this.token = '',
   });
 
   final String id;
@@ -30,6 +31,10 @@ class Coordinator {
 
   final bool mustChangePassword;
 
+  /// Signed session token from login, sent on every later request. Not
+  /// persisted in [toJson] — the token lives in Prefs, not the cached profile.
+  final String token;
+
   String get initials {
     final parts = name.trim().split(RegExp(r'\s+')).where((w) => w.isNotEmpty);
     if (parts.isEmpty) return '?';
@@ -45,6 +50,7 @@ class Coordinator {
         homeWard: '${json['home_ward'] ?? json['homeWard'] ?? ''}',
         mustChangePassword:
             json['must_change_password'] == true || json['mustChangePassword'] == true,
+        token: '${json['token'] ?? ''}',
       );
 
   Map<String, dynamic> toJson() => {

@@ -19,6 +19,13 @@ def _connect() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON;")
+    # A request handler and a helper that opens its own connection (session_auth
+    # seeding its signing key, for one) can be writing at the same instant.
+    # Without these, the second one fails immediately with "database is locked";
+    # WAL lets a reader and a writer coexist, and busy_timeout makes a writer
+    # wait its turn rather than error.
+    conn.execute("PRAGMA journal_mode = WAL;")
+    conn.execute("PRAGMA busy_timeout = 5000;")
     return conn
 
 
@@ -111,13 +118,44 @@ CREATE TABLE IF NOT EXISTS coordinators (
 
 -- Phone-number OTP challenge store for citizen login (one row per phone;
 -- the latest request replaces the previous). OTP is stored HASHED.
+--   window_start / window_count throttle how many codes one number may
+--   request in an hour (see routers/auth._throttle).
 CREATE TABLE IF NOT EXISTS otp_codes (
-    phone       TEXT PRIMARY KEY,
-    otp_hash    TEXT NOT NULL,
-    expires_at  TEXT NOT NULL,
-    attempts    INTEGER NOT NULL DEFAULT 0,
+    phone        TEXT PRIMARY KEY,
+    otp_hash     TEXT NOT NULL,
+    expires_at   TEXT NOT NULL,
+    attempts     INTEGER NOT NULL DEFAULT 0,
+    created_at   TEXT NOT NULL,
+    window_start TEXT,
+    window_count INTEGER NOT NULL DEFAULT 0
+);
+
+-- Long-lived signing keys that must survive a redeploy. admin_auth uses a
+-- per-boot secret (a restart signing admins out is fine for a console), but a
+-- citizen session lasts months, so session_auth keeps its key here on the
+-- persistent volume instead. Keyed by name so more can be added later.
+CREATE TABLE IF NOT EXISTS app_secrets (
+    key    TEXT PRIMARY KEY,
+    value  TEXT NOT NULL
+);
+
+-- Abuse reports on user-generated content. Google Play requires a way to flag
+-- content in any app that shows other people's; a flag lands here for a
+-- moderator to act on, and a citizen's own flags are removed with their account.
+--   target_type: 'post' | 'comment' | 'issue'
+--   status:      'open' | 'reviewed' | 'actioned' | 'dismissed'
+CREATE TABLE IF NOT EXISTS content_reports (
+    id          TEXT PRIMARY KEY,
+    reporter_id TEXT NOT NULL DEFAULT '',
+    target_type TEXT NOT NULL,
+    target_id   TEXT NOT NULL,
+    reason      TEXT NOT NULL DEFAULT '',
+    details     TEXT NOT NULL DEFAULT '',
+    status      TEXT NOT NULL DEFAULT 'open',
     created_at  TEXT NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_content_reports_status
+    ON content_reports (status, created_at DESC);
 
 -- Real-time-ish push queue polled by the citizen + coordinator apps.
 --   recipient_type: 'citizen' | 'coordinator'
@@ -289,6 +327,16 @@ def init_db() -> None:
             conn.execute("ALTER TABLE upvotes ADD COLUMN name TEXT DEFAULT ''")
         except Exception:
             pass
+        # otp_codes gains the per-hour request throttle window. An existing
+        # production table predates these, so add them where missing.
+        for col, defn in [
+            ("window_start", "TEXT"),
+            ("window_count", "INTEGER NOT NULL DEFAULT 0"),
+        ]:
+            try:
+                conn.execute(f"ALTER TABLE otp_codes ADD COLUMN {col} {defn}")
+            except Exception:
+                pass
         # location_logs gains the primary Assembly Constituency for the lookup.
         try:
             conn.execute("ALTER TABLE location_logs ADD COLUMN assembly_constituency TEXT")

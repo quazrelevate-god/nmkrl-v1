@@ -185,3 +185,32 @@ def serialize_issue(row) -> dict:
     data["constituencies"] = acs
     data["constituency"] = acs[0] if acs else None
     return data
+
+
+# The reporter's own details, plus anything a stranger has no business reading.
+# serialize_issue() is the full record for the owner and for staff (admin +
+# coordinator); the public lists go through public_issue() instead.
+_PRIVATE_ISSUE_FIELDS = (
+    "phone",          # the reporter's mobile number
+    "name",           # the reporter's name
+    "created_by",     # their account id — links every report to one person
+    "document_url",   # an attached petition can hold ID/PII
+    "document_name",
+    "document_summary",
+)
+
+
+def public_issue(row) -> dict:
+    """A grievance stripped of the reporter's personal details.
+
+    The ward feed and the map are unauthenticated — anyone can call them — so
+    they must not carry the reporter's phone, name, or account id. The issue
+    itself (title, photo, voice note, location, status, upvotes) stays public,
+    which is the point of the civic map; only the person behind it is removed.
+    """
+    data = serialize_issue(row)
+    if data is None:
+        return None
+    for field in _PRIVATE_ISSUE_FIELDS:
+        data.pop(field, None)
+    return data

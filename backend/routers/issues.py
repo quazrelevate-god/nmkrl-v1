@@ -16,11 +16,13 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 import audit
 import boundaries
 from database import get_db
+from session_auth import citizen_session, require_same_citizen
 from gemini_service import check_duplicate, classify_department, process_audio
 from utils import (
     haversine_m,
     new_id,
     now_iso,
+    public_issue,
     reverse_geocode,
     save_upload,
     serialize_issue,
@@ -60,7 +62,7 @@ def _nearby_open_issues(conn, lat: float, lng: float, radius_m: float) -> list[d
 async def report_issue(
     latitude: float = Form(...),
     longitude: float = Form(...),
-    user_id: str = Form(...),
+    user_id: str = Form(""),
     title: str = Form("Street Issue"),
     force: bool = Form(False),
     image: UploadFile = File(None),
@@ -68,10 +70,14 @@ async def report_issue(
     # Optional written petition (PDF / doc / scan). The photo and voice note
     # remain the required pair; this is for citizens who arrive with paperwork.
     document: UploadFile = File(None),
+    session_uid: str = Depends(citizen_session),
     conn=Depends(get_db),
 ):
     """Report a new street issue. Transcribe audio via Gemini, then check for
     semantic duplicates among nearby open issues before persisting."""
+    # The report is filed as the signed-in account, whatever id the body sent.
+    require_same_citizen(session_uid, user_id)
+    user_id = session_uid
     # --- Reject out-of-area reports FIRST ------------------------------------
     # A point outside every GCC ward polygon has no ward, and BOTH the public
     # ward feed and every coordinator queue filter on ward_no — so such a row
@@ -133,7 +139,9 @@ async def report_issue(
                 nearby,
             )
             if dup is not None:
-                payload = serialize_issue(
+                # Public shape: this is someone else's grievance, shown to a
+                # stranger who happened to report nearby.
+                payload = public_issue(
                     conn.execute("SELECT * FROM issues WHERE id = ?", (dup["id"],)).fetchone()
                 )
                 payload["distance_m"] = dup.get("distance_m", 0)
@@ -203,8 +211,9 @@ async def report_issue(
 @router.post("/{issue_id}/upvote")
 def upvote_issue(
     issue_id: str,
-    user_id: str = Form(...),
+    user_id: str = Form(""),
     name: str = Form(""),
+    session_uid: str = Depends(citizen_session),
     conn=Depends(get_db),
 ):
     """Increment upvotes, rejecting a second vote from the same user.
@@ -212,6 +221,8 @@ def upvote_issue(
     Public upvotes on someone else's grievance are OTP-verified on the client;
     the verified ``name`` is recorded against the vote.
     """
+    require_same_citizen(session_uid, user_id)
+    user_id = session_uid
     issue = conn.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
     if issue is None:
         raise HTTPException(status_code=404, detail="Issue not found")
@@ -231,7 +242,8 @@ def upvote_issue(
         "UPDATE issues SET upvotes = upvotes + 1 WHERE id = ?", (issue_id,)
     )
     row = conn.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
-    return serialize_issue(row)
+    # A citizen can upvote anyone's grievance, so the echo is the public shape.
+    return public_issue(row)
 
 
 @router.get("/nearby")
@@ -250,7 +262,7 @@ def nearby_issues(
     for row in rows:
         dist = haversine_m(lat, lng, row["latitude"], row["longitude"])
         if dist <= radius:
-            item = serialize_issue(row)
+            item = public_issue(row)
             item["distance_m"] = round(dist, 1)
             results.append(item)
     results.sort(key=lambda x: x["distance_m"])
@@ -267,12 +279,15 @@ def ward_issues(ward_no: int, conn=Depends(get_db)):
            ORDER BY upvotes DESC, created_at DESC""",
         (ward_no,),
     ).fetchall()
-    return {"count": len(rows), "issues": [serialize_issue(r) for r in rows]}
+    return {"count": len(rows), "issues": [public_issue(r) for r in rows]}
 
 
 @router.get("/history/{user_id}")
-def user_history(user_id: str, conn=Depends(get_db)):
+def user_history(user_id: str,
+                 session_uid: str = Depends(citizen_session),
+                 conn=Depends(get_db)):
     """Return all issues submitted by ``user_id`` (newest first)."""
+    require_same_citizen(session_uid, user_id)
     rows = conn.execute(
         "SELECT * FROM issues WHERE created_by = ? ORDER BY created_at DESC",
         (user_id,),
@@ -281,13 +296,16 @@ def user_history(user_id: str, conn=Depends(get_db)):
 
 
 @router.get("/supported/{user_id}")
-def user_supported(user_id: str, conn=Depends(get_db)):
+def user_supported(user_id: str,
+                   session_uid: str = Depends(citizen_session),
+                   conn=Depends(get_db)):
     """Return the public grievances ``user_id`` has upvoted — the citizen app's
     "My Supports" filter inside the ward feed. SUBMITTED items stay hidden for
     the same reason they are hidden everywhere else: not yet admin-verified.
 
     ``sort`` mirrors the ward feed: 'recent' (default) or 'priority'.
     """
+    require_same_citizen(session_uid, user_id)
     rows = conn.execute(
         """SELECT i.* FROM issues i
            JOIN upvotes u ON u.issue_id = i.id
@@ -295,11 +313,13 @@ def user_supported(user_id: str, conn=Depends(get_db)):
            ORDER BY i.created_at DESC""",
         (user_id,),
     ).fetchall()
-    return {"count": len(rows), "issues": [serialize_issue(r) for r in rows]}
+    return {"count": len(rows), "issues": [public_issue(r) for r in rows]}
 
 
 @router.get("/stats/{user_id}")
-def user_stats(user_id: str, conn=Depends(get_db)):
+def user_stats(user_id: str,
+               session_uid: str = Depends(citizen_session),
+               conn=Depends(get_db)):
     """Real per-account profile counters shown on the citizen profile:
        reports  — grievances this user submitted
        upvotes  — upvotes this user has cast (their own actions)
@@ -307,6 +327,7 @@ def user_stats(user_id: str, conn=Depends(get_db)):
        open     — their submitted grievances not yet assigned to any
                   coordinator (and not terminal)
     """
+    require_same_citizen(session_uid, user_id)
     reports = conn.execute(
         "SELECT COUNT(*) AS n FROM issues WHERE created_by = ?", (user_id,)
     ).fetchone()["n"]
@@ -337,12 +358,16 @@ def confirm_issue(
     issue_id: str,
     phone: str = Form(...),
     name: str = Form(""),
+    session_uid: str = Depends(citizen_session),
     conn=Depends(get_db),
 ):
     """Save the citizen's phone number (and optional name) after OTP verification."""
     issue = conn.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
     if issue is None:
         raise HTTPException(status_code=404, detail="Issue not found")
+    # Only the reporter may attach contact details to their own grievance.
+    if (issue["created_by"] or "") != session_uid:
+        raise HTTPException(status_code=403, detail="That grievance belongs to another account.")
     if name.strip():
         conn.execute(
             "UPDATE issues SET phone = ?, name = ? WHERE id = ?",
@@ -357,8 +382,9 @@ def confirm_issue(
 @router.post("/{issue_id}/verify")
 def verify_issue(
     issue_id: str,
-    user_id: str = Form(...),
+    user_id: str = Form(""),
     response: str = Form(...),  # APPROVED | REJECTED
+    session_uid: str = Depends(citizen_session),
     conn=Depends(get_db),
 ):
     """
@@ -366,6 +392,8 @@ def verify_issue(
       * APPROVED -> status becomes CLOSED.
       * REJECTED -> status rolls back to IN_PROGRESS (reappears on admin board).
     """
+    require_same_citizen(session_uid, user_id)
+    user_id = session_uid
     response = response.upper().strip()
     if response not in ("APPROVED", "REJECTED"):
         raise HTTPException(status_code=400, detail="response must be APPROVED or REJECTED")

@@ -8,11 +8,15 @@ class CitizenUser {
     required this.phone,
     this.created = false,
     this.hasPin = false,
+    this.token = '',
   });
 
   final String id;
   final String name;
   final String phone;
+
+  /// Signed session token from login, sent on every later request.
+  final String token;
 
   /// True when this login auto-registered a brand-new profile.
   final bool created;
@@ -28,5 +32,6 @@ class CitizenUser {
         phone: '${json['phone']}',
         created: json['created'] == true,
         hasPin: json['has_pin'] == true,
+        token: '${json['token'] ?? ''}',
       );
 }

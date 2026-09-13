@@ -1,42 +1,62 @@
 """
 routers/auth.py
 ---------------
-Phase-1 citizen authentication: name + SMS-OTP-verified phone number.
+Citizen and coordinator sign-in, and citizen account deletion.
 
   POST /api/auth/request-otp  (phone)
-      Sends a real OTP via the APM Technologies SMS gateway when
-      APM_SMS_API_KEY is configured; otherwise runs in DUMMY mode (server
-      generates a 6-digit code and returns it in the response for testing).
+      Sends a one-time code by SMS through APM Technologies. The code is never
+      returned to the caller in production; if the SMS cannot be sent, the
+      request fails. Two deliberate exceptions, both off unless configured:
+        * ALLOW_DEV_OTP=1 — local development without an SMS key. The server
+          makes a code and returns it as ``dev_otp``.
+        * REVIEW_LOGIN_PHONE + REVIEW_LOGIN_OTP — one fixed number and code for
+          app-store reviewers, who cannot receive an Indian SMS. No SMS is
+          sent for that number.
+      Requests are throttled per number: one every 30 seconds, five an hour.
 
   POST /api/auth/login   (name, phone, otp)
-      Verifies the OTP first, then:
-      * phone found  AND name matches  → authenticated, returns the profile
+      Verifies the code, then:
+      * phone found  AND name matches  → authenticated
       * phone found  BUT name differs  → 401 (number registered to another name)
-      * phone not found                → creates the profile, authenticated
+      * phone not found                → creates the account, authenticated
+      Returns the profile and a signed session token (session_auth.py). Every
+      personal endpoint takes the account from that token.
 
-Every subsequent action (report / upvote / verify / history) carries the
-returned user id, so all activity belongs to the authenticated account.
+  POST   /api/auth/coordinator/login  (username, password) → profile + token
+  POST   /api/auth/set-pin, /verify-pin                    → citizen session
+
+  DELETE /api/auth/account            delete the signed-in citizen's account
+  POST   /api/auth/account/delete     (phone, otp) the same, for the web
+                                      deletion page, proven by a fresh code
 """
 
 import hashlib
 import hmac
 import os
-import random
 import re
+import secrets
 import sys
 from datetime import datetime, timedelta, timezone
 
 import httpx
 from fastapi import APIRouter, Depends, Form, HTTPException
 
+import session_auth
 from database import get_db
-from utils import new_id, now_iso
+from session_auth import citizen_session, require_same_citizen
+from utils import UPLOAD_DIR, new_id, now_iso
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 OTP_TTL_MINUTES = 5
 OTP_MAX_ATTEMPTS = 5
+OTP_COOLDOWN_SECONDS = 30
+OTP_MAX_PER_HOUR = 5
 APM_SMS_URL = "https://sms.apmtechnologies.in/api/Home/Registration"
+
+
+def _flag(name: str) -> bool:
+    return (os.getenv(name) or "").strip().lower() in ("1", "true", "yes")
 
 
 def _normalise_phone(raw: str) -> str:
@@ -47,6 +67,14 @@ def _normalise_phone(raw: str) -> str:
 
 def _hash_otp(otp: str) -> str:
     return hashlib.sha256(otp.encode("utf-8")).hexdigest()
+
+
+def _parse_ts(value):
+    try:
+        ts = datetime.fromisoformat(value)
+    except (TypeError, ValueError):
+        return None
+    return ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
 
 
 def _serialize_user(row) -> dict:
@@ -63,11 +91,11 @@ def _serialize_user(row) -> dict:
 
 def _send_otp_via_apm(phone10: str) -> str | None:
     """Call APM Technologies to generate + SMS an OTP. Returns the OTP string,
-    or None when no API key is configured (dummy mode). Raises HTTPException
-    on gateway failure."""
+    or None when no API key is configured. Raises HTTPException on gateway
+    failure."""
     api_key = os.getenv("APM_SMS_API_KEY")
     if not api_key:
-        return None  # dummy mode — caller generates locally
+        return None
     try:
         with httpx.Client(timeout=10) as client:
             resp = client.post(
@@ -85,40 +113,103 @@ def _send_otp_via_apm(phone10: str) -> str | None:
         raise HTTPException(status_code=502, detail=f"SMS gateway error: {e}")
 
 
+def _review_login():
+    """The app-store reviewer's fixed number and code, when both are configured."""
+    phone = _normalise_phone(os.getenv("REVIEW_LOGIN_PHONE", ""))
+    code = (os.getenv("REVIEW_LOGIN_OTP") or "").strip()
+    if len(phone) == 10 and code.isdigit() and len(code) >= 4:
+        return phone, code
+    return None, None
+
+
+def _throttle(conn, phone10: str):
+    """Rate-limit code requests for one number. Returns the (window_start,
+    window_count) to store with the new code.
+
+    Each request costs an SMS and resets the guess counter, so without a limit
+    a script could both run up the SMS bill and try codes indefinitely.
+    """
+    now = datetime.now(timezone.utc)
+    row = conn.execute(
+        "SELECT created_at, window_start, window_count FROM otp_codes WHERE phone = ?",
+        (phone10,),
+    ).fetchone()
+    if row is None:
+        return now.isoformat(), 1
+    last = _parse_ts(row["created_at"])
+    if last and (now - last).total_seconds() < OTP_COOLDOWN_SECONDS:
+        raise HTTPException(
+            status_code=429,
+            detail="Please wait a few seconds before asking for another code.",
+        )
+    start = _parse_ts(row["window_start"])
+    if start is None or now - start > timedelta(hours=1):
+        return now.isoformat(), 1
+    count = row["window_count"] or 0
+    if count >= OTP_MAX_PER_HOUR:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many codes requested for this number. Try again in an hour.",
+        )
+    return row["window_start"], count + 1
+
+
 @router.post("/request-otp")
 def request_otp(phone: str = Form(...), conn=Depends(get_db)):
-    """Generate + send an OTP for [phone]. In dummy mode the code is returned
-    in the response (dev_otp) so the flow works without a live SMS key."""
+    """Generate and send a one-time code for [phone]."""
     clean_phone = _normalise_phone(phone)
     if len(clean_phone) != 10:
         raise HTTPException(status_code=400, detail="Enter a valid 10-digit mobile number.")
 
-    # Try the real SMS gateway; if the key is missing OR the gateway errors,
-    # fall back to a locally-generated dummy code so login never breaks.
-    apm_otp = None
-    try:
-        apm_otp = _send_otp_via_apm(clean_phone)
-    except HTTPException as e:
-        print(f"[auth] APM gateway failed ({e.detail}) — falling back to dummy OTP",
-              file=sys.stderr)
-    dummy = apm_otp is None
-    otp = apm_otp if apm_otp else f"{random.randint(0, 999999):06d}"
+    window_start, window_count = _throttle(conn, clean_phone)
+    review_phone, review_code = _review_login()
+    dev_mode = _flag("ALLOW_DEV_OTP")
+    dummy = False
+
+    if review_phone and clean_phone == review_phone:
+        otp = review_code
+    else:
+        # The code used to come back in the response whenever the SMS could not
+        # be sent — including when the gateway was merely down or out of
+        # credit in production. At that moment anyone could sign in as anyone
+        # by typing their number. Outside development, a failed send now fails.
+        try:
+            otp = _send_otp_via_apm(clean_phone)
+        except HTTPException as e:
+            print(f"[auth] APM gateway failed ({e.detail})", file=sys.stderr)
+            if not dev_mode:
+                raise HTTPException(
+                    status_code=503,
+                    detail="We couldn't send the code right now. Please try again in a few minutes.",
+                )
+            otp = None
+        if otp is None:
+            if not dev_mode:
+                print("[auth] no APM_SMS_API_KEY and ALLOW_DEV_OTP is off", file=sys.stderr)
+                raise HTTPException(
+                    status_code=503,
+                    detail="SMS sign-in is not available right now. Please try again later.",
+                )
+            otp = f"{secrets.randbelow(1_000_000):06d}"
+            dummy = True
 
     expires = (datetime.now(timezone.utc) + timedelta(minutes=OTP_TTL_MINUTES)).isoformat()
     conn.execute(
-        """INSERT INTO otp_codes (phone, otp_hash, expires_at, attempts, created_at)
-           VALUES (?, ?, ?, 0, ?)
+        """INSERT INTO otp_codes
+               (phone, otp_hash, expires_at, attempts, created_at, window_start, window_count)
+           VALUES (?, ?, ?, 0, ?, ?, ?)
            ON CONFLICT(phone) DO UPDATE SET
              otp_hash = excluded.otp_hash,
              expires_at = excluded.expires_at,
              attempts = 0,
-             created_at = excluded.created_at""",
-        (clean_phone, _hash_otp(otp), expires, now_iso()),
+             created_at = excluded.created_at,
+             window_start = excluded.window_start,
+             window_count = excluded.window_count""",
+        (clean_phone, _hash_otp(otp), expires, now_iso(), window_start, window_count),
     )
     out = {"sent": True, "dummy": dummy, "ttl_minutes": OTP_TTL_MINUTES}
     if dummy:
-        # Surfaced ONLY in dummy mode (no live SMS) so the demo flow works.
-        out["dev_otp"] = otp
+        out["dev_otp"] = otp  # ALLOW_DEV_OTP only
     return out
 
 
@@ -131,16 +222,17 @@ def _verify_otp(conn, phone10: str, otp: str) -> None:
         raise HTTPException(status_code=400, detail="Request an OTP first.")
     if row["attempts"] >= OTP_MAX_ATTEMPTS:
         raise HTTPException(status_code=429, detail="Too many attempts. Request a new OTP.")
-    try:
-        expired = datetime.fromisoformat(row["expires_at"]) < datetime.now(timezone.utc)
-    except ValueError:
-        expired = True
+    expired = (_parse_ts(row["expires_at"]) or datetime.min.replace(tzinfo=timezone.utc)) \
+        < datetime.now(timezone.utc)
     if expired:
         raise HTTPException(status_code=400, detail="OTP expired. Request a new one.")
-    if _hash_otp(otp.strip()) != row["otp_hash"]:
+    if not hmac.compare_digest(_hash_otp(otp.strip()), row["otp_hash"]):
         conn.execute(
             "UPDATE otp_codes SET attempts = attempts + 1 WHERE phone = ?", (phone10,)
         )
+        # Commit before raising: the request's connection rolls back on an
+        # exception, which quietly undid this counter and left guesses unlimited.
+        conn.commit()
         raise HTTPException(status_code=401, detail="Incorrect OTP.")
     # Consume the challenge on success.
     conn.execute("DELETE FROM otp_codes WHERE phone = ?", (phone10,))
@@ -178,7 +270,11 @@ def citizen_login(
                     "name. Enter the name it was registered with."
                 ),
             )
-        return {**_serialize_user(row), "created": False}
+        return {
+            **_serialize_user(row),
+            "created": False,
+            "token": session_auth.issue("citizen", row["id"]),
+        }
 
     user_id = new_id()
     conn.execute(
@@ -186,7 +282,11 @@ def citizen_login(
         (user_id, clean_name, clean_phone, now_iso()),
     )
     row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
-    return {**_serialize_user(row), "created": True}
+    return {
+        **_serialize_user(row),
+        "created": True,
+        "token": session_auth.issue("citizen", user_id),
+    }
 
 
 @router.post("/coordinator/login")
@@ -198,7 +298,8 @@ def coordinator_login(
     """
     Sign in against the admin-managed coordinators table. Returns the full
     profile (minus password) so the mobile app can pin the constituency and
-    default the ward switcher to home_ward.
+    default the ward switcher to home_ward, and the session token every
+    coordinator endpoint requires.
     """
     clean_user = (username or "").strip().lower()
     if not clean_user or not password:
@@ -224,6 +325,7 @@ def coordinator_login(
         "constituency": row["constituency"],
         "home_ward": row["home_ward"],
         "must_change_password": bool(row["must_change_password"]),
+        "token": session_auth.issue("coordinator", row["username"].lower()),
     }
 
 
@@ -245,23 +347,23 @@ def _clean_hash(value: str) -> str:
 
 @router.post("/set-pin")
 def set_pin(
-    user_id: str = Form(...),
     pin_hash: str = Form(...),
+    user_id: str = Form(""),
+    session_uid: str = Depends(citizen_session),
     conn=Depends(get_db),
 ):
-    """Set or replace the app-open PIN for an account."""
+    """Set or replace the app-open PIN for the signed-in account."""
+    require_same_citizen(session_uid, user_id)
     digest = _clean_hash(pin_hash)
-    row = conn.execute("SELECT id FROM users WHERE id = ?", (user_id,)).fetchone()
-    if row is None:
-        raise HTTPException(status_code=404, detail="Account not found.")
-    conn.execute("UPDATE users SET pin_hash = ? WHERE id = ?", (digest, user_id))
+    conn.execute("UPDATE users SET pin_hash = ? WHERE id = ?", (digest, session_uid))
     return {"ok": True, "has_pin": True}
 
 
 @router.post("/verify-pin")
 def verify_pin(
-    user_id: str = Form(...),
     pin_hash: str = Form(...),
+    user_id: str = Form(""),
+    session_uid: str = Depends(citizen_session),
     conn=Depends(get_db),
 ):
     """Check a PIN against the stored hash.
@@ -269,13 +371,111 @@ def verify_pin(
     The app unlocks against its own local copy so it works offline; this is the
     path for a reinstall or a second device, where there is nothing cached yet.
     """
+    require_same_citizen(session_uid, user_id)
     digest = _clean_hash(pin_hash)
     row = conn.execute(
-        "SELECT pin_hash FROM users WHERE id = ?", (user_id,)
+        "SELECT pin_hash FROM users WHERE id = ?", (session_uid,)
     ).fetchone()
-    if row is None:
-        raise HTTPException(status_code=404, detail="Account not found.")
     stored = (row["pin_hash"] or "").strip()
     if not stored:
         return {"ok": False, "has_pin": False}
     return {"ok": hmac.compare_digest(stored, digest), "has_pin": True}
+
+
+# ── Account deletion ──────────────────────────────────────────────────────
+#
+# Google Play requires any app that creates accounts to let people delete them,
+# both inside the app and from a web page. Grievances are a public civic record
+# and the officials handling them still need the problem, its photo and its
+# place, so a deleted account's reports stay — stripped of everything that
+# identifies the person: name, phone, account link, their voice recording and
+# its transcript, and any petition they attached. Everything else tied to the
+# account is removed outright.
+
+
+def _remove_upload(path) -> None:
+    """Delete one stored upload. Only paths under /uploads/ are touched."""
+    if not path or not str(path).startswith("/uploads/"):
+        return
+    root = os.path.realpath(UPLOAD_DIR)
+    full = os.path.realpath(os.path.join(root, str(path)[len("/uploads/"):]))
+    if not full.startswith(root + os.sep):
+        return
+    try:
+        os.remove(full)
+    except OSError:
+        pass
+
+
+def erase_citizen(conn, user_id: str) -> dict:
+    user = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+    if user is None:
+        return {"deleted": False, "reports_anonymised": 0}
+
+    reports = conn.execute(
+        "SELECT id, audio_url, document_url FROM issues WHERE created_by = ?",
+        (user_id,),
+    ).fetchall()
+    for r in reports:
+        _remove_upload(r["audio_url"])
+        _remove_upload(r["document_url"])
+    conn.execute(
+        """UPDATE issues
+              SET created_by = '', name = '', phone = '',
+                  audio_url = NULL, transcript = '', transcript_ta = '',
+                  document_url = NULL, document_name = '', document_summary = '',
+                  notify_reporter = 0
+            WHERE created_by = ?""",
+        (user_id,),
+    )
+    conn.execute(
+        """UPDATE issue_events SET actor_id = '', audio_url = NULL
+            WHERE actor_type = 'citizen' AND actor_id = ?""",
+        (user_id,),
+    )
+    # Their support is withdrawn, so the public counts drop with it.
+    conn.execute(
+        """UPDATE issues SET upvotes = MAX(upvotes - 1, 0)
+            WHERE id IN (SELECT issue_id FROM upvotes WHERE user_id = ?)""",
+        (user_id,),
+    )
+    conn.execute("DELETE FROM upvotes WHERE user_id = ?", (user_id,))
+    conn.execute("UPDATE verifications SET user_id = '' WHERE user_id = ?", (user_id,))
+    conn.execute("DELETE FROM content_reports WHERE reporter_id = ?", (user_id,))
+    conn.execute(
+        "DELETE FROM notifications WHERE recipient_type = 'citizen' AND recipient_id = ?",
+        (user_id,),
+    )
+    conn.execute(
+        "DELETE FROM device_tokens WHERE recipient_type = 'citizen' AND recipient_id = ?",
+        (user_id,),
+    )
+    conn.execute("DELETE FROM otp_codes WHERE phone = ?", (user["phone"],))
+    conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+    return {"deleted": True, "reports_anonymised": len(reports)}
+
+
+@router.delete("/account")
+def delete_my_account(
+    session_uid: str = Depends(citizen_session),
+    conn=Depends(get_db),
+):
+    """Delete the signed-in citizen's account (the app's "Delete account")."""
+    return {"ok": True, **erase_citizen(conn, session_uid)}
+
+
+@router.post("/account/delete")
+def delete_account_with_code(
+    phone: str = Form(...),
+    otp: str = Form(...),
+    conn=Depends(get_db),
+):
+    """Delete an account from the web deletion page, proven by a fresh code."""
+    clean_phone = _normalise_phone(phone)
+    if len(clean_phone) != 10:
+        raise HTTPException(status_code=400, detail="Enter a valid 10-digit mobile number.")
+    _verify_otp(conn, clean_phone, otp)
+    user = conn.execute("SELECT id FROM users WHERE phone = ?", (clean_phone,)).fetchone()
+    if user is None:
+        return {"ok": True, "deleted": False, "reports_anonymised": 0}
+    return {"ok": True, **erase_citizen(conn, user["id"])}

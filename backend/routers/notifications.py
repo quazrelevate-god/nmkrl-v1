@@ -20,6 +20,7 @@ from fastapi import APIRouter, Body, Depends
 
 import push
 from database import get_db
+from session_auth import any_session, require_recipient
 from utils import new_id, now_iso
 
 router = APIRouter(prefix="/api/notifications", tags=["notifications"])
@@ -132,12 +133,14 @@ def list_notifications(
     recipient_id: str,
     since: str = "",
     limit: int = 20,
+    session=Depends(any_session),
     conn=Depends(get_db),
 ):
     """
     Return unseen notifications for a recipient. `since` is an ISO timestamp
     (the client's last-seen marker); results are strictly newer than that.
     """
+    require_recipient(session, recipient_type, recipient_id)
     limit = max(1, min(limit, 100))
     if since:
         rows = conn.execute(
@@ -197,6 +200,7 @@ def push_status(
 @router.post("/register")
 def register_device(
     payload: dict = Body(...),
+    session=Depends(any_session),
     conn=Depends(get_db),
 ):
     """Store an FCM token against the signed-in account.
@@ -211,6 +215,7 @@ def register_device(
     platform = (payload.get("platform") or "android").strip()
     if not token or not recipient_type or not recipient_id:
         return {"ok": False, "error": "token, recipient_type, recipient_id required"}
+    require_recipient(session, recipient_type, recipient_id)
     conn.execute(
         """INSERT INTO device_tokens
                (token, recipient_type, recipient_id, platform, updated_at)
@@ -227,7 +232,11 @@ def register_device(
 
 
 @router.post("/unregister")
-def unregister_device(payload: dict = Body(...), conn=Depends(get_db)):
+def unregister_device(
+    payload: dict = Body(...),
+    session=Depends(any_session),
+    conn=Depends(get_db),
+):
     """Drop a token on sign-out.
 
     Without this a device keeps receiving the previous account's alerts — which

@@ -15,7 +15,7 @@ import 'api_client.dart';
 /// (surfacing FastAPI's {detail} when present) and retries idempotent GETs
 /// once on connection hiccups — field networks are flaky.
 class DioApiClient implements ApiClient {
-  DioApiClient({Dio? dio, String? baseUrl})
+  DioApiClient({Dio? dio, String? baseUrl, this.sessionToken, this.onUnauthorized})
       : _dio = dio ??
             Dio(
               BaseOptions(
@@ -23,9 +23,48 @@ class DioApiClient implements ApiClient {
                 connectTimeout: const Duration(seconds: 10),
                 receiveTimeout: const Duration(seconds: 30),
               ),
-            );
+            ) {
+    // Attach the signed session token to every call to OUR backend, so the
+    // server takes identity from the token rather than an id in the body.
+    // Guarded by host: the token must never ride along on the external
+    // reverse-geocode request to OpenStreetMap.
+    final apiHost = Uri.parse(Env.apiBase).host;
+    _dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          final token = sessionToken?.call() ?? '';
+          if (token.isNotEmpty && options.uri.host == apiHost) {
+            options.headers['X-Session-Token'] = token;
+          }
+          handler.next(options);
+        },
+        onError: (err, handler) {
+          // A 401 from our own backend on a non-auth endpoint means the session
+          // is over — expired, the account was deleted, or an old install has
+          // no token after an update. Drop the session so the app returns to
+          // login. A 401 on /api/auth/* is a normal credential rejection during
+          // sign-in (wrong OTP or password), so leave that one alone.
+          final o = err.requestOptions;
+          if (err.response?.statusCode == 401 &&
+              o.uri.host == apiHost &&
+              !o.uri.path.contains('/api/auth/')) {
+            onUnauthorized?.call();
+          }
+          handler.next(err);
+        },
+      ),
+    );
+  }
 
   final Dio _dio;
+
+  /// Reads the current session token (null/empty when signed out). Injected so
+  /// the client stays decoupled from Prefs/Riverpod.
+  final String? Function()? sessionToken;
+
+  /// Invoked when the backend rejects our token (session expired or account
+  /// gone), so the app can clear the session and return to login.
+  final void Function()? onUnauthorized;
 
   Never _friendly(Object error) {
     if (error is DioException) {
@@ -126,6 +165,15 @@ class DioApiClient implements ApiClient {
     } catch (_) {
       // Offline or unreachable: the caller falls back to the local hash.
       return false;
+    }
+  }
+
+  @override
+  Future<void> deleteAccount() async {
+    try {
+      await _dio.delete<dynamic>('/api/auth/account');
+    } catch (e) {
+      _friendly(e);
     }
   }
 

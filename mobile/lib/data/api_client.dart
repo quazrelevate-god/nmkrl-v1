@@ -32,6 +32,11 @@ abstract class ApiClient {
   /// hash to compare against (a reinstall, or a second device).
   Future<bool> verifyPin({required String userId, required String pinHash});
 
+  /// Permanently delete the signed-in citizen's account (Play Store
+  /// requirement). The server removes their personal data and anonymises the
+  /// grievances they filed. Identity comes from the session token.
+  Future<void> deleteAccount();
+
   Future<BoundaryData> fetchBoundaries();
 
   Future<LocateResult> locate(double lat, double lng);

@@ -55,6 +55,25 @@ async function handle(res) {
   return body;
 }
 
+/** Request a one-time code for a mobile number. Used by the web account-
+ *  deletion page; in dev mode the response carries the code as `dev_otp`. */
+export async function requestOtp(phone) {
+  const fd = new FormData();
+  fd.append("phone", phone);
+  const res = await fetch(`${API_BASE}/api/auth/request-otp`, { method: "POST", body: fd });
+  return handle(res);
+}
+
+/** Delete an account from the web, proven by a fresh SMS code. Removes the
+ *  person's personal data and anonymises the grievances they filed. */
+export async function deleteAccountWithCode(phone, otp) {
+  const fd = new FormData();
+  fd.append("phone", phone);
+  fd.append("otp", otp);
+  const res = await fetch(`${API_BASE}/api/auth/account/delete`, { method: "POST", body: fd });
+  return handle(res);
+}
+
 /**
  * Report a new issue (multipart). Returns either the created issue or, when a
  * nearby duplicate is found and force=false, { duplicate_exists, existing_issue }.

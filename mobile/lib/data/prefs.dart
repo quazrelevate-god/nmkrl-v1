@@ -22,6 +22,18 @@ class Prefs {
   static const _legacyUserIdKey = 'fms_user_id';
   static const _citizenNotifCursorKey = 'nk_citizen_notif_cursor';
   static const _pinHashKey = 'nk_citizen_pin_hash';
+  static const _sessionTokenKey = 'nk_session_token';
+
+  /// The signed session token returned at login. Sent on every request so the
+  /// server takes the caller's identity from the token, not from an id in the
+  /// body that anyone could forge. Shared by the citizen and coordinator flows
+  /// — a device acts as one or the other at a time — and cleared on sign-out.
+  String get sessionToken => _prefs.getString(_sessionTokenKey) ?? '';
+
+  Future<void> setSessionToken(String token) =>
+      _prefs.setString(_sessionTokenKey, token);
+
+  Future<void> clearSessionToken() => _prefs.remove(_sessionTokenKey);
 
   String get citizenNotifCursor =>
       _prefs.getString(_citizenNotifCursorKey) ?? '';
@@ -67,6 +79,7 @@ class Prefs {
   /// prefill the next login.
   Future<void> clearSession() async {
     await _prefs.remove(_pinHashKey);
+    await _prefs.remove(_sessionTokenKey);
     await _prefs.setBool(_authedKey, false);
   }
 

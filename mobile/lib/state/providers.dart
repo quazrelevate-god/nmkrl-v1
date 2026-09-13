@@ -23,7 +23,23 @@ final dailyLimitProvider = Provider<DailyLimit>(
   (ref) => DailyLimit(ref.watch(sharedPreferencesProvider)),
 );
 
-final apiClientProvider = Provider<ApiClient>((ref) => DioApiClient());
+final apiClientProvider = Provider<ApiClient>(
+  // The token reader is called per request, so it always reflects the latest
+  // sign-in/out without rebuilding the client.
+  (ref) => DioApiClient(
+    sessionToken: () => ref.read(prefsProvider).sessionToken,
+    // Session rejected by the server: clear both roles' local session and let
+    // the router redirects (which watch these providers) fall back to /login.
+    onUnauthorized: () {
+      Future.microtask(() async {
+        await ref.read(prefsProvider).clearSession();
+        await ref.read(coordinatorStoreProvider).clearSession();
+        ref.invalidate(authProvider);
+        ref.invalidate(coordinatorAuthProvider);
+      });
+    },
+  ),
+);
 
 final userIdProvider = Provider<String>((ref) => ref.watch(prefsProvider).userId);
 
@@ -60,6 +76,9 @@ class AuthNotifier extends Notifier<bool> {
         .read(apiClientProvider)
         .citizenLogin(name: name, phone: phone, otp: otp);
     await ref.read(prefsProvider).saveAccount(user);
+    // Persist the session token so it survives a warm start and rides on every
+    // later request via the api client's interceptor.
+    await ref.read(prefsProvider).setSessionToken(user.token);
     // A fresh sign-in IS the authentication; the PIN gate is for later opens.
     ref.read(pinLockProvider.notifier).unlock();
     state = true;
@@ -176,6 +195,9 @@ class CoordinatorAuthNotifier extends Notifier<Coordinator?> {
           password: password,
         );
     await ref.read(coordinatorStoreProvider).saveSession(c);
+    // Token lives in Prefs (shared with the citizen flow), not the cached
+    // coordinator profile, so the interceptor finds it on a warm start too.
+    await ref.read(prefsProvider).setSessionToken(c.token);
     state = c;
     await PushService.instance.bind(
       api: ref.read(apiClientProvider),
@@ -188,6 +210,7 @@ class CoordinatorAuthNotifier extends Notifier<Coordinator?> {
   Future<void> signOut() async {
     await PushService.instance.unbind(ref.read(apiClientProvider));
     await ref.read(coordinatorStoreProvider).clearSession();
+    await ref.read(prefsProvider).clearSessionToken();
     state = null;
   }
 }

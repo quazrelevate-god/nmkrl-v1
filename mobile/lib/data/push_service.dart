@@ -71,9 +71,11 @@ class PushService {
       );
 
       _token = await FirebaseMessaging.instance.getToken();
+      // Never log the token itself — it is a credential that addresses this
+      // device's push, and logcat is readable by other tooling on the phone.
       debugPrint(_token == null
           ? '[push] init OK but getToken() returned null'
-          : '[push] token acquired (${_token!.substring(0, 12)}…)');
+          : '[push] token acquired');
 
       // A token can rotate at any time (app restore, cache clear). Re-bind it
       // to whoever is signed in, or the device silently stops receiving push.

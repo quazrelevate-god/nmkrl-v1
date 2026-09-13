@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/theme.dart';
 import '../../core/i18n.dart';
@@ -13,6 +14,11 @@ import '../../state/providers.dart';
 /// App bar + role pill + coordinator avatar — the app's one brand navy.
 const _kBlue = NkColors.navyPrimary;
 const _kDarkNavy = Color(0xFF1A2A3A);
+
+/// Public privacy policy, required by Google Play (location, mic, phone number)
+/// and linked from here. Served by the web app alongside the admin console.
+const _kPrivacyUrl = 'https://nmkrl-v1-production.up.railway.app/privacy';
+const _kRose = Color(0xFFE53935);
 
 class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
@@ -239,6 +245,45 @@ class ProfileScreen extends ConsumerWidget {
                       ],
                     ),
                   ),
+
+                  // Privacy policy + account deletion. Citizens only — a
+                  // coordinator account is created and removed by the MLA
+                  // office, not self-service, and the privacy link is a Play
+                  // Store requirement for the citizen app people install.
+                  if (!isCoordinator) ...[
+                    const SizedBox(height: 16),
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.06),
+                            blurRadius: 8,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        children: [
+                          _actionRow(
+                            context,
+                            icon: Icons.privacy_tip_outlined,
+                            label: context.tr('Privacy policy'),
+                            onTap: () => _openPrivacy(context),
+                          ),
+                          _div(),
+                          _actionRow(
+                            context,
+                            icon: Icons.delete_outline,
+                            label: context.tr('Delete account'),
+                            tone: _kRose,
+                            onTap: () => _confirmDelete(context, ref),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -353,4 +398,84 @@ class ProfileScreen extends ConsumerWidget {
 
   Widget _div() =>
       Divider(height: 1, color: NkColors.slate200.withValues(alpha: 0.7));
+
+  Widget _actionRow(
+    BuildContext context, {
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+    Color? tone,
+  }) {
+    final color = tone ?? NkColors.slate800;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 14, 12, 14),
+        child: Row(
+          children: [
+            Icon(icon, size: 18, color: tone ?? NkColors.slate500),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                label,
+                style: TextStyle(
+                    fontSize: 14, fontWeight: FontWeight.w600, color: color),
+              ),
+            ),
+            Icon(Icons.chevron_right, size: 18, color: color.withValues(alpha: 0.5)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openPrivacy(BuildContext context) async {
+    final uri = Uri.parse(_kPrivacyUrl);
+    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!ok && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(context.tr('Could not open the privacy policy.'))),
+      );
+    }
+  }
+
+  Future<void> _confirmDelete(BuildContext context, WidgetRef ref) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(context.tr('Delete your account?')),
+        content: Text(context.tr(
+          'This removes your name, phone number and voice notes for good. The '
+          'grievances you reported stay as anonymous civic records so they can '
+          'still be fixed. This cannot be undone.',
+        )),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text(context.tr('Cancel')),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: TextButton.styleFrom(foregroundColor: _kRose),
+            child: Text(context.tr('Delete')),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      await ref.read(apiClientProvider).deleteAccount();
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('$e')),
+        );
+      }
+      return;
+    }
+    // The account is gone on the server; end the local session and leave.
+    await ref.read(authProvider.notifier).signOut();
+    if (context.mounted) context.go('/login');
+  }
 }

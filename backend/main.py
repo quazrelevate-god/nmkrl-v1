@@ -178,6 +178,10 @@ async def lifespan(app: FastAPI):
     _seed_if_needed()  # populate a fresh volume with the bundled demo data
     ensure_upload_dirs()
     init_db()
+    # Seed + cache the citizen/coordinator session key now, before any request,
+    # so the first login does not race its own connection for the write lock.
+    import session_auth
+    session_auth.ensure_ready()
     # Parse zones.kml + wards.kml into in-memory shapely polygons exactly once.
     boundaries.load_boundaries()
     _backfill_zones_and_departments()
