@@ -312,7 +312,9 @@ export async function adminCloseIssue(issueId, { note = "", photo = null, voice 
   const body = new FormData();
   body.append("note", note);
   if (photo) body.append("photo", photo, photo.name || "proof.jpg");
-  if (voice) body.append("voice", voice, "proof.webm");
+  // Name the file for what the recorder produced: the backend keeps the
+  // extension, and players go by it.
+  if (voice) body.append("voice", voice, /mp4|aac/.test(voice.type || "") ? "proof.m4a" : "proof.webm");
   const res = await fetch(`${API_BASE}/api/admin/issues/${issueId}/close`, {
     method: "POST",
     headers: adminHeaders(),

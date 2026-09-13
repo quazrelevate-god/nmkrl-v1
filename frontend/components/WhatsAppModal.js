@@ -21,6 +21,15 @@ import { X, Send, Check, MapPin, CalendarClock } from "lucide-react";
 import { departmentMeta, slaDeadline } from "@/lib/departments";
 import { ticketNumber } from "@/lib/ticket";
 
+/** A wa.me link to a stored officer number. Numbers are kept as local 10-digit
+ *  mobiles, so India's country code is prefixed. Without text the chat opens
+ *  empty, ready to type; without a number WhatsApp asks who to send to. */
+export function whatsappLink(mobile, text) {
+  const digits = (mobile || "").replace(/\D/g, "");
+  const e164 = digits.length === 10 ? `91${digits}` : digits;
+  return `https://wa.me/${e164}${text ? `?text=${encodeURIComponent(text)}` : ""}`;
+}
+
 export default function WhatsAppModal({ issue, officer, contact, onDispatched, onClose }) {
   const [sent, setSent] = useState(false);
   if (!issue) return null;
@@ -52,12 +61,7 @@ export default function WhatsAppModal({ issue, officer, contact, onDispatched, o
 Kindly action this grievance before the SLA deadline.`;
 
   function dispatch() {
-    // Stored numbers are local 10-digit; prefix India's country code.
-    const e164 = mobile.length === 10 ? `91${mobile}` : mobile;
-    const url = e164
-      ? `https://wa.me/${e164}?text=${encodeURIComponent(message)}`
-      : `https://wa.me/?text=${encodeURIComponent(message)}`;
-    window.open(url, "_blank", "noopener,noreferrer");
+    window.open(whatsappLink(mobile, message), "_blank", "noopener,noreferrer");
     setSent(true);
     onDispatched?.();
   }

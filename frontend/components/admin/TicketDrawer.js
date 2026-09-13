@@ -18,9 +18,9 @@ import {
   X, Phone, User, MapPin, Building2, ThumbsUp, Sparkles, ImageIcon, Volume2,
   ShieldCheck, Send, CheckCircle2, Clock, Landmark, Hash, Flag, FileText, Mic, Square, Camera,
   ChevronDown, ExternalLink, Loader2,
-  Route, CornerDownRight, UserCheck, AlertCircle,
+  Route, CornerDownRight, UserCheck, AlertCircle, MessageCircle,
 } from "lucide-react";
-import { mediaUrl, adminVerifyGrievance, adminForwardIssue, adminCloseIssue, fetchOfficerContacts, summariseDocument } from "@/lib/api";
+import { mediaUrl, adminVerifyGrievance, adminForwardIssue, adminCloseIssue, fetchOfficerContacts, fetchIssueTimeline, summariseDocument } from "@/lib/api";
 import { departmentMeta } from "@/lib/departments";
 import { loadDeptTree, resolveRouting } from "@/lib/deptRouting";
 
@@ -41,7 +41,7 @@ import {
   daysOpen, slaWeeksLabel, slaBreached, citizenName,
 } from "@/lib/adminModel";
 import { constituenciesForWard, shortAC } from "@/lib/constituencies";
-import WhatsAppModal from "@/components/WhatsAppModal";
+import WhatsAppModal, { whatsappLink } from "@/components/WhatsAppModal";
 
 const MiniMap = dynamic(() => import("@/components/MiniMap"), { ssr: false });
 
@@ -62,6 +62,7 @@ export default function TicketDrawer({ issue, onClose, onChanged }) {
   const [resolve, setResolve] = useState(false);
   const [routing, setRouting] = useState(null);
   const [contact, setContact] = useState(null);
+  const [closure, setClosure] = useState(null); // the closing event, from the timeline
 
   // Resolve the AI routing chain (Gov Dept → … → Responsible Officer) + look up
   // the officer's configured contact whenever the ticket changes; re-check the
@@ -81,6 +82,25 @@ export default function TicketDrawer({ issue, onClose, onChanged }) {
     return () => { alive = false; };
   }, [issue]);
 
+  // Who closed it and what they wrote. The issue row keeps only the latest
+  // message, which a citizen's rejection overwrites, so read the closing event
+  // itself: it carries the actor, the note and the proof.
+  useEffect(() => {
+    if (!issue || !(issue.closure_image_url || issue.closure_audio_url)) {
+      setClosure(null);
+      return undefined;
+    }
+    let alive = true;
+    fetchIssueTimeline(issue.id)
+      .then((r) => {
+        if (!alive) return;
+        const events = r.events || [];
+        setClosure([...events].reverse().find((e) => e.action === "close" || e.action === "admin_close") || null);
+      })
+      .catch(() => { if (alive) setClosure(null); });
+    return () => { alive = false; };
+  }, [issue]);
+
   if (!issue) return null;
 
   const st = portalStatus(issue.status);
@@ -91,6 +111,17 @@ export default function TicketDrawer({ issue, onClose, onChanged }) {
   const acs = constituenciesForWard(issue.ward_no);
   const stage = STAGE_INDEX[issue.status] ?? 1;
 
+  // Earlier admin closes logged the alert sent to the coordinator in place of
+  // the note; don't present that as something anyone wrote.
+  const loggedNote = (closure?.note || "").trim();
+  const closureNote = loggedNote && !loggedNote.startsWith("A grievance you hold was")
+    ? loggedNote
+    : ["PENDING_VERIFICATION", "CLOSED"].includes(issue.status) ? (issue.coordinator_message || "").trim() : "";
+  const closedAt = closure?.created_at || issue.closed_at;
+  const closedBy = closure?.actor_type === "admin"
+    ? "Closed by the MLA office"
+    : closure?.actor_id ? `Closed by coordinator @${closure.actor_id}` : "Proof of work captured at closing";
+
   async function run(key, fn) {
     setBusy(key); setError(null);
     try { const updated = await fn(issue.id); onChanged?.(updated); }
@@ -99,6 +130,11 @@ export default function TicketDrawer({ issue, onClose, onChanged }) {
   }
 
   const canDispatch = issue.department && ["ACTIVE", "FORWARDED", "IN_PROGRESS"].includes(issue.status);
+  // Dispatched already: FORWARDED, or moved on to IN_PROGRESS after a hand-off.
+  // An ACTIVE ticket (new, or bounced back by the citizen) still dispatches,
+  // because dispatching is what moves it to Forwarded.
+  const dispatched = issue.status === "FORWARDED" || (issue.status === "IN_PROGRESS" && !!issue.transferred_at);
+  const officerMobile = (contact?.mobile || "").replace(/\D/g, "");
 
   return (
     <div className="fixed inset-0 z-[80] flex">
@@ -167,8 +203,15 @@ export default function TicketDrawer({ issue, onClose, onChanged }) {
                     /* eslint-disable-next-line jsx-a11y/media-has-caption */
                     <audio controls src={mediaUrl(issue.closure_audio_url)} className="w-full" />
                   )}
+                  {closureNote && (
+                    <p className="rounded-lg bg-emerald-50/70 px-3 py-2 text-[13px] leading-snug text-slate-700">
+                      “{closureNote}”
+                    </p>
+                  )}
                   <p className="text-[11px] text-slate-400">
-                    Captured by the coordinator at the moment of closing.
+                    {closedBy}
+                    {closedAt && ` · ${new Date(closedAt).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}`}
+                    {" "}— the citizen sees this same proof in the app.
                   </p>
                 </div>
               </Section>
@@ -274,11 +317,26 @@ export default function TicketDrawer({ issue, onClose, onChanged }) {
                 <p className="text-sm text-slate-400">Resolving routing…</p>
               )}
 
-              {canDispatch && (
+              {canDispatch && (dispatched ? (
+                // After the dispatch the button stays, for follow-ups: it opens
+                // the officer's WhatsApp chat straight away, with nothing typed.
+                <>
+                  <button
+                    onClick={() => window.open(whatsappLink(officerMobile), "_blank", "noopener,noreferrer")}
+                    disabled={!officerMobile}
+                    className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg bg-[#25D366] px-3 py-2.5 text-xs font-bold text-white hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <MessageCircle size={13} /> Chat with officer
+                  </button>
+                  {routing && !officerMobile && (
+                    <p className="mt-1.5 text-center text-[11px] text-slate-400">No number on file for this officer to chat with.</p>
+                  )}
+                </>
+              ) : (
                 <button onClick={() => setWa(true)} className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg bg-[#25D366] px-3 py-2.5 text-xs font-bold text-white hover:brightness-95">
                   <Send size={13} /> WhatsApp dispatch to officer
                 </button>
-              )}
+              ))}
             </div>
 
             {/* Lifecycle */}
@@ -579,13 +637,18 @@ function ResolveModal({ issue, onClose, onDone }) {
     }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const rec = new MediaRecorder(stream);
+      // AAC in MP4 where the browser can record it, matching the coordinator
+      // app's recordings: the citizen may be on an iPhone, which cannot play
+      // the WebM/Opus that Chrome records by default.
+      const mimeType = ["audio/mp4;codecs=mp4a.40.2", "audio/mp4", "audio/webm;codecs=opus", "audio/webm"]
+        .find((t) => MediaRecorder.isTypeSupported?.(t));
+      const rec = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
       recorderRef.rec = rec;
       recorderRef.chunks = [];
       rec.ondataavailable = (e) => e.data.size && recorderRef.chunks.push(e.data);
       rec.onstop = () => {
         stream.getTracks().forEach((t) => t.stop());
-        setVoice(new Blob(recorderRef.chunks, { type: "audio/webm" }));
+        setVoice(new Blob(recorderRef.chunks, { type: rec.mimeType || mimeType || "audio/webm" }));
         setRecording(false);
       };
       rec.start();

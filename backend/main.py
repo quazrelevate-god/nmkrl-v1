@@ -13,6 +13,7 @@ Run with:
     uvicorn main:app --reload --port 8000
 """
 
+import mimetypes
 import os
 import shutil
 import sqlite3
@@ -207,6 +208,11 @@ app.add_middleware(
 
 # Serve uploaded media at /uploads/...
 ensure_upload_dirs()
+# StaticFiles names a file's type from its extension, and Python's guess for
+# .m4a varies by platform (audio/mp4a-latm on macOS). Voice notes from the
+# coordinator app and the admin console are AAC in .m4a; say so plainly so
+# every player, the iPhone's included, is told what it is getting.
+mimetypes.add_type("audio/mp4", ".m4a")
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
 # Routers

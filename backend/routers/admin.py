@@ -152,7 +152,8 @@ def list_users(q: str = Query(None), conn=Depends(get_db)):
 
 
 def _announce(conn, row, kind: str, citizen_msg: str, coord_msg: str,
-              action: str, from_status: str) -> None:
+              action: str, from_status: str, *, note=None,
+              image_url=None, audio_url=None) -> None:
     """Tell everyone attached to a grievance that admin moved it.
 
     All four admin actions changed the status and told nobody: the citizen
@@ -167,7 +168,11 @@ def _announce(conn, row, kind: str, citizen_msg: str, coord_msg: str,
         pass  # best-effort; never fail the state change behind it
     audit.record(
         conn, row["id"], action=action, actor_type="admin", actor_id="admin",
-        from_status=from_status, to_status=row["status"], note=coord_msg,
+        from_status=from_status, to_status=row["status"],
+        # An action that carries its own words and proof logs those, as the
+        # coordinator's close does; the rest log the alert they sent.
+        note=coord_msg if note is None else note,
+        image_url=image_url, audio_url=audio_url,
     )
 
 
@@ -210,7 +215,13 @@ def forward_issue(issue_id: str, conn=Depends(get_db)):
             status_code=409,
             detail=f"Only open tickets can be forwarded (status={issue['status']})",
         )
-    conn.execute("UPDATE issues SET status = 'FORWARDED' WHERE id = ?", (issue_id,))
+    # Stamp the hand-off, as the coordinator's transfer does. Status alone
+    # cannot say a ticket was dispatched once it has moved on to IN_PROGRESS,
+    # and the console switches dispatch to "Chat with officer" on this.
+    conn.execute(
+        "UPDATE issues SET status = 'FORWARDED', transferred_at = ? WHERE id = ?",
+        (now_iso(), issue_id),
+    )
     row = conn.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
     _announce(conn, row, "transfer",
               "Your grievance was forwarded to the responsible department.",
@@ -257,7 +268,8 @@ async def close_issue(
     _announce(conn, row, "closed",
               "Your grievance is marked resolved — please approve or reject to confirm.",
               "A grievance you hold was closed by the MLA office.",
-              "admin_close", issue["status"])
+              "admin_close", issue["status"],
+              note=note.strip(), image_url=image_url, audio_url=audio_url)
     result = serialize_issue(row)
     result["notification_sent_to"] = issue["created_by"]
     return result

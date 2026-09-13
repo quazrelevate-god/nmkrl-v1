@@ -1449,8 +1449,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             'Authority marked this issue as RESOLVED. Has it really been fixed?',
             style: TextStyle(fontSize: 12, color: NkColors.slate500),
           ),
-          // The proof the coordinator was required to capture. Asking someone
-          // to approve a repair they cannot see is asking them to guess.
+          // The proof whoever closed it was required to capture, coordinator
+          // or MLA office. Asking someone to approve a repair they cannot see
+          // is asking them to guess.
           _ClosureProof(issue: issue),
           const SizedBox(height: 8),
           Row(
@@ -2330,7 +2331,8 @@ class _ClosureProofState extends State<_ClosureProof> {
                               child: Text(
                                 context.tr(_playing
                                     ? 'Playing…'
-                                    : "Coordinator's voice note"),
+                                    // Neutral: the MLA office closes grievances too.
+                                    : 'Voice note'),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(
