@@ -134,13 +134,24 @@ class _NotificationPollerState extends ConsumerState<NotificationPoller> {
   void _showNext() {
     if (_current != null) return;
     if (_queue.isEmpty) return;
-    setState(() => _current = _queue.removeAt(0));
+    final shown = _queue.removeAt(0);
+    setState(() => _current = shown);
     HapticFeedback.lightImpact();
     Future.delayed(const Duration(seconds: 4), () {
-      if (!mounted) return;
-      setState(() => _current = null);
-      Future.delayed(const Duration(milliseconds: 200), _showNext);
+      // Only auto-hide the card this timer was started for. If it was already
+      // swiped or tapped away, the next card may be showing by now, and closing
+      // whatever is current would cut that one short.
+      if (!mounted || !identical(_current, shown)) return;
+      _dismiss();
     });
+  }
+
+  /// Clear the current card and bring on the next queued one. Shared by the
+  /// swipe, the tap and the auto-hide, so all three leave the queue moving.
+  void _dismiss() {
+    if (_current == null) return;
+    setState(() => _current = null);
+    Future.delayed(const Duration(milliseconds: 200), _showNext);
   }
 
   @override
@@ -157,11 +168,22 @@ class _NotificationPollerState extends ConsumerState<NotificationPoller> {
           duration: const Duration(milliseconds: 220),
           child: n == null
               ? const SizedBox.shrink()
-              : GestureDetector(
-                  onTap: () => setState(() => _current = null),
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                    child: NotificationBanner(notif: n),
+              // Swipe left or right to clear it — the gesture people expect
+              // from a notification. Tapping still works too.
+              : Dismissible(
+                  // Keyed per notification, so the next card to arrive is a
+                  // new widget rather than the one just swiped away.
+                  key: ValueKey('notif-${n['id'] ?? identityHashCode(n)}'),
+                  direction: DismissDirection.horizontal,
+                  // Clears _current synchronously: Dismissible asserts if a
+                  // dismissed child is still in the tree after this returns.
+                  onDismissed: (_) => _dismiss(),
+                  child: GestureDetector(
+                    onTap: _dismiss,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                      child: NotificationBanner(notif: n),
+                    ),
                   ),
                 ),
         ),

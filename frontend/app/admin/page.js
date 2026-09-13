@@ -167,8 +167,8 @@ export default function TicketsPage() {
         </div>
 
         {/* Table */}
-        <div className="glass-panel-strong min-h-0 flex-1 overflow-auto rounded-2xl">
-          <table className="w-full border-collapse text-sm">
+        <div className="glass-panel-strong min-h-0 flex-1 flex flex-col overflow-auto rounded-2xl">
+          <table className="w-full shrink-0 border-collapse text-sm">
             <thead className="sticky top-0 z-10 bg-white/70 text-left text-[11px] font-bold uppercase tracking-wider text-slate-400 backdrop-blur">
               <tr>
                 <th className="px-5 py-3">Ticket</th>
@@ -182,7 +182,7 @@ export default function TicketsPage() {
                 <th className="w-8" />
               </tr>
             </thead>
-            <tbody>
+            <tbody className="bg-white">
               {loading ? (
                 <tr><td colSpan={9} className="px-5 py-16 text-center text-slate-400">Loading tickets…</td></tr>
               ) : rows.length === 0 ? (
@@ -192,8 +192,12 @@ export default function TicketsPage() {
               ))}
             </tbody>
           </table>
+          {/* Solid white under the rows. The panel stays glass so the sticky header keeps
+             its translucency; the rows are painted white instead, and this filler whitens
+             any space a short list leaves below them, whatever height the header renders at. */}
+          <div aria-hidden className="flex-1 bg-white" />
           {rows.length > VISIBLE && (
-            <p className="border-t border-slate-200/50 bg-white/40 px-5 py-3 text-center text-xs text-slate-500">
+            <p className="border-t border-slate-200/50 bg-white px-5 py-3 text-center text-xs text-slate-500">
               Showing {VISIBLE} of {rows.length} tickets · refine with search or filters to see more
             </p>
           )}
@@ -238,7 +242,7 @@ function TicketRow({ issue, onOpen }) {
   const breached = slaBreached(issue);
 
   return (
-    <tr onClick={onOpen} style={{ transition: "background .25s ease" }} className="group cursor-pointer border-t border-slate-200/50 hover:bg-white/60">
+    <tr onClick={onOpen} style={{ transition: "background .25s ease" }} className="group cursor-pointer border-t border-slate-200/50 hover:bg-slate-50">
       {/* Ticket + priority accent */}
       <td className="relative px-5 py-3.5">
         <span className="absolute inset-y-2 left-0 w-1 rounded-full" style={{ background: pm.dot }} />

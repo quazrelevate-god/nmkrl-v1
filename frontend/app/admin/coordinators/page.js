@@ -14,6 +14,7 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Users, Plus, Search, X, MoreVertical, KeyRound, Pencil, ShieldBan,
   ShieldCheck, RefreshCcw, MapPin, Building2, UserPlus, Copy, Check,
@@ -39,6 +40,13 @@ function generatePassword() {
   return `${prefixes[Math.floor(Math.random() * prefixes.length)]}-${n}`;
 }
 
+/** Render an overlay at <body>, outside every glass panel. backdrop-filter
+ *  makes an element its own stacking context and a containing block for fixed
+ *  descendants, so a drawer rendered inside the page could be covered by a
+ *  raised row whatever z-index it asked for. At <body> nothing can. */
+const portal = (node) =>
+  typeof document === "undefined" ? null : createPortal(node, document.body);
+
 export default function CoordinatorsPage() {
   const [rows, setRows] = useState([]);
   const [query, setQuery] = useState("");
@@ -52,6 +60,25 @@ export default function CoordinatorsPage() {
   const [resetTarget, setResetTarget] = useState(null);   // coordinator | null
   const [statusTarget, setStatusTarget] = useState(null); // coordinator | null
   const [toast, setToast] = useState(null);
+  // One open menu at a time, owned here rather than by each row. Rows used to
+  // own their menus and close them on blur, but clicking a button does not
+  // focus it in WebKit, so the blur never fired: menus stacked on top of each
+  // other, and a row whose menu stayed open kept its raised z-index over the
+  // edit drawer.
+  const [openMenu, setOpenMenu] = useState(null);
+  useEffect(() => {
+    if (!openMenu) return undefined;
+    const onDown = (e) => {
+      if (!e.target.closest?.("[data-coord-menu]")) setOpenMenu(null);
+    };
+    const onKey = (e) => { if (e.key === "Escape") setOpenMenu(null); };
+    document.addEventListener("pointerdown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [openMenu]);
   // Per-coordinator workload + outcomes, keyed by username. Aggregated from the
   // same grievance rows the coordinator app acts on, so the numbers here cannot
   // drift from what the field sees.
@@ -207,6 +234,9 @@ export default function CoordinatorsPage() {
                 key={c.username}
                 coord={c}
                 stats={perf[c.username]}
+                menuOpen={openMenu === c.username}
+                onMenuToggle={() => setOpenMenu((m) => (m === c.username ? null : c.username))}
+                onMenuClose={() => setOpenMenu(null)}
                 onEdit={() => setEditingUser(c.username)}
                 onReset={() => setResetTarget(c)}
                 onToggleStatus={() => setStatusTarget(c)}
@@ -228,7 +258,7 @@ export default function CoordinatorsPage() {
       </div>
 
       {/* Drawers / dialogs */}
-      {editingUser && (
+      {editingUser && portal(
         <CoordinatorFormDrawer
           mode={editingUser === "new" ? "create" : "edit"}
           username={editingUser === "new" ? null : editingUser}
@@ -239,7 +269,7 @@ export default function CoordinatorsPage() {
           onDone={refresh}
         />
       )}
-      {resetTarget && (
+      {resetTarget && portal(
         <ResetPasswordDialog
           coord={resetTarget}
           onClose={() => setResetTarget(null)}
@@ -247,7 +277,7 @@ export default function CoordinatorsPage() {
           onRefresh={refresh}
         />
       )}
-      {statusTarget && (
+      {statusTarget && portal(
         <ToggleStatusDialog
           coord={statusTarget}
           onClose={() => setStatusTarget(null)}
@@ -262,14 +292,13 @@ export default function CoordinatorsPage() {
 }
 
 /* ── Row ──────────────────────────────────────────────────────────────────── */
-function CoordinatorRow({ coord, stats, onEdit, onReset, onToggleStatus }) {
-  const [menuOpen, setMenuOpen] = useState(false);
+function CoordinatorRow({ coord, stats, menuOpen, onMenuToggle, onMenuClose, onEdit, onReset, onToggleStatus }) {
   const disabled = coord.status === "disabled";
   // .glass-panel sets backdrop-filter, which makes every row its own stacking
   // context — so the menu's own z-index can never lift it above a LATER row.
   // Raising the row itself while its menu is open is what actually fixes it.
   return (
-    <div className={`glass-panel glass-hover relative rounded-2xl p-3 ${menuOpen ? "z-[1000]" : ""} ${disabled ? "opacity-70" : ""}`}>
+    <div className={`glass-panel glass-hover relative rounded-2xl p-3 ${menuOpen ? "z-20" : ""} ${disabled ? "opacity-70" : ""}`}>
       <div className="flex items-center gap-4">
       <Avatar coord={coord} />
       <div className="min-w-0 flex-1">
@@ -310,20 +339,23 @@ function CoordinatorRow({ coord, stats, onEdit, onReset, onToggleStatus }) {
 
       <div className="relative">
         <button
-          onClick={() => setMenuOpen((m) => !m)}
-          onBlur={() => setTimeout(() => setMenuOpen(false), 160)}
+          data-coord-menu
+          aria-label={`Actions for ${coord.name}`}
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
+          onClick={onMenuToggle}
           className="glass-panel flex h-9 w-9 items-center justify-center rounded-xl text-slate-500 hover:text-slate-800"
         >
           <MoreVertical size={16} />
         </button>
         {menuOpen && (
-          <div className="animate-fade-up absolute right-0 top-full z-20 mt-1 w-52 overflow-hidden rounded-xl bg-white shadow-xl ring-1 ring-slate-200">
-            <MenuItem icon={Pencil} label="Edit assignment" onClick={onEdit} />
-            <MenuItem icon={KeyRound} label="Reset password" onClick={onReset} />
+          <div data-coord-menu className="animate-fade-up absolute right-0 top-full z-30 mt-1 w-52 overflow-hidden rounded-xl bg-white shadow-xl ring-1 ring-slate-200">
+            <MenuItem icon={Pencil} label="Edit assignment" onClick={() => { onMenuClose(); onEdit(); }} />
+            <MenuItem icon={KeyRound} label="Reset password" onClick={() => { onMenuClose(); onReset(); }} />
             <MenuItem
               icon={disabled ? ShieldCheck : ShieldBan}
               label={disabled ? "Re-enable account" : "Disable account"}
-              onClick={onToggleStatus}
+              onClick={() => { onMenuClose(); onToggleStatus(); }}
               tone={disabled ? "text-emerald-700" : "text-rose-600"}
             />
           </div>
@@ -531,7 +563,7 @@ function CoordinatorFormDrawer({ mode, username, existingRow, onClose, onSaved, 
   }
 
   return (
-    <div className="fixed inset-0 z-40 flex justify-end">
+    <div className="fixed inset-0 z-[1100] flex justify-end">
       <div className="absolute inset-0 bg-slate-900/40 animate-scrim-in" onClick={onClose} />
       <form
         onSubmit={submit}
@@ -710,7 +742,7 @@ function ResetPasswordDialog({ coord, onClose, onDone, onRefresh }) {
   }
 
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center px-4">
+    <div className="fixed inset-0 z-[1100] flex items-center justify-center px-4">
       <div className="absolute inset-0 bg-slate-900/50 animate-scrim-in" onClick={onClose} />
       <div className="relative w-full max-w-md overflow-hidden rounded-3xl bg-white shadow-2xl animate-modal-float">
         <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3.5">
@@ -792,7 +824,7 @@ function ToggleStatusDialog({ coord, onClose, onDone, onRefresh }) {
     onClose();
   }
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center px-4">
+    <div className="fixed inset-0 z-[1100] flex items-center justify-center px-4">
       <div className="absolute inset-0 bg-slate-900/50 animate-scrim-in" onClick={onClose} />
       <div className="relative w-full max-w-sm overflow-hidden rounded-3xl bg-white shadow-2xl animate-modal-float">
         <div className="flex items-center gap-2.5 border-b border-slate-100 px-5 py-3.5">
