@@ -9,6 +9,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/theme.dart';
 import '../../state/providers.dart';
+import '../shared/splash_wordmark.dart';
 import 'tamil_nadu_outline.dart';
 
 /// The splash navy is the app's authoritative brand navy — it now lives in the
@@ -16,31 +17,19 @@ import 'tamil_nadu_outline.dart';
 const _navy = NkColors.navyPrimary;
 const _gold = Color(0xFFD4A537);
 
-/// The same navy wash the in-app success splashes use, so the app's first
-/// surface and its acknowledgement screens are one material rather than two
-/// different blues: lifted through the centre, deepening to the edges.
-const _splashWash = RadialGradient(
-  center: Alignment(0, -0.12),
-  radius: 1.05,
-  colors: [NkColors.refBlueGlow, NkColors.navyPrimary, NkColors.brandDark],
-  stops: [0.0, 0.5, 1.0],
-);
-
-// Gold palette for the wordmark gradient.
-//
-// The sheen used to run to #FBF3DC at BOTH ends of the ramp, which is very
-// nearly white — so every glyph extremity that landed near the gradient's
-// start or finish (the dot on ம், the top of ல், the base of கு) rendered
-// white instead of gold, and the wordmark looked half-painted. Both ends are
-// unambiguously gold now, and the ramp only varies enough to keep the sheen.
-const _beigeLight = Color(0xFFF6E3B0);
-const _beigeMid = Color(0xFFDDBE74);
+// The background is flat [_navy]. It used to be a radial wash deepening to
+// near-black at the edges, which read as a dark glow closing in around the
+// animation — and the login screen, which now continues from the splash's last
+// frame, has to sit on exactly the same colour for that hand-off to be
+// invisible.
 
 /// Animated government splash. Gold particles hold along the Tamil Nadu state
 /// outline, then swarm along randomized curved paths and settle into the shape
 /// of the நம்குரல் wordmark. As they arrive, the particles dissolve and the
-/// SOLID wordmark (light-beige gradient) fades in over a soft background glow —
-/// then the whole scene fades out before navigating to the entry screen.
+/// SOLID wordmark fades in over a soft gold glow. For a returning user the
+/// scene then fades out; for someone signing in, the glow bows out and the
+/// wordmark is handed straight to the login screen, which shrinks it into
+/// place above the fields.
 class SplashScreen extends ConsumerStatefulWidget {
   const SplashScreen({super.key});
 
@@ -51,7 +40,7 @@ class SplashScreen extends ConsumerStatefulWidget {
 class _SplashScreenState extends ConsumerState<SplashScreen>
     with TickerProviderStateMixin {
   static const int particleCount = 380;
-  static const String _wordmark = 'நம்குரல்';
+  static const String _wordmark = splashWordmarkText;
 
   // Phase boundaries as fractions of the main controller.
   static const double _holdEnd = 0.18; // particles resting on the outline
@@ -59,6 +48,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
   static const double _revealStart = 0.54; // solid text starts fading in
   static const double _revealEnd = 0.76; // solid text fully in, dots gone
   static const double _fadeStart = 0.90; // whole scene begins to fade out
+  static const double _glowOutStart = 0.84; // login hand-off: glow bows out
 
   late final AnimationController _controller = AnimationController(
     vsync: this,
@@ -77,10 +67,14 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
   // paths stay stable frame-to-frame — the "randomness" is fixed, not jittery).
   List<Offset> _controlPoints = const [];
   List<double> _delays = const [];
-  static const double _textWidthFrac = 0.85;
+  static const double _textWidthFrac = kSplashWordmarkWidthFrac;
 
   bool _initialized = false;
   bool _navigated = false;
+
+  /// Where the splash hands off, resolved before anything moves.
+  String _route = '/login';
+  bool get _toLogin => _route == '/login';
 
   @override
   void didChangeDependencies() {
@@ -110,6 +104,11 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
   }
 
   Future<void> _startAfterTargets(Size size) async {
+    // Resolved before anything moves, because the ending depends on it: a
+    // hand-off to login holds the wordmark still for the login screen to pick
+    // up, while a returning user's splash fades out as before.
+    _route = await _runRealAppInit()
+        .timeout(const Duration(seconds: 5), onTimeout: () => '/login');
     _targetPoints = await _computeTextTargetPoints(size, particleCount);
     _buildParticlePaths();
     if (!mounted) return;
@@ -120,17 +119,13 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
       if (s == AnimationStatus.completed && !done.isCompleted) done.complete();
     });
     _controller.forward();
-
-    var route = '/login';
-    await Future.wait([
-      done.future,
-      _runRealAppInit()
-          .timeout(const Duration(seconds: 5), onTimeout: () => '/login')
-          .then((r) => route = r),
-    ]);
+    await done.future;
     if (!mounted || _navigated) return;
     _navigated = true;
-    context.go(route);
+    // No transition into login: its first frame IS this frame — same flat
+    // navy, same wordmark at the same size and place — so the logo simply
+    // carries on moving.
+    context.go(_route, extra: _toLogin ? 'intro' : null);
   }
 
   /// Give every particle a randomized quadratic-bezier control point (so it
@@ -161,14 +156,10 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
   }
 
   Future<String> _runRealAppInit() async {
-    if (ref.read(authProvider)) {
-      // A returning citizen meets the PIN, not the mobile-number screen. An
-      // account with no PIN yet (anything created before PINs existed) is sent
-      // to create one first.
-      final prefs = ref.read(prefsProvider);
-      if (!prefs.hasPin) return '/set-pin';
-      return ref.read(pinLockProvider) ? '/home' : '/lock';
-    }
+    // A signed-in citizen goes straight to home: the router sends an account
+    // with no PIN to create one, and home draws the lock over itself on a
+    // cold start.
+    if (ref.read(authProvider)) return '/home';
     if (ref.read(coordinatorAuthProvider) != null) return '/coordinator';
     return '/login';
   }
@@ -237,7 +228,11 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
             final morph = _phase(t, _holdEnd, _morphEnd);
             final reveal =
                 Curves.easeOut.transform(_phase(t, _revealStart, _revealEnd));
-            final sceneFade = _phase(t, _fadeStart, 1.0);
+            // Heading to login the scene never fades — the login screen
+            // inherits it — and the gold glow bows out instead, so the frame
+            // handed over is the wordmark alone on flat navy.
+            final sceneFade = _toLogin ? 0.0 : _phase(t, _fadeStart, 1.0);
+            final glowOut = _toLogin ? 1 - _phase(t, _glowOutStart, 1.0) : 1.0;
             final glowPulse = Curves.easeInOut.transform(_glow.value);
 
             return Opacity(
@@ -245,16 +240,11 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  const DecoratedBox(
-                    decoration: BoxDecoration(gradient: _splashWash),
-                    child: SizedBox.expand(),
-                  ),
-
                   // Soft background glow behind the wordmark (fades in with
                   // the reveal, then breathes via the glow pulse).
                   Center(
                     child: Opacity(
-                      opacity: reveal * (0.55 + 0.45 * glowPulse),
+                      opacity: reveal * (0.55 + 0.45 * glowPulse) * glowOut,
                       child: Container(
                         width: size.width * 0.9,
                         height: size.width * 0.9,
@@ -289,54 +279,15 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
                     ),
                   ),
 
-                  // Solid wordmark with a light-beige gradient + soft glow.
+                  // Solid wordmark — the same widget the login screen picks up
+                  // from this exact size and place.
                   Center(
                     child: Opacity(
                       opacity: reveal,
                       child: Transform.scale(
                         scale: 0.96 + 0.04 * reveal,
-                        child: SizedBox(
+                        child: SplashWordmark(
                           width: size.width * _textWidthFrac,
-                          child: ShaderMask(
-                            shaderCallback: (rect) => const LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                              colors: [_beigeLight, _beigeMid, _beigeLight],
-                              stops: [0.0, 0.5, 1.0],
-                            ).createShader(rect),
-                            blendMode: BlendMode.srcIn,
-                            // No text shadow here, deliberately. BlendMode.srcIn
-                            // paints the shader wherever the CHILD has alpha —
-                            // and a blurred shadow has alpha everywhere around
-                            // the glyphs. The gradient was therefore filling the
-                            // shadow's soft rectangle, which is the translucent
-                            // box that appeared under the wordmark whenever the
-                            // glow pulsed; and where that blur spilled past the
-                            // shader's rect the gradient clamped to its lightest
-                            // stop, leaving the near-white edge along the top.
-                            // The breathing glow is the radial layer behind the
-                            // text, which is outside the mask and unaffected.
-                            child: FittedBox(
-                              fit: BoxFit.contain,
-                              child: Text(
-                                _wordmark,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w900,
-                                  // Gold, not white. A ShaderMask only masks
-                                  // what paints INSIDE its bounds, and Tamil
-                                  // combining marks — the dot on ம், the tail
-                                  // of கு — sat outside them, escaping the
-                                  // mask and showing this colour raw. That was
-                                  // the white on the glyph tips.
-                                  color: _beigeMid,
-                                  // No height: 1.0 either. Forcing the line box
-                                  // to the font size is what pushed those marks
-                                  // outside the bounds in the first place;
-                                  // the font's own metrics leave room for them.
-                                ),
-                              ),
-                            ),
-                          ),
                         ),
                       ),
                     ),

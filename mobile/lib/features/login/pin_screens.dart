@@ -112,10 +112,15 @@ class _PinBoxes extends StatelessWidget {
     required this.filled,
     this.error = false,
     this.shake = 0,
+    this.onBlur = false,
   });
 
   final int filled;
   final bool error;
+
+  /// Drawn over the blurred home rather than on navy. That backdrop is pale,
+  /// so the navy-tuned fill and edge all but disappear; this lifts both.
+  final bool onBlur;
 
   /// 0 → 1 progress of the wrong-PIN shake.
   final double shake;
@@ -140,14 +145,15 @@ class _PinBoxes extends StatelessWidget {
             width: 52,
             alignment: Alignment.center,
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: on ? 0.16 : 0.07),
+              color: Colors.white.withValues(
+                  alpha: on ? (onBlur ? 0.26 : 0.16) : (onBlur ? 0.14 : 0.07)),
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
                 color: error
                     ? NkColors.rose500
                     : on
                         ? NkColors.gold300
-                        : Colors.white.withValues(alpha: 0.22),
+                        : Colors.white.withValues(alpha: onBlur ? 0.55 : 0.22),
                 width: on || error ? 1.6 : 1,
               ),
             ),
@@ -367,16 +373,30 @@ class _SetPinScreenState extends ConsumerState<SetPinScreen> {
 
 /* ══════════════════════ Unlock ══════════════════════ */
 
-/// The app's front door on every cold start once a PIN exists. Replaces the
-/// mobile-number screen entirely — that only comes back on sign-out.
-class PinLockScreen extends ConsumerStatefulWidget {
-  const PinLockScreen({super.key});
+/// Dim laid over the blurred home screen behind the lock — navy-tinted rather
+/// than grey, because the map underneath is pale and white type needs
+/// something to stand against.
+const _kLockDim = Color(0x870B1724);
+
+/// The app-open lock, drawn over the home screen rather than instead of it.
+///
+/// A navy screen of its own made opening the app feel like arriving somewhere
+/// else first. Laid over home — blurred, and dimmed just enough for the PIN to
+/// read — the person can see their map and grievances are right there, and
+/// unlocking is the veil lifting rather than a page change.
+///
+/// It appears on a cold start only. Switching apps and coming back does not
+/// re-lock: the unlocked state lives in memory, so it lasts exactly as long as
+/// the process does. Home keeps loading underneath, ready the moment the PIN
+/// lands.
+class PinLockOverlay extends ConsumerStatefulWidget {
+  const PinLockOverlay({super.key});
 
   @override
-  ConsumerState<PinLockScreen> createState() => _PinLockScreenState();
+  ConsumerState<PinLockOverlay> createState() => _PinLockOverlayState();
 }
 
-class _PinLockScreenState extends ConsumerState<PinLockScreen>
+class _PinLockOverlayState extends ConsumerState<PinLockOverlay>
     with SingleTickerProviderStateMixin {
   final _ctrl = TextEditingController();
   final _focus = FocusNode();
@@ -421,8 +441,10 @@ class _PinLockScreenState extends ConsumerState<PinLockScreen>
 
     if (ok) {
       HapticFeedback.mediumImpact();
+      _focus.unfocus();
+      // No navigation: home is already underneath, so lifting the lock is all
+      // that is left to do.
       ref.read(pinLockProvider.notifier).unlock();
-      context.go('/home');
       return;
     }
 
@@ -437,67 +459,121 @@ class _PinLockScreenState extends ConsumerState<PinLockScreen>
   }
 
   Future<void> _forgot() async {
-    // No reset flow to build: signing out returns them to the OTP login they
-    // already know, and setting a PIN again is the next screen after it.
+    // No reset flow to build: signing out sends the router back to the OTP
+    // login they already know, and setting a PIN is the next screen after it.
     await ref.read(authProvider.notifier).signOut();
-    if (mounted) context.go('/login');
   }
 
   @override
   Widget build(BuildContext context) {
     final name = ref.watch(prefsProvider).citizenName;
-    return _PinScaffold(
-      title: context.tr('Enter your PIN'),
-      subtitle: name.isEmpty || name == 'Citizen'
-          ? context.tr('Four digits to unlock the app.')
-          : '${context.tr('Welcome back')}, $name.',
-      children: [
-        _PinField(controller: _ctrl, focusNode: _focus, onChanged: _onChanged),
-        AnimatedBuilder(
-          animation: _shake,
-          builder: (_, __) => _PinBoxes(
-            filled: _ctrl.text.length,
-            error: _error != null,
-            shake: _shake.value,
-          ),
-        ),
-        _pinError(_error),
-        const SizedBox(height: 22),
-        if (_busy)
-          const SizedBox(
-            height: 22,
-            width: 22,
-            child: CircularProgressIndicator(
-                strokeWidth: 2.2, color: NkColors.gold300),
-          )
-        else
-          GestureDetector(
-            onTap: () => _focus.requestFocus(),
-            child: Text(
-              context.tr('Tap to enter'),
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.white.withValues(alpha: 0.45),
-              ),
+    final keyboard = MediaQuery.viewInsetsOf(context).bottom;
+    return Material(
+      // The overlay is a sibling of home's Scaffold, not a child of it, so it
+      // needs its own Material for the text field and default text style.
+      type: MaterialType.transparency,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          ClipRect(
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+              child: const ColoredBox(color: _kLockDim),
             ),
           ),
-        // Offered only after a couple of failures, so it does not invite a
-        // sign-out on the first fumble.
-        if (_attempts >= 2) ...[
-          const SizedBox(height: 26),
-          TextButton(
-            onPressed: _forgot,
-            child: Text(
-              context.tr('Forgot PIN? Sign in again'),
-              style: const TextStyle(
-                fontSize: 12.5,
-                fontWeight: FontWeight.w700,
-                color: NkColors.gold300,
+          SafeArea(
+            child: Padding(
+              // Centre in the space above the keyboard, not behind it.
+              padding: EdgeInsets.only(bottom: keyboard),
+              child: Center(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.symmetric(horizontal: 28),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const BrandLogo(height: 34),
+                      const SizedBox(height: 26),
+                      Text(
+                        context.tr('Enter your PIN'),
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 19,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
+                          letterSpacing: 0.2,
+                        ),
+                      ),
+                      const SizedBox(height: 7),
+                      Text(
+                        name.isEmpty || name == 'Citizen'
+                            ? context.tr('Four digits to unlock the app.')
+                            : '${context.tr('Welcome back')}, $name.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 13,
+                          height: 1.35,
+                          color: Colors.white.withValues(alpha: 0.72),
+                        ),
+                      ),
+                      const SizedBox(height: 30),
+                      _PinField(
+                        controller: _ctrl,
+                        focusNode: _focus,
+                        onChanged: _onChanged,
+                      ),
+                      AnimatedBuilder(
+                        animation: _shake,
+                        builder: (_, __) => _PinBoxes(
+                          filled: _ctrl.text.length,
+                          error: _error != null,
+                          shake: _shake.value,
+                          onBlur: true,
+                        ),
+                      ),
+                      _pinError(_error),
+                      const SizedBox(height: 22),
+                      if (_busy)
+                        const SizedBox(
+                          height: 22,
+                          width: 22,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2.2, color: NkColors.gold300),
+                        )
+                      else
+                        GestureDetector(
+                          onTap: () => _focus.requestFocus(),
+                          child: Text(
+                            context.tr('Tap to enter'),
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.white.withValues(alpha: 0.85),
+                            ),
+                          ),
+                        ),
+                      // Offered only after a couple of failures, so it does not
+                      // invite a sign-out on the first fumble.
+                      if (_attempts >= 2) ...[
+                        const SizedBox(height: 26),
+                        TextButton(
+                          onPressed: _forgot,
+                          child: Text(
+                            context.tr('Forgot PIN? Sign in again'),
+                            style: const TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w700,
+                              color: NkColors.gold300,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
               ),
             ),
           ),
         ],
-      ],
+      ),
     );
   }
 }

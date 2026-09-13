@@ -58,19 +58,15 @@ final _routerProvider = Provider<GoRouter>((ref) {
   final citizenAuthed = ValueNotifier(ref.read(authProvider));
   final coordAuthed =
       ValueNotifier(ref.read(coordinatorAuthProvider) != null);
-  final unlocked = ValueNotifier(ref.read(pinLockProvider));
   ref.listen(authProvider, (_, next) => citizenAuthed.value = next);
   ref.listen(coordinatorAuthProvider,
       (_, next) => coordAuthed.value = next != null);
-  ref.listen(pinLockProvider, (_, next) => unlocked.value = next);
   ref.onDispose(citizenAuthed.dispose);
   ref.onDispose(coordAuthed.dispose);
-  ref.onDispose(unlocked.dispose);
 
   return GoRouter(
     initialLocation: '/splash',
-    refreshListenable:
-        Listenable.merge([citizenAuthed, coordAuthed, unlocked]),
+    refreshListenable: Listenable.merge([citizenAuthed, coordAuthed]),
     redirect: (context, state) {
       final loc = state.matchedLocation;
       if (loc == '/splash') return null; // splash decides for itself
@@ -78,12 +74,11 @@ final _routerProvider = Provider<GoRouter>((ref) {
       if (loc == '/coordinator' && !coordAuthed.value) return '/login';
       if (loc == '/home') {
         if (!citizenAuthed.value) return '/login';
-        // A signed-in citizen still has to clear the PIN gate. An account
-        // without one — every account created before PINs existed — is sent
-        // to set it rather than being let past.
+        // An account without a PIN — every account created before PINs
+        // existed — is sent to set one rather than being let past. The lock
+        // itself is not a redirect: home draws it over itself (_LockableHome).
         final prefs = ref.read(prefsProvider);
         if (!prefs.hasPin) return '/set-pin';
-        if (!unlocked.value) return '/lock';
       }
       return null;
     },
@@ -94,29 +89,39 @@ final _routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: '/login',
-        pageBuilder: (context, state) => CustomTransitionPage(
-          key: state.pageKey,
-          child: const LoginScreen(),
-          transitionDuration: const Duration(milliseconds: 400),
-          transitionsBuilder: (_, anim, __, child) => FadeTransition(
-            opacity: CurvedAnimation(parent: anim, curve: Curves.easeOut),
-            child: child,
-          ),
-        ),
+        pageBuilder: (context, state) {
+          // Arriving from the splash, login continues the splash's last frame
+          // — same navy, same wordmark in the same place — so there is nothing
+          // to transition between. Any other arrival (signing out) fades in.
+          if (state.extra == 'intro') {
+            return NoTransitionPage<void>(
+              key: state.pageKey,
+              child: const LoginScreen(intro: true),
+            );
+          }
+          return CustomTransitionPage(
+            key: state.pageKey,
+            child: const LoginScreen(),
+            transitionDuration: const Duration(milliseconds: 400),
+            transitionsBuilder: (_, anim, __, child) => FadeTransition(
+              opacity: CurvedAnimation(parent: anim, curve: Curves.easeOut),
+              child: child,
+            ),
+          );
+        },
       ),
       GoRoute(
         path: '/set-pin',
         builder: (context, state) => const SetPinScreen(),
       ),
-      GoRoute(
-        path: '/lock',
-        builder: (context, state) => const PinLockScreen(),
-      ),
+      // Kept so any stale link still lands somewhere sensible: the lock now
+      // lives over home rather than on a page of its own.
+      GoRoute(path: '/lock', redirect: (_, __) => '/home'),
       GoRoute(
         path: '/home',
         pageBuilder: (context, state) => CustomTransitionPage(
           key: state.pageKey,
-          child: const HomeScreen(),
+          child: const _LockableHome(),
           transitionDuration: const Duration(milliseconds: 450),
           transitionsBuilder: (_, anim, __, child) {
             final curved =
@@ -159,3 +164,40 @@ final _routerProvider = Provider<GoRouter>((ref) {
     ],
   );
 });
+
+
+/// Home, with the app-open lock drawn over it until the PIN is entered.
+///
+/// The lock was a navy page of its own; it is a veil over home now, so the map
+/// and grievances are visibly right there behind the blur. [pinLockProvider]
+/// is in-memory only, so the veil is up on a cold start and stays down while
+/// the app is merely backgrounded.
+class _LockableHome extends ConsumerWidget {
+  const _LockableHome();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final unlocked = ref.watch(pinLockProvider);
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        // Always wrapped, so unlocking never changes this subtree's shape and
+        // home's state survives the veil lifting. While locked the PIN
+        // keyboard's inset is withheld, so the map and sheet behind the blur
+        // do not reflow every time it opens.
+        MediaQuery.removeViewInsets(
+          context: context,
+          removeBottom: !unlocked,
+          child: const HomeScreen(),
+        ),
+        AnimatedSwitcher(
+          duration: const Duration(milliseconds: 360),
+          switchOutCurve: Curves.easeOut,
+          child: unlocked
+              ? const SizedBox.shrink(key: ValueKey('unlocked'))
+              : const PinLockOverlay(key: ValueKey('locked')),
+        ),
+      ],
+    );
+  }
+}

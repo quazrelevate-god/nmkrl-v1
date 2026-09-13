@@ -8,7 +8,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/i18n.dart';
 import '../../core/theme.dart';
 import '../../state/providers.dart';
-import '../shared/wave_mark.dart';
+import '../shared/splash_wordmark.dart';
 
 /// Combined sign-in — one screen, two roles, switched by the toggle at the
 /// top corner:
@@ -18,126 +18,224 @@ import '../shared/wave_mark.dart';
 ///   • Coordinator — username/password with the 4 seeded staff accounts as
 ///                   tap-to-fill cards.
 class LoginScreen extends ConsumerStatefulWidget {
-  const LoginScreen({super.key});
+  const LoginScreen({super.key, this.intro = false});
+
+  /// True when arriving straight from the splash. The wordmark then starts at
+  /// the splash's final size and place — the splash hands over without a
+  /// transition — and glides up into the header while the fields fade in.
+  /// Any other arrival (signing out) shows the settled layout at once.
+  final bool intro;
 
   @override
   ConsumerState<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _LoginScreenState extends ConsumerState<LoginScreen> {
+class _LoginScreenState extends ConsumerState<LoginScreen>
+    with SingleTickerProviderStateMixin {
   bool _coordinator = false;
+
+  /// Resting logo width, as a fraction of the screen.
+  static const _restWidthFrac = 0.46;
+
+  /// Gap from the top safe edge to the resting logo, clearing the toggles.
+  static const _restTop = 60.0;
+
+  late final AnimationController _intro = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1500),
+    value: widget.intro ? 0 : 1,
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.intro) {
+      // A beat on the splash's final frame before anything moves, so the
+      // hand-off reads as the same moment continuing rather than a cut.
+      Future.delayed(const Duration(milliseconds: 140), () {
+        if (mounted) _intro.forward();
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _intro.dispose();
+    super.dispose();
+  }
+
+  Widget _roleToggle() => Container(
+        padding: const EdgeInsets.all(3),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final (coord, icon, tip) in [
+              (false, Icons.person_outline, 'Citizen'),
+              (true, Icons.account_balance_outlined, 'Coordinator'),
+            ])
+              GestureDetector(
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  setState(() => _coordinator = coord);
+                },
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 260),
+                  curve: NkMotion.settle,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: _coordinator == coord
+                        ? NkColors.gold300
+                        : Colors.transparent,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        icon,
+                        size: 14,
+                        color: _coordinator == coord
+                            ? NkColors.brandDark
+                            : Colors.white.withValues(alpha: 0.7),
+                      ),
+                      if (_coordinator == coord) ...[
+                        const SizedBox(width: 5),
+                        Text(
+                          tip,
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                            color: NkColors.brandDark,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        ),
+      );
 
   @override
   Widget build(BuildContext context) {
+    final forms = AnimatedSwitcher(
+      duration: const Duration(milliseconds: 380),
+      switchInCurve: NkMotion.settle,
+      switchOutCurve: Curves.easeIn,
+      transitionBuilder: (child, anim) => FadeTransition(
+        opacity: anim,
+        child: SlideTransition(
+          position: Tween(
+            begin: const Offset(0, 0.02),
+            end: Offset.zero,
+          ).animate(anim),
+          child: child,
+        ),
+      ),
+      child: _coordinator
+          ? const _CoordinatorLoginForm(key: ValueKey('coordinator'))
+          : const _CitizenLoginForm(key: ValueKey('citizen')),
+    );
+
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light,
       child: Scaffold(
-        body: Container(
-          decoration: const BoxDecoration(gradient: nkNavyGradient),
-          child: SafeArea(
-            child: Stack(
+        // Flat, and the same navy as the splash: this screen's first frame IS
+        // the splash's last one.
+        backgroundColor: NkColors.navyPrimary,
+        // The logo is placed against the full screen. Letting the keyboard
+        // shrink the body would drag it off its mark; the form pads itself
+        // for the keyboard instead.
+        resizeToAvoidBottomInset: false,
+        body: AnimatedBuilder(
+          animation: _intro,
+          child: forms,
+          builder: (context, forms) {
+            final screen = MediaQuery.sizeOf(context);
+            final safeTop = MediaQuery.paddingOf(context).top;
+            final fullW = screen.width * kSplashWordmarkWidthFrac;
+            final restScale = _restWidthFrac / kSplashWordmarkWidthFrac;
+            final restH = SplashWordmark.heightFor(context, fullW) * restScale;
+            final restCenterY = safeTop + _restTop + restH / 2;
+            final formTop = safeTop + _restTop + restH + 14;
+
+            final t = _intro.value;
+            // The logo glides over the first part, eased at both ends so it
+            // settles rather than snaps…
+            final move =
+                Curves.easeInOutCubic.transform((t / 0.55).clamp(0.0, 1.0));
+            // …and the fields fade up through the end of that move.
+            final show =
+                Curves.easeOut.transform(((t - 0.42) / 0.58).clamp(0.0, 1.0));
+            final ready = show > 0.95;
+
+            return Stack(
+              fit: StackFit.expand,
               children: [
-                AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 380),
-                  switchInCurve: NkMotion.settle,
-                  switchOutCurve: Curves.easeIn,
-                  transitionBuilder: (child, anim) => FadeTransition(
-                    opacity: anim,
-                    child: SlideTransition(
-                      position: Tween(
-                        begin: const Offset(0, 0.02),
-                        end: Offset.zero,
-                      ).animate(anim),
-                      child: child,
+                Positioned(
+                  top: formTop,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: IgnorePointer(
+                    ignoring: !ready,
+                    child: Opacity(
+                      opacity: show,
+                      child: Transform.translate(
+                        offset: Offset(0, 16 * (1 - show)),
+                        child: forms,
+                      ),
                     ),
                   ),
-                  child: _coordinator
-                      ? const _CoordinatorLoginForm(
-                          key: ValueKey('coordinator'))
-                      : const _CitizenLoginForm(key: ValueKey('citizen')),
                 ),
-
-                // ── Language toggle (top-left corner) ──
-                const Positioned(
-                  top: 8,
-                  left: 16,
-                  child: LangToggle(onDark: true),
-                ),
-
-                // ── Role toggle (top corner) ──
                 Positioned(
-                  top: 8,
-                  right: 16,
-                  child: Container(
-                    padding: const EdgeInsets.all(3),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(999),
-                      border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.2)),
+                  top: safeTop + 8,
+                  left: 16,
+                  child: IgnorePointer(
+                    ignoring: !ready,
+                    child: Opacity(
+                      opacity: show,
+                      child: const LangToggle(onDark: true),
                     ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        for (final (coord, icon, tip) in [
-                          (false, Icons.person_outline, 'Citizen'),
-                          (true, Icons.account_balance_outlined, 'Coordinator'),
-                        ])
-                          GestureDetector(
-                            onTap: () {
-                              HapticFeedback.selectionClick();
-                              setState(() => _coordinator = coord);
-                            },
-                            child: AnimatedContainer(
-                              duration: const Duration(milliseconds: 260),
-                              curve: NkMotion.settle,
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 10, vertical: 6),
-                              decoration: BoxDecoration(
-                                color: _coordinator == coord
-                                    ? NkColors.gold300
-                                    : Colors.transparent,
-                                borderRadius: BorderRadius.circular(999),
-                              ),
-                              child: Row(
-                                children: [
-                                  Icon(
-                                    icon,
-                                    size: 14,
-                                    color: _coordinator == coord
-                                        ? NkColors.brandDark
-                                        : Colors.white
-                                            .withValues(alpha: 0.7),
-                                  ),
-                                  if (_coordinator == coord) ...[
-                                    const SizedBox(width: 5),
-                                    Text(
-                                      tip,
-                                      style: const TextStyle(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w800,
-                                        color: NkColors.brandDark,
-                                      ),
-                                    ),
-                                  ],
-                                ],
-                              ),
-                            ),
-                          ),
-                      ],
+                  ),
+                ),
+                Positioned(
+                  top: safeTop + 8,
+                  right: 16,
+                  child: IgnorePointer(
+                    ignoring: !ready,
+                    child: Opacity(opacity: show, child: _roleToggle()),
+                  ),
+                ),
+                // The splash's wordmark, carried on: centred at full size (the
+                // splash's last frame), scaling and rising into the header.
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: Transform.translate(
+                      offset: Offset(0, (restCenterY - screen.height / 2) * move),
+                      child: Center(
+                        child: Transform.scale(
+                          scale: 1 + (restScale - 1) * move,
+                          child: SplashWordmark(width: fullW),
+                        ),
+                      ),
                     ),
                   ),
                 ),
               ],
-            ),
-          ),
+            );
+          },
         ),
       ),
     );
   }
 }
-
-/* ═══════════════════════ Citizen form ═══════════════════════ */
 
 class _CitizenLoginForm extends ConsumerStatefulWidget {
   const _CitizenLoginForm({super.key});
@@ -303,34 +401,14 @@ class _CitizenLoginFormState extends ConsumerState<_CitizenLoginForm> {
   @override
   Widget build(BuildContext context) {
     return ListView(
-      padding: const EdgeInsets.symmetric(horizontal: 24),
+      // Bottom inset by hand: the shell no longer resizes for the keyboard.
+      padding: EdgeInsets.fromLTRB(
+          24, 0, 24, MediaQuery.viewInsetsOf(context).bottom + 24),
       children: [
-        // Clears the role toggle floating at the top corner.
-        const SizedBox(height: 56),
+        const SizedBox(height: 2),
         Center(
           child: Column(
             children: [
-              Stack(
-                clipBehavior: Clip.none,
-                children: const [
-                  Text(
-                    'நம்குரல்',
-                    style: TextStyle(
-                      fontSize: 34,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: -0.5,
-                      height: 1,
-                      color: Color(0xFFEADFBF),
-                    ),
-                  ),
-                  Positioned(
-                    right: -26,
-                    top: -8,
-                    child: WaveMark(size: 24),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
               Text(
                 context.tr('CITIZEN SIGN IN'),
                 style: TextStyle(
@@ -678,34 +756,14 @@ class _CoordinatorLoginFormState extends ConsumerState<_CoordinatorLoginForm> {
         _username.text.isNotEmpty && _password.text.isNotEmpty;
 
     return ListView(
-      padding: const EdgeInsets.symmetric(horizontal: 24),
+      // Bottom inset by hand: the shell no longer resizes for the keyboard.
+      padding: EdgeInsets.fromLTRB(
+          24, 0, 24, MediaQuery.viewInsetsOf(context).bottom + 24),
       children: [
-        // Clears the role toggle floating at the top corner.
-        const SizedBox(height: 56),
+        const SizedBox(height: 2),
         Center(
           child: Column(
             children: [
-              Stack(
-                clipBehavior: Clip.none,
-                children: const [
-                  Text(
-                    'நம்குரல்',
-                    style: TextStyle(
-                      fontSize: 34,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: -0.5,
-                      height: 1,
-                      color: Color(0xFFEADFBF),
-                    ),
-                  ),
-                  Positioned(
-                    right: -26,
-                    top: -8,
-                    child: WaveMark(size: 24),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
               Text(
                 context.tr('COORDINATOR CONSOLE'),
                 style: TextStyle(
