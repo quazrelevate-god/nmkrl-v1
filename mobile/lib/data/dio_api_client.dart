@@ -351,12 +351,25 @@ class DioApiClient implements ApiClient {
   }
 
   @override
+  Future<String?> coordinatorRequestOtp(String name, String phone) async {
+    try {
+      final res = await _dio.post<Map<String, dynamic>>(
+        '/api/auth/coordinator/request-otp',
+        data: FormData.fromMap({'name': name, 'phone': phone}),
+      );
+      return res.data?['dev_otp'] as String?; // non-null only in dummy mode
+    } catch (e) {
+      _friendly(e);
+    }
+  }
+
+  @override
   Future<Coordinator> coordinatorLogin(
-      {required String username, required String password}) async {
+      {required String name, required String phone, required String otp}) async {
     try {
       final res = await _dio.post<Map<String, dynamic>>(
         '/api/auth/coordinator/login',
-        data: FormData.fromMap({'username': username, 'password': password}),
+        data: FormData.fromMap({'name': name, 'phone': phone, 'otp': otp}),
       );
       return Coordinator.fromJson(res.data!);
     } catch (e) {

@@ -3,14 +3,16 @@ routers/coordinators_admin.py
 -----------------------------
 Admin-console CRUD for constituency-staff (coordinator) accounts.
 
-The web admin's "Coordinators" page and the coordinator app's sign-in both
-work against this table — coordinators created here (username / temp password
-/ role / constituency / home ward / must_change_password) are the ONLY
-accounts that can log into the mobile coordinator console.
+The web admin's "Coordinators" page manages this table; the coordinator app's
+sign-in authenticates against it. Coordinators sign in with **name + mobile
+number + OTP** — there are no passwords. The admin sets a name, a mobile number,
+role, constituency and home ward; a `username` is auto-generated and kept only
+as an internal, admin-invisible key so a coordinator's already-assigned
+grievances, notifications and history stay linked to them.
 """
 
+import re
 import secrets
-import string
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -21,22 +23,52 @@ from utils import new_id, now_iso
 router = APIRouter(prefix="/api/admin/coordinators", tags=["admin-coordinators"])
 
 
+def _normalise_phone(raw: str) -> str:
+    """Digits only, last 10 (Indian mobile)."""
+    digits = re.sub(r"\D", "", raw or "")
+    return digits[-10:] if len(digits) >= 10 else digits
+
+
 def _serialize(row) -> dict:
     d = dict(row)
-    d["must_change_password"] = bool(d.get("must_change_password", 0))
-    # Never leak passwords through admin listings.
+    # Password is gone from the flow; never leak it even if a legacy value lingers.
     d.pop("password", None)
+    d["must_change_password"] = bool(d.get("must_change_password", 0))
+    d["phone"] = d.get("phone") or ""
     return d
+
+
+def _make_username(conn, name: str) -> str:
+    """A stable, opaque internal id derived from the name plus randomness.
+
+    Never shown to the admin or typed by anyone — it exists only so the many
+    places that key a coordinator by `username` (assigned grievances,
+    notifications, the session token, the audit trail) keep a single identity.
+    """
+    base = re.sub(r"[^a-z0-9]", "", (name or "").lower())[:16] or "coord"
+    for _ in range(20):
+        candidate = f"{base}{secrets.token_hex(2)}"
+        if conn.execute(
+            "SELECT 1 FROM coordinators WHERE username = ?", (candidate,)
+        ).fetchone() is None:
+            return candidate
+    return f"coord{secrets.token_hex(4)}"
+
+
+def _phone_taken(conn, phone: str, *, exclude_username: str = "") -> bool:
+    row = conn.execute(
+        "SELECT username FROM coordinators WHERE phone = ? AND phone <> ''",
+        (phone,),
+    ).fetchone()
+    return row is not None and row["username"] != exclude_username
 
 
 class CoordinatorCreate(BaseModel):
     name: str
-    username: str
-    password: str
+    phone: str
     role: str
     constituency: str
     home_ward: str
-    must_change_password: bool = True
 
 
 class CoordinatorUpdate(BaseModel):
@@ -44,8 +76,7 @@ class CoordinatorUpdate(BaseModel):
     role: str | None = None
     constituency: str | None = None
     home_ward: str | None = None
-    password: str | None = None
-    must_change_password: bool | None = None
+    phone: str | None = None
     status: str | None = None  # 'active' | 'disabled'
 
 
@@ -59,31 +90,28 @@ def list_coordinators(conn=Depends(get_db)):
 
 @router.post("")
 def create_coordinator(body: CoordinatorCreate, conn=Depends(get_db)):
-    username = body.username.strip().lower()
-    if not username or " " in username:
-        raise HTTPException(status_code=400, detail="Username must be lowercase, no spaces.")
-    if len(body.password) < 4:
-        raise HTTPException(status_code=400, detail="Password must be at least 4 characters.")
-    if not body.name.strip():
+    name = body.name.strip()
+    if not name:
         raise HTTPException(status_code=400, detail="Name is required.")
-
-    existing = conn.execute(
-        "SELECT 1 FROM coordinators WHERE username = ?", (username,)
-    ).fetchone()
-    if existing:
-        raise HTTPException(status_code=409, detail=f"Username @{username} already exists.")
+    phone = _normalise_phone(body.phone)
+    if len(phone) != 10:
+        raise HTTPException(status_code=400, detail="Enter a valid 10-digit mobile number.")
+    if _phone_taken(conn, phone):
+        raise HTTPException(
+            status_code=409,
+            detail="Another coordinator already uses that mobile number.",
+        )
 
     coord_id = new_id()
+    username = _make_username(conn, name)
     conn.execute(
         """INSERT INTO coordinators
-           (id, username, password, name, role, constituency, home_ward,
-            must_change_password, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+           (id, username, password, name, role, constituency, home_ward, phone,
+            must_change_password, status, created_at)
+           VALUES (?, ?, '', ?, ?, ?, ?, ?, 0, 'active', ?)""",
         (
-            coord_id, username, body.password, body.name.strip(),
-            body.role, body.constituency, body.home_ward,
-            1 if body.must_change_password else 0,
-            now_iso(),
+            coord_id, username, name, body.role, body.constituency,
+            body.home_ward, phone, now_iso(),
         ),
     )
     row = conn.execute("SELECT * FROM coordinators WHERE id = ?", (coord_id,)).fetchone()
@@ -96,23 +124,31 @@ def update_coordinator(username: str, body: CoordinatorUpdate, conn=Depends(get_
         "SELECT * FROM coordinators WHERE username = ?", (username.lower(),)
     ).fetchone()
     if not row:
-        raise HTTPException(status_code=404, detail=f"Coordinator @{username} not found.")
+        raise HTTPException(status_code=404, detail="Coordinator not found.")
 
     updates, params = [], []
     for col, val in [
-        ("name", body.name),
+        ("name", body.name.strip() if body.name is not None else None),
         ("role", body.role),
         ("constituency", body.constituency),
         ("home_ward", body.home_ward),
-        ("password", body.password),
         ("status", body.status.lower() if body.status else None),
     ]:
         if val is not None:
             updates.append(f"{col} = ?")
             params.append(val)
-    if body.must_change_password is not None:
-        updates.append("must_change_password = ?")
-        params.append(1 if body.must_change_password else 0)
+
+    if body.phone is not None:
+        phone = _normalise_phone(body.phone)
+        if phone and len(phone) != 10:
+            raise HTTPException(status_code=400, detail="Enter a valid 10-digit mobile number.")
+        if phone and _phone_taken(conn, phone, exclude_username=username.lower()):
+            raise HTTPException(
+                status_code=409,
+                detail="Another coordinator already uses that mobile number.",
+            )
+        updates.append("phone = ?")
+        params.append(phone)
 
     if updates:
         params.append(username.lower())
@@ -132,18 +168,6 @@ def delete_coordinator(username: str, conn=Depends(get_db)):
         "SELECT 1 FROM coordinators WHERE username = ?", (username.lower(),)
     ).fetchone()
     if not row:
-        raise HTTPException(status_code=404, detail=f"Coordinator @{username} not found.")
+        raise HTTPException(status_code=404, detail="Coordinator not found.")
     conn.execute("DELETE FROM coordinators WHERE username = ?", (username.lower(),))
     return {"deleted": username.lower()}
-
-
-def _random_password(n: int = 10) -> str:
-    """Helper for `POST /generate-password`."""
-    alphabet = string.ascii_letters + string.digits
-    return "".join(secrets.choice(alphabet) for _ in range(n))
-
-
-@router.get("/generate-password")
-def generate_password():
-    """Small helper the admin form uses to fill a suggested temp password."""
-    return {"password": _random_password(10)}

@@ -214,12 +214,12 @@ function mapRemoteCoordinator(row) {
     civicScore: 0, reports: 0, resolved: 0, upvotes: 0, tenure: "New",
     ...seed,
     // …but the backend is authoritative for identity, role, ward, etc.
-    username: row.username,
+    username: row.username, // internal id only — never shown or typed
     name: row.name,
+    phone: row.phone || "",
     role: row.role,
     constituency: row.constituency,
     homeWard: row.home_ward,
-    mustChangePassword: !!row.must_change_password,
     status: (row.status || "active").toLowerCase(),
     initials: initialsFrom(row.name),
     avatar: seed.avatar || `https://i.pravatar.cc/160?u=${encodeURIComponent(row.username)}`,
@@ -243,44 +243,28 @@ export async function listCoordinatorsRemote() {
   });
 }
 
-/** Idempotently ensure the 4 demo coordinators exist in the backend so the
- *  seeded logins work on mobile too. 409 (already exists) is silently fine. */
+/** No-op. Coordinators are now created by the admin with a name + mobile
+ *  number; the old password-seeded demo accounts do not fit the OTP login. */
 export async function ensureSeedCoordinators() {
-  await Promise.all(
-    COORDINATORS.map((c) =>
-      fetch(`${API}/api/admin/coordinators`, {
-        method: "POST",
-        headers: adminHeaders({ "Content-Type": "application/json" }),
-        body: JSON.stringify({
-          name: c.name,
-          username: c.username,
-          password: c.password,
-          role: c.role,
-          constituency: c.constituency,
-          home_ward: String(c.homeWard || ""),
-          must_change_password: false,
-        }),
-      }).catch(() => {})
-    )
-  );
+  return;
 }
 
-/** Create a coordinator in the backend. Throws with the server message on
- *  failure (duplicate username, weak password, …) so the form can surface it. */
+const _clean10 = (v) => String(v || "").replace(/\D/g, "").slice(-10);
+
+/** Create a coordinator in the backend (name + mobile — no password). Throws
+ *  with the server message on failure (bad/duplicate number) for the form. */
 export async function createCoordinatorRemote(coord) {
-  const username = (coord.username || "").trim().toLowerCase();
-  if (!username) throw new Error("Username is required");
+  const phone = _clean10(coord.phone);
+  if (phone.length !== 10) throw new Error("Enter a valid 10-digit mobile number");
   const res = await fetch(`${API}/api/admin/coordinators`, {
     method: "POST",
     headers: adminHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({
       name: coord.name,
-      username,
-      password: coord.password || "changeme",
+      phone,
       role: coord.role || "Ward Coordinator",
       constituency: coord.constituency || "",
       home_ward: String(coord.homeWard || ""),
-      must_change_password: !!coord.mustChangePassword,
     }),
   });
   if (!res.ok) {
@@ -290,17 +274,15 @@ export async function createCoordinatorRemote(coord) {
   return mapRemoteCoordinator(await res.json());
 }
 
-/** Patch a coordinator in the backend (name/role/constituency/ward/password/
- *  mustChange/status). */
+/** Patch a coordinator in the backend (name/role/constituency/ward/mobile/
+ *  status). Addressed by the internal username key. */
 export async function updateCoordinatorRemote(username, patch) {
   const body = {};
   if (patch.name != null) body.name = patch.name;
   if (patch.role != null) body.role = patch.role;
   if (patch.constituency != null) body.constituency = patch.constituency;
   if (patch.homeWard != null) body.home_ward = String(patch.homeWard);
-  if (patch.password != null) body.password = patch.password;
-  if (patch.mustChangePassword != null)
-    body.must_change_password = !!patch.mustChangePassword;
+  if (patch.phone != null) body.phone = _clean10(patch.phone);
   // Disable/enable is a real column now. It used to be a per-browser flag, so
   // a "disabled" coordinator went on signing into the mobile app and working.
   if (patch.status != null) body.status = patch.status;

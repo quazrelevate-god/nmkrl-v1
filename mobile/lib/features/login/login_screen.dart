@@ -691,23 +691,76 @@ class _CoordinatorLoginForm extends ConsumerStatefulWidget {
 }
 
 class _CoordinatorLoginFormState extends ConsumerState<_CoordinatorLoginForm> {
-  final _username = TextEditingController();
-  final _password = TextEditingController();
+  final _name = TextEditingController();
+  final _mobile = TextEditingController();
+  final _otp = TextEditingController();
+  bool _otpSent = false;
+  bool _sendingOtp = false;
+  String? _devOtp;
   String? _error;
   bool _busy = false;
+
+  String get _mobileDigits => _mobile.text.replaceAll(RegExp(r'\D'), '');
 
   @override
   void initState() {
     super.initState();
-    _username.addListener(() => setState(() {}));
-    _password.addListener(() => setState(() {}));
+    _name.addListener(() => setState(() {}));
+    _mobile.addListener(() => setState(() {}));
+    _otp.addListener(() => setState(() {}));
   }
 
   @override
   void dispose() {
-    _username.dispose();
-    _password.dispose();
+    _name.dispose();
+    _mobile.dispose();
+    _otp.dispose();
     super.dispose();
+  }
+
+  Widget _label(String text) => Padding(
+        padding: const EdgeInsets.only(bottom: 6),
+        child: Text(
+          text,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.6,
+            color: Colors.white.withValues(alpha: 0.5),
+          ),
+        ),
+      );
+
+  Future<void> _sendOtp() async {
+    // The server checks the name + mobile against an admin-created account
+    // before sending, so require both here too.
+    if (_name.text.trim().length < 2) {
+      setState(() => _error = 'Enter your full name first.');
+      return;
+    }
+    if (_mobileDigits.length < 10) {
+      setState(() => _error = 'Enter a valid 10-digit mobile number first.');
+      return;
+    }
+    HapticFeedback.selectionClick();
+    setState(() {
+      _error = null;
+      _sendingOtp = true;
+    });
+    try {
+      final dev = await ref
+          .read(apiClientProvider)
+          .coordinatorRequestOtp(_name.text.trim(), _mobileDigits);
+      setState(() {
+        _otpSent = true;
+        _devOtp = dev;
+        _otp.clear();
+      });
+    } catch (e) {
+      setState(() => _error = '$e');
+    } finally {
+      if (mounted) setState(() => _sendingOtp = false);
+    }
   }
 
   Future<void> _submit() async {
@@ -716,13 +769,15 @@ class _CoordinatorLoginFormState extends ConsumerState<_CoordinatorLoginForm> {
       _error = null;
     });
     try {
-      await ref
-          .read(coordinatorAuthProvider.notifier)
-          .signIn(_username.text.trim(), _password.text);
+      await ref.read(coordinatorAuthProvider.notifier).signIn(
+            name: _name.text.trim(),
+            phone: _mobileDigits,
+            otp: _otp.text.trim(),
+          );
       HapticFeedback.mediumImpact();
       if (mounted) context.go('/coordinator');
     } catch (e) {
-      // Backend rejections surface here (invalid creds → ApiException).
+      // Backend rejections surface here (bad OTP / mismatch → ApiException).
       if (mounted) setState(() => _error = '$e');
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -766,8 +821,10 @@ class _CoordinatorLoginFormState extends ConsumerState<_CoordinatorLoginForm> {
 
   @override
   Widget build(BuildContext context) {
-    final canSubmit =
-        _username.text.isNotEmpty && _password.text.isNotEmpty;
+    final canSubmit = _name.text.trim().length >= 2 &&
+        _mobileDigits.length >= 10 &&
+        _otpSent &&
+        _otp.text.replaceAll(RegExp(r'\D'), '').length == 6;
 
     return ListView(
       // Bottom inset by hand: the shell no longer resizes for the keyboard.
@@ -814,42 +871,103 @@ class _CoordinatorLoginFormState extends ConsumerState<_CoordinatorLoginForm> {
                 style: TextStyle(fontSize: 13, color: NkColors.slate500),
               ),
               const SizedBox(height: 16),
-              const Padding(
-                padding: EdgeInsets.only(bottom: 6),
-                child: Text(
-                  'USERNAME',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.6,
-                    color: NkColors.slate500,
-                  ),
-                ),
-              ),
+              _label('FULL NAME'),
               TextField(
-                controller: _username,
-                autocorrect: false,
+                controller: _name,
+                textCapitalization: TextCapitalization.words,
                 style: _inputStyle,
-                decoration: _dec('e.g. raja'),
+                decoration: _dec('As registered by the MLA office'),
               ),
               const SizedBox(height: 14),
-              const Padding(
-                padding: EdgeInsets.only(bottom: 6),
-                child: Text(
-                  'PASSWORD',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.6,
-                    color: NkColors.slate500,
+              _label('MOBILE NUMBER'),
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: Colors.white.withValues(alpha: 0.20)),
+                    ),
+                    child: Text('+91',
+                        style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white.withValues(alpha: 0.75))),
                   ),
-                ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextField(
+                      controller: _mobile,
+                      keyboardType: TextInputType.phone,
+                      style: _inputStyle,
+                      decoration: _dec('98xxx xxxxx'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  SizedBox(
+                    height: 46,
+                    child: FilledButton(
+                      onPressed: (_name.text.trim().length >= 2 &&
+                              _mobileDigits.length >= 10 &&
+                              !_sendingOtp)
+                          ? _sendOtp
+                          : null,
+                      style: FilledButton.styleFrom(
+                        backgroundColor: NkColors.gold300,
+                        foregroundColor: NkColors.brandDark,
+                        disabledBackgroundColor:
+                            NkColors.gold300.withValues(alpha: 0.35),
+                        disabledForegroundColor:
+                            NkColors.brandDark.withValues(alpha: 0.5),
+                        padding: const EdgeInsets.symmetric(horizontal: 14),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12)),
+                      ),
+                      child: _sendingOtp
+                          ? const SizedBox(
+                              height: 16,
+                              width: 16,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2, color: NkColors.brandDark))
+                          : Text(context.tr(_otpSent ? 'Resend' : 'Send OTP'),
+                              style: const TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w800,
+                                  color: NkColors.brandDark)),
+                    ),
+                  ),
+                ],
               ),
-              TextField(
-                controller: _password,
-                obscureText: true,
-                style: _inputStyle,
-                decoration: _dec('••••••••'),
+              AnimatedSize(
+                duration: const Duration(milliseconds: 350),
+                curve: Curves.easeOutCubic,
+                alignment: Alignment.topCenter,
+                child: !_otpSent
+                    ? const SizedBox(width: double.infinity)
+                    : Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          const SizedBox(height: 14),
+                          _label('ENTER OTP'),
+                          TextField(
+                            controller: _otp,
+                            keyboardType: TextInputType.number,
+                            textAlign: TextAlign.center,
+                            style: _inputStyle.copyWith(letterSpacing: 6),
+                            decoration: _dec('••••••'),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            _devOtp != null
+                                ? 'OTP sent to +91 ${_mobile.text} · demo code $_devOtp'
+                                : 'OTP sent to +91 ${_mobile.text}',
+                            style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.white.withValues(alpha: 0.45)),
+                          ),
+                        ],
+                      ),
               ),
               if (_error != null) ...[
                 const SizedBox(height: 12),

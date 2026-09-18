@@ -89,10 +89,16 @@ abstract class ApiClient {
 
   // ── Coordinator endpoints (routers/coordinator.py) ─────────────────────
 
-  /// Sign in a constituency-staff account against the admin-managed
-  /// `coordinators` table. Throws [ApiException] on invalid credentials.
+  /// Request a login code for a coordinator. The server checks the name +
+  /// mobile match an admin-created account before sending. Returns the dev
+  /// code in dummy mode, else null. Throws [ApiException] on a mismatch.
+  Future<String?> coordinatorRequestOtp(String name, String phone);
+
+  /// Sign in a constituency-staff account with name + mobile + OTP against the
+  /// admin-managed `coordinators` table. Throws [ApiException] on a bad code
+  /// or mismatch.
   Future<Coordinator> coordinatorLogin(
-      {required String username, required String password});
+      {required String name, required String phone, required String otp});
 
   /// Ward grievances scoped for [coordinator] (excludes tickets assigned to
   /// OTHER coordinators; unassigned + own-assigned are returned).

@@ -234,11 +234,14 @@ class CoordinatorAuthNotifier extends Notifier<Coordinator?> {
     return session;
   }
 
-  /// Throws [ApiException] on wrong credentials (message is user-friendly).
-  Future<Coordinator> signIn(String username, String password) async {
+  /// Sign in with name + mobile + OTP. Throws [ApiException] on a bad code or
+  /// a name/number that does not match an admin-created account.
+  Future<Coordinator> signIn(
+      {required String name, required String phone, required String otp}) async {
     final c = await ref.read(apiClientProvider).coordinatorLogin(
-          username: username,
-          password: password,
+          name: name,
+          phone: phone,
+          otp: otp,
         );
     await ref.read(coordinatorStoreProvider).saveSession(c);
     // Token lives in Prefs (shared with the citizen flow), not the cached

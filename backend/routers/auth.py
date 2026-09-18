@@ -22,7 +22,8 @@ Citizen and coordinator sign-in, and citizen account deletion.
       Returns the profile and a signed session token (session_auth.py). Every
       personal endpoint takes the account from that token.
 
-  POST   /api/auth/coordinator/login  (username, password) → profile + token
+  POST   /api/auth/coordinator/request-otp  (name, phone) → sends a login code
+  POST   /api/auth/coordinator/login  (name, phone, otp) → profile + token
   POST   /api/auth/set-pin, /verify-pin                    → citizen session
 
   DELETE /api/auth/account            delete the signed-in citizen's account
@@ -310,34 +311,98 @@ def citizen_login(
     }
 
 
-@router.post("/coordinator/login")
-def coordinator_login(
-    username: str = Form(...),
-    password: str = Form(...),
-    conn=Depends(get_db),
-):
+def _match_coordinator(conn, name: str, phone10: str):
+    """Find the coordinator whose mobile is [phone10] and confirm the name.
+
+    Coordinators sign in with name + mobile + OTP, like citizens, but never
+    auto-register: only an admin-created account can get in. The 'no such
+    account' and 'name does not match' cases share one message so neither
+    reveals which numbers are registered.
     """
-    Sign in against the admin-managed coordinators table. Returns the full
-    profile (minus password) so the mobile app can pin the constituency and
-    default the ward switcher to home_ward, and the session token every
-    coordinator endpoint requires.
-    """
-    clean_user = (username or "").strip().lower()
-    if not clean_user or not password:
-        raise HTTPException(status_code=400, detail="Enter username and password.")
     row = conn.execute(
-        "SELECT * FROM coordinators WHERE username = ?", (clean_user,)
+        "SELECT * FROM coordinators WHERE phone = ? AND phone <> ''", (phone10,)
     ).fetchone()
-    if row is None or row["password"] != password:
-        raise HTTPException(status_code=401, detail="Invalid username or password.")
-    # A disabled account keeps its history and its assigned grievances, but
-    # cannot come back in. Checked AFTER the password so the response does not
-    # reveal which usernames exist.
+    clean_name = " ".join((name or "").split())
+    if row is None or row["name"].strip().lower() != clean_name.lower():
+        raise HTTPException(
+            status_code=401,
+            detail="No coordinator account matches that name and mobile number.",
+        )
     if (row["status"] or "active").lower() != "active":
         raise HTTPException(
             status_code=403,
             detail="This account has been disabled. Contact the MLA office.",
         )
+    return row
+
+
+@router.post("/coordinator/request-otp")
+def coordinator_request_otp(
+    name: str = Form(...), phone: str = Form(...), conn=Depends(get_db)
+):
+    """Send a login code to a coordinator — only if the name + mobile match an
+    admin-created account, and before any SMS is spent."""
+    clean_phone = _normalise_phone(phone)
+    if len(clean_phone) != 10:
+        raise HTTPException(status_code=400, detail="Enter a valid 10-digit mobile number.")
+    _match_coordinator(conn, name, clean_phone)  # 401/403 before a code is sent
+
+    window_start, window_count = _throttle(conn, clean_phone)
+    dev_mode = _flag("ALLOW_DEV_OTP")
+    dummy = False
+    try:
+        otp = _send_otp_via_apm(clean_phone)
+    except HTTPException as e:
+        print(f"[auth] APM gateway failed ({e.detail})", file=sys.stderr)
+        if not dev_mode:
+            raise HTTPException(
+                status_code=503,
+                detail="We couldn't send the code right now. Please try again in a few minutes.",
+            )
+        otp = None
+    if otp is None:
+        if not dev_mode:
+            raise HTTPException(
+                status_code=503,
+                detail="SMS sign-in is not available right now. Please try again later.",
+            )
+        otp = f"{secrets.randbelow(1_000_000):06d}"
+        dummy = True
+
+    expires = (datetime.now(timezone.utc) + timedelta(minutes=OTP_TTL_MINUTES)).isoformat()
+    conn.execute(
+        """INSERT INTO otp_codes
+               (phone, otp_hash, expires_at, attempts, created_at, window_start, window_count)
+           VALUES (?, ?, ?, 0, ?, ?, ?)
+           ON CONFLICT(phone) DO UPDATE SET
+             otp_hash = excluded.otp_hash, expires_at = excluded.expires_at,
+             attempts = 0, created_at = excluded.created_at,
+             window_start = excluded.window_start, window_count = excluded.window_count""",
+        (clean_phone, _hash_otp(otp), expires, now_iso(), window_start, window_count),
+    )
+    out = {"sent": True, "dummy": dummy, "ttl_minutes": OTP_TTL_MINUTES}
+    if dummy:
+        out["dev_otp"] = otp
+    return out
+
+
+@router.post("/coordinator/login")
+def coordinator_login(
+    name: str = Form(...),
+    phone: str = Form(...),
+    otp: str = Form(...),
+    conn=Depends(get_db),
+):
+    """Verify a coordinator's login code and issue the session token.
+
+    Returns the profile the mobile app needs (constituency + home ward) plus the
+    token every coordinator endpoint requires.
+    """
+    clean_phone = _normalise_phone(phone)
+    if len(clean_phone) != 10:
+        raise HTTPException(status_code=400, detail="Enter a valid 10-digit mobile number.")
+    _verify_otp(conn, clean_phone, otp)
+    row = _match_coordinator(conn, name, clean_phone)
     return {
         "id": row["id"],
         "username": row["username"],
@@ -345,7 +410,7 @@ def coordinator_login(
         "role": row["role"],
         "constituency": row["constituency"],
         "home_ward": row["home_ward"],
-        "must_change_password": bool(row["must_change_password"]),
+        "must_change_password": False,
         "token": session_auth.issue("coordinator", row["username"].lower()),
     }
 

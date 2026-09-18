@@ -322,6 +322,15 @@ def init_db() -> None:
             )
         except Exception:
             pass
+        # Coordinators now sign in with name + mobile + OTP, like citizens —
+        # no password. The mobile number is their credential; username stays as
+        # an internal, admin-invisible key so existing assignments/history keep
+        # linking. Empty until the admin sets it (existing accounts migrate by
+        # the admin adding a number).
+        try:
+            conn.execute("ALTER TABLE coordinators ADD COLUMN phone TEXT DEFAULT ''")
+        except Exception:
+            pass
         # App-open PIN. Stores a HASH the client computes as
         # sha256("<user_id>:<pin>") — the server never receives the four
         # digits themselves, and the user id is the per-account salt, so the
