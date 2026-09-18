@@ -13,7 +13,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { LayoutDashboard, Ticket, ClipboardCheck, Megaphone, Users, Landmark, LogOut, FolderTree, Network } from "lucide-react";
 import { useAdminData } from "./AdminDataProvider";
-import { listCoordinators } from "@/lib/coordinators";
+import { listCoordinatorsRemote } from "@/lib/coordinators";
 import { listPending, MODERATION_EVENT } from "@/lib/postModeration";
 import { adminLogout, getAdminUser } from "@/lib/adminAuth";
 
@@ -34,13 +34,26 @@ export default function AdminSidebar() {
 
   // Live coordinator count, refreshes when the admin creates/disables users
   // (both this sidebar and the /admin/coordinators page listen for the event).
+  //
+  // Counts the BACKEND directory, like the coordinators page does. It used to
+  // count the bundled demo list instead, so a freshly-wiped office showed
+  // "4 coordinators" in the rail next to a page reading "No coordinators".
+  // A failed fetch shows nothing rather than falling back to that demo list —
+  // a badge nobody can explain is worse than no badge.
   const [coordinatorCount, setCoordinatorCount] = useState(0);
   useEffect(() => {
-    const sync = () => setCoordinatorCount(listCoordinators().length);
+    let alive = true;
+    const sync = () =>
+      listCoordinatorsRemote()
+        .then((rows) => { if (alive) setCoordinatorCount(rows.length); })
+        .catch(() => { if (alive) setCoordinatorCount(0); });
     sync();
     const listener = () => sync();
     window.addEventListener("fms:coordinator-directory-changed", listener);
-    return () => window.removeEventListener("fms:coordinator-directory-changed", listener);
+    return () => {
+      alive = false;
+      window.removeEventListener("fms:coordinator-directory-changed", listener);
+    };
   }, []);
 
   // Live pending-post count, refreshes on approve/reject or new coordinator posts.
