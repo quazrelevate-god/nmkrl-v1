@@ -187,6 +187,7 @@ export async function verifyIssue(issueId, userId, response) {
  *  constituency, q free-text). Omitted filters return the full set. */
 export async function fetchAdminIssues({
   status, sort, zone, ward, coordinator, department, constituency, q,
+  unassigned, since, board, limit, offset,
 } = {}) {
   const params = new URLSearchParams();
   if (status)       params.set("status", status);
@@ -197,9 +198,53 @@ export async function fetchAdminIssues({
   if (department)   params.set("department", department);
   if (constituency) params.set("constituency", constituency);
   if (q)            params.set("q", q);
+  if (unassigned)   params.set("unassigned", "true");
+  if (since)        params.set("since", since);
+  if (board)        params.set("board", "true");
+  if (limit != null) params.set("limit", limit);
+  if (offset)       params.set("offset", offset);
   const qs = params.toString();
   const res = await fetch(`${API_BASE}/api/admin/issues${qs ? `?${qs}` : ""}`, {
     headers: adminHeaders(),
+  });
+  return handle(res);
+}
+
+/** Admin: per-status counts for the ticket queue (cheap aggregate for the tab
+ *  badges, so the list can page without the browser counting every row). */
+export async function fetchAdminIssueStats({
+  zone, ward, coordinator, department, constituency, q, unassigned, since,
+} = {}) {
+  const params = new URLSearchParams();
+  if (zone)         params.set("zone", zone);
+  if (ward != null && ward !== "") params.set("ward", ward);
+  if (coordinator)  params.set("coordinator", coordinator);
+  if (department)   params.set("department", department);
+  if (constituency) params.set("constituency", constituency);
+  if (q)            params.set("q", q);
+  if (unassigned)   params.set("unassigned", "true");
+  if (since)        params.set("since", since);
+  const qs = params.toString();
+  const res = await fetch(`${API_BASE}/api/admin/issues/stats${qs ? `?${qs}` : ""}`, {
+    headers: adminHeaders(),
+  });
+  return handle(res);
+}
+
+/** Admin: list all coordinator accounts (used for the assign picker). */
+export async function fetchCoordinators() {
+  const res = await fetch(`${API_BASE}/api/admin/coordinators`, { headers: adminHeaders() });
+  return handle(res);
+}
+
+/** Admin: assign (or reassign) a grievance to a coordinator; empty un-assigns. */
+export async function adminAssignCoordinator(issueId, coordinator) {
+  const fd = new FormData();
+  fd.append("coordinator", coordinator || "");
+  const res = await fetch(`${API_BASE}/api/admin/issues/${issueId}/assign`, {
+    method: "POST",
+    headers: adminHeaders(),
+    body: fd,
   });
   return handle(res);
 }

@@ -7,19 +7,22 @@
  * Clicking a row opens the 70%-width TicketDrawer on the right.
  */
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Ticket as TicketIcon, Search, CalendarDays, CalendarRange, TimerOff,
-  UserX, SlidersHorizontal, ChevronRight, X,
+  UserX, SlidersHorizontal, ChevronRight, X, Loader2,
 } from "lucide-react";
 import { useAdminData } from "@/components/admin/AdminDataProvider";
 import TicketDrawer from "@/components/admin/TicketDrawer";
+import { fetchAdminIssues, fetchAdminIssueStats } from "@/lib/api";
 import { departmentMeta } from "@/lib/departments";
 import {
-  TICKET_TABS, portalStatus, derivePriority, PRIORITY_META,
+  TICKET_TABS, TICKET_STATUSES, portalStatus, derivePriority, PRIORITY_META,
   ticketNo, tokenNo, daysOpen, slaWeeksLabel, slaBreached, citizenName, initials,
 } from "@/lib/adminModel";
-import { CONSTITUENCIES, issueInConstituency, shortAC } from "@/lib/constituencies";
+import { CONSTITUENCIES, shortAC } from "@/lib/constituencies";
+
+const PAGE_SIZE = 50; // server page size; "Load more" fetches the next page
 
 const AVATAR_TINTS = ["bg-blue-100 text-blue-700", "bg-emerald-100 text-emerald-700",
   "bg-violet-100 text-violet-700", "bg-amber-100 text-amber-700", "bg-rose-100 text-rose-700"];
@@ -29,7 +32,9 @@ function tint(seed) {
 }
 
 export default function TicketsPage() {
-  const { tickets, boundaries, loading, reload } = useAdminData();
+  // boundaries + reload come from the shared provider; the ticket rows and
+  // counts are now fetched server-side by this page (see below).
+  const { boundaries, reload } = useAdminData();
   const [tab, setTab] = useState("");
   const [query, setQuery] = useState("");
   const [quick, setQuick] = useState(null);           // today | week | sla | unassigned
@@ -38,6 +43,23 @@ export default function TicketsPage() {
   const [ward, setWard] = useState("");
   const [ac, setAc] = useState("");
   const [selected, setSelected] = useState(null);
+
+  // Server-paged queue. The old page pulled every ticket and filtered / sorted /
+  // counted it in the browser; now each filter change is a bounded query, the
+  // tab counts come from a cheap SQL aggregate, and "Load more" pages the rest.
+  const [rows, setRows] = useState([]);
+  const [stats, setStats] = useState({ counts: {} });
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [total, setTotal] = useState(0);
+
+  // Debounce search so typing doesn't fire a request per keystroke.
+  const [debouncedQ, setDebouncedQ] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQ(query.trim()), 300);
+    return () => clearTimeout(t);
+  }, [query]);
 
   const zoneOptions = useMemo(() => {
     const feats = boundaries?.zones?.features || [];
@@ -51,36 +73,89 @@ export default function TicketsPage() {
       .filter((w) => !zone || w.zone === zone).sort((a, b) => Number(a.ward) - Number(b.ward));
   }, [boundaries, zone]);
 
-  // Geo + quick filters apply to every tab; tab + search narrow further.
-  const scoped = useMemo(() => {
-    const now = Date.now();
-    return tickets.filter((i) => {
-      if (zone && String(i.zone) !== zone) return false;
-      if (ward && String(i.ward_no) !== ward) return false;
-      if (ac && !issueInConstituency(i, ac)) return false;
-      if (quick === "today" && daysOpen(i) > 0) return false;
-      if (quick === "week" && (now - new Date(i.created_at).getTime()) > 7 * 86400000) return false;
-      if (quick === "sla" && !slaBreached(i)) return false;
-      // every ticket is currently unassigned, so "unassigned" keeps all
-      return true;
-    });
-  }, [tickets, zone, ward, ac, quick]);
+  // "today"/"this week" become a server-side created_at cutoff; "unassigned" a
+  // server flag. "SLA breached" stays client-side — SLA is derived from the
+  // routed department, which the server doesn't model — over the loaded rows.
+  const since = useMemo(() => {
+    if (quick === "today") { const d = new Date(); d.setHours(0, 0, 0, 0); return d.toISOString(); }
+    if (quick === "week") return new Date(Date.now() - 7 * 86400000).toISOString();
+    return undefined;
+  }, [quick]);
 
+  const filterParams = useMemo(() => ({
+    zone: zone || undefined,
+    ward: ward || undefined,
+    constituency: ac || undefined,
+    q: debouncedQ || undefined,
+    unassigned: quick === "unassigned" || undefined,
+    since,
+  }), [zone, ward, ac, debouncedQ, quick, since]);
+
+  const fetchPage = useCallback((offset) => fetchAdminIssues({
+    ...filterParams,
+    status: tab || undefined,
+    board: !tab || undefined,          // "All" tab → board statuses only
+    sort: "recent",
+    limit: PAGE_SIZE,
+    offset,
+  }), [filterParams, tab]);
+
+  // Re-run page 1 + counts on any filter/tab change.
+  const key = JSON.stringify({ tab, ...filterParams });
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    Promise.all([fetchPage(0), fetchAdminIssueStats(filterParams)])
+      .then(([page, st]) => {
+        if (!alive) return;
+        setRows(page.issues || []);
+        setTotal(page.total ?? page.count ?? 0);
+        setHasMore(!!page.has_more);
+        setStats(st || { counts: {} });
+      })
+      .catch(() => { if (alive) { setRows([]); setTotal(0); setHasMore(false); } })
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+
+  async function loadMore() {
+    setLoadingMore(true);
+    try {
+      const page = await fetchPage(rows.length);
+      setRows((prev) => [...prev, ...(page.issues || [])]);
+      setHasMore(!!page.has_more);
+    } catch { /* keep what we have */ }
+    finally { setLoadingMore(false); }
+  }
+
+  // After a drawer action: re-pull this view + counts, refresh the shared
+  // provider (sidebar badges), and keep the drawer on the updated ticket.
+  async function refresh(updated) {
+    try {
+      const [page, st] = await Promise.all([fetchPage(0), fetchAdminIssueStats(filterParams)]);
+      setRows(page.issues || []);
+      setTotal(page.total ?? page.count ?? 0);
+      setHasMore(!!page.has_more);
+      setStats(st || { counts: {} });
+    } catch { /* ignore */ }
+    reload?.();
+    setSelected(updated || null);
+  }
+
+  // Tab counts from the server aggregate. "All" = every board status.
   const counts = useMemo(() => {
-    const c = { "": scoped.length };
-    for (const t of TICKET_TABS) if (t.match) c[t.key] = scoped.filter((i) => t.match.includes(i.status)).length;
-    return c;
-  }, [scoped]);
+    const c = stats.counts || {};
+    const out = { "": TICKET_STATUSES.reduce((s, k) => s + (c[k] || 0), 0) };
+    for (const t of TICKET_TABS) if (t.match) out[t.key] = t.match.reduce((s, k) => s + (c[k] || 0), 0);
+    return out;
+  }, [stats]);
 
-  const rows = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return scoped.filter((i) => {
-      if (tab && i.status !== tab) return false;
-      if (!q) return true;
-      return [ticketNo(i), tokenNo(i), citizenName(i), i.phone, i.title, i.department]
-        .some((v) => (v || "").toString().toLowerCase().includes(q));
-    });
-  }, [scoped, tab, query]);
+  // The one filter still applied in the browser (see `since`).
+  const displayRows = useMemo(
+    () => (quick === "sla" ? rows.filter(slaBreached) : rows),
+    [rows, quick]
+  );
 
   const activeFilters = [zone && `Zone ${zone}`, ward && `Ward ${ward}`, ac && shortAC(ac)].filter(Boolean);
 
@@ -185,9 +260,9 @@ export default function TicketsPage() {
             <tbody className="bg-white">
               {loading ? (
                 <tr><td colSpan={9} className="px-5 py-16 text-center text-slate-400">Loading tickets…</td></tr>
-              ) : rows.length === 0 ? (
+              ) : displayRows.length === 0 ? (
                 <tr><td colSpan={9} className="px-5 py-16 text-center text-slate-400">No tickets match this view.</td></tr>
-              ) : rows.slice(0, VISIBLE).map((issue) => (
+              ) : displayRows.map((issue) => (
                 <TicketRow key={issue.id} issue={issue} onOpen={() => setSelected(issue)} />
               ))}
             </tbody>
@@ -196,10 +271,20 @@ export default function TicketsPage() {
              its translucency; the rows are painted white instead, and this filler whitens
              any space a short list leaves below them, whatever height the header renders at. */}
           <div aria-hidden className="flex-1 bg-white" />
-          {rows.length > VISIBLE && (
-            <p className="border-t border-slate-200/50 bg-white px-5 py-3 text-center text-xs text-slate-500">
-              Showing {VISIBLE} of {rows.length} tickets · refine with search or filters to see more
-            </p>
+          {!loading && (hasMore || rows.length > 0) && (
+            <div className="border-t border-slate-200/50 bg-white px-5 py-3 text-center">
+              {hasMore ? (
+                <button
+                  onClick={loadMore}
+                  disabled={loadingMore}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-slate-100 px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200 disabled:opacity-60"
+                >
+                  {loadingMore ? <><Loader2 size={13} className="animate-spin" /> Loading…</> : `Load more · ${rows.length} of ${total}`}
+                </button>
+              ) : (
+                <p className="text-xs text-slate-400">{total} ticket{total === 1 ? "" : "s"}{quick === "sla" ? ` · ${displayRows.length} breaching SLA` : ""}</p>
+              )}
+            </div>
           )}
         </div>
       </div>
@@ -208,14 +293,13 @@ export default function TicketsPage() {
         <TicketDrawer
           issue={selected}
           onClose={() => setSelected(null)}
-          onChanged={async (updated) => { await reload(); setSelected(updated || null); }}
+          onChanged={refresh}
         />
       )}
     </>
   );
 }
 
-const VISIBLE = 150; // cap rendered rows for smooth scrolling; filters reveal the rest
 const selectCls = "rounded-lg border border-white/60 bg-white/60 px-2.5 py-1.5 text-xs font-semibold text-slate-700 outline-none backdrop-blur focus:border-brand";
 
 function QuickChip({ active, onClick, icon: Icon, children }) {

@@ -19,13 +19,14 @@ import {
   ShieldCheck, Send, CheckCircle2, Clock, Landmark, Hash, Flag, FileText, Mic, Square, Camera,
   ChevronDown, ExternalLink, Loader2,
   Route, CornerDownRight, UserCheck, AlertCircle, MessageCircle,
-  GitMerge, Split, RotateCw, Undo2, Users2,
+  GitMerge, Split, RotateCw, Undo2, Users2, UserCog,
 } from "lucide-react";
 import {
   mediaUrl, adminVerifyGrievance, adminForwardIssue, adminCloseIssue,
   fetchOfficerContacts, fetchIssueTimeline, summariseDocument,
   fetchDuplicateContext, adminMergeDuplicate, adminKeepSeparate,
   adminUnmergeDuplicate, adminReprocessIssue,
+  fetchCoordinators, adminAssignCoordinator,
 } from "@/lib/api";
 import { departmentMeta } from "@/lib/departments";
 import { loadDeptTree, resolveRouting } from "@/lib/deptRouting";
@@ -73,6 +74,10 @@ export default function TicketDrawer({ issue, onClose, onChanged, onOpenIssue, o
   // into this one. Fetched per ticket — the flag alone sits on the issue row,
   // but the original's ticket number, photo and distance do not.
   const [dup, setDup] = useState(null);
+  // Coordinator roster for the assign picker. Loaded once; the picker narrows it
+  // to this grievance's constituency (the MLA assigns within their AC).
+  const [coords, setCoords] = useState([]);
+  const [assigning, setAssigning] = useState(false);
 
   // Resolve the AI routing chain (Gov Dept → … → Responsible Officer) + look up
   // the officer's configured contact whenever the ticket changes; re-check the
@@ -91,6 +96,15 @@ export default function TicketDrawer({ issue, onClose, onChanged, onOpenIssue, o
     });
     return () => { alive = false; };
   }, [issue]);
+
+  // Coordinator roster — loaded once for the whole drawer session.
+  useEffect(() => {
+    let alive = true;
+    fetchCoordinators()
+      .then((r) => { if (alive) setCoords(r.coordinators || []); })
+      .catch(() => { if (alive) setCoords([]); });
+    return () => { alive = false; };
+  }, []);
 
   useEffect(() => {
     if (!issue) return undefined;
@@ -131,6 +145,14 @@ export default function TicketDrawer({ issue, onClose, onChanged, onOpenIssue, o
   const acs = constituenciesForWard(issue.ward_no);
   const stage = STAGE_INDEX[issue.status] ?? 1;
 
+  // Assign picker: only non-terminal tickets can be (re)assigned; the list is
+  // active coordinators, narrowed to this grievance's constituency (falling back
+  // to all if none map to it).
+  const assignable = !["CLOSED", "FALSE", "MERGED"].includes(issue.status);
+  const activeCoords = coords.filter((c) => (c.status || "active") === "active");
+  const acCoords = activeCoords.filter((c) => acs.includes(c.constituency));
+  const pickCoords = acCoords.length ? acCoords : activeCoords;
+
   // Earlier admin closes logged the alert sent to the coordinator in place of
   // the note; don't present that as something anyone wrote.
   const loggedNote = (closure?.note || "").trim();
@@ -147,6 +169,14 @@ export default function TicketDrawer({ issue, onClose, onChanged, onOpenIssue, o
     try { const updated = await fn(issue.id); onChanged?.(updated); }
     catch (err) { setError(err.message); }
     finally { setBusy(null); }
+  }
+
+  // Assign / reassign / unassign (empty) a coordinator from the MLA console.
+  async function assign(username) {
+    setAssigning(true); setError(null);
+    try { const updated = await adminAssignCoordinator(issue.id, username); onChanged?.(updated); }
+    catch (err) { setError(err.message); }
+    finally { setAssigning(false); }
   }
 
   // A duplicate ruling keeps the admin on this grievance rather than closing
@@ -352,6 +382,58 @@ export default function TicketDrawer({ issue, onClose, onChanged, onOpenIssue, o
               <Info label="Urgency" value={priority} icon={Flag} badge={pm.badge} />
               <Info label="SLA" value={slaBreached(issue) ? "Breached" : "On track"} icon={Clock} tone={slaBreached(issue) ? "text-red-600" : "text-emerald-600"} />
             </div>
+
+            {/* Coordinator assignment — the MLA office points a coordinator at
+                this grievance (any coordinator in the constituency). */}
+            {assignable && (
+              <div className="rounded-2xl border border-slate-200 p-4">
+                <p className="mb-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-slate-400">
+                  <UserCog size={12} /> Coordinator
+                </p>
+                {issue.assigned_coordinator ? (
+                  <p className="mb-2.5 text-sm text-slate-700">
+                    Assigned to <span className="font-bold text-brand">@{issue.assigned_coordinator}</span>
+                  </p>
+                ) : (
+                  <p className="mb-2.5 text-sm italic text-slate-400">No coordinator assigned yet.</p>
+                )}
+                <div className="flex flex-wrap items-center gap-2">
+                  <select
+                    value=""
+                    onChange={(e) => e.target.value && assign(e.target.value)}
+                    disabled={assigning || pickCoords.length === 0}
+                    className="min-w-[190px] rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-[13px] font-semibold text-slate-700 outline-none focus:border-brand disabled:opacity-60"
+                  >
+                    <option value="">{issue.assigned_coordinator ? "Reassign to…" : "Assign to…"}</option>
+                    {pickCoords.map((c) => (
+                      <option key={c.username} value={c.username}>
+                        {c.name} · @{c.username} · Ward {c.home_ward}
+                      </option>
+                    ))}
+                  </select>
+                  {issue.assigned_coordinator && (
+                    <button
+                      onClick={() => assign("")}
+                      disabled={assigning}
+                      className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-60"
+                    >
+                      Unassign
+                    </button>
+                  )}
+                  {assigning && <Loader2 size={15} className="animate-spin text-brand" />}
+                </div>
+                {pickCoords.length === 0 && (
+                  <p className="mt-2 text-[11.5px] text-amber-700">
+                    No active coordinators yet — add them in <b>Coordinators</b>.
+                  </p>
+                )}
+                {acCoords.length === 0 && activeCoords.length > 0 && (
+                  <p className="mt-2 text-[11px] text-slate-400">
+                    Showing all coordinators — none are mapped to this grievance&apos;s constituency.
+                  </p>
+                )}
+              </div>
+            )}
 
             {/* Summary / AI */}
             <div>
