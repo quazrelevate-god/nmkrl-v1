@@ -434,6 +434,36 @@ def init_db() -> None:
             conn.execute("ALTER TABLE location_logs ADD COLUMN assembly_constituency TEXT")
         except Exception:
             pass
+        # Indexes for the hot issue lookups. The only index issues had was its
+        # primary key, so every ward feed, history and coordinator queue was a
+        # full table scan — ~840 ms each at 1M rows, 0.1–90 ms with these.
+        # Created here rather than in SCHEMA because ward_no and
+        # assigned_coordinator arrive via the ALTERs above; on an older file the
+        # columns do not exist until they have run.
+        conn.executescript(
+            """
+            -- /api/issues/ward/{n}: public ward feed, sorted by support. Ordered
+            -- to match its ORDER BY so rows come back pre-sorted; status is
+            -- left out because `status != 'SUBMITTED'` is a range and would
+            -- stop the index serving the sort. Not named idx_issues_ward: that
+            -- name is the plain (ward_no) index above, and IF NOT EXISTS would
+            -- silently skip this one.
+            CREATE INDEX IF NOT EXISTS idx_issues_ward_rank
+                ON issues (ward_no, upvotes DESC, created_at DESC);
+            -- /api/issues/history/{uid} and /stats/{uid}: a citizen's own reports.
+            CREATE INDEX IF NOT EXISTS idx_issues_created_by
+                ON issues (created_by, created_at);
+            -- /api/coordinator/ward/{n}: a ward's tickets, newest first. The
+            -- assigned_coordinator test is an OR with IS NULL, which an index
+            -- cannot seek on, so it is filtered per row and the index serves
+            -- the sort instead.
+            CREATE INDEX IF NOT EXISTS idx_issues_ward_recent
+                ON issues (ward_no, created_at DESC);
+            -- /api/coordinator/mine/{c} and the admin coordinator filter.
+            CREATE INDEX IF NOT EXISTS idx_issues_assigned
+                ON issues (assigned_coordinator, created_at);
+            """
+        )
         _reconcile_upvotes(conn)
 
 
