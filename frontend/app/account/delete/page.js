@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Web account-deletion page for Namma Kural.
+ * Web account-deletion page for Nam Kural Connect.
  *
  * Google Play asks for a way to request account deletion from the web, not
  * only inside the app. This proves ownership with a one-time SMS code (the same
@@ -57,7 +57,7 @@ export default function DeleteAccountPage() {
 
   return (
     <main className="mx-auto max-w-md px-5 py-12 sm:py-16">
-      <p className="text-[13px] font-bold uppercase tracking-wider text-brand">Namma Kural · நம்குரல்</p>
+      <p className="text-[13px] font-bold uppercase tracking-wider text-brand">Nam Kural Connect · நம்குரல்</p>
       <h1 className="mt-1 text-2xl font-extrabold text-slate-900">Delete your account</h1>
       <p className="mt-3 text-[15px] leading-relaxed text-slate-600">
         This permanently removes your name, phone number and voice recordings. The

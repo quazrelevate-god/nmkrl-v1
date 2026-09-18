@@ -1,5 +1,5 @@
 /**
- * Public privacy policy for the நம்குரல் / Namma Kural citizen app.
+ * Public privacy policy for the நம்குரல் / Nam Kural Connect citizen app.
  *
  * Required by Google Play because the app uses location, the microphone,
  * photos and a phone number, and by India's DPDP Act. Linked from the app's
@@ -11,14 +11,14 @@
  */
 
 export const metadata = {
-  title: "Privacy Policy · Namma Kural",
-  description: "How the Namma Kural civic grievance app collects, uses and protects your data.",
+  title: "Privacy Policy · Nam Kural Connect",
+  description: "How the Nam Kural Connect civic grievance app collects, uses and protects your data.",
 };
 
 const UPDATED = "13 September 2026";
 
 // TODO(operator): replace with the real operating entity and a working contact.
-const OPERATOR = "the Namma Kural team";
+const OPERATOR = "the Nam Kural Connect team";
 const CONTACT_EMAIL = "privacy@nammakural.example"; // TODO(operator): real address
 
 function Section({ title, children }) {
@@ -35,12 +35,12 @@ function Section({ title, children }) {
 export default function PrivacyPolicyPage() {
   return (
     <main className="mx-auto max-w-2xl px-5 py-12 sm:py-16">
-      <p className="text-[13px] font-bold uppercase tracking-wider text-brand">Namma Kural · நம்குரல்</p>
+      <p className="text-[13px] font-bold uppercase tracking-wider text-brand">Nam Kural Connect · நம்குரல்</p>
       <h1 className="mt-1 text-3xl font-extrabold text-slate-900">Privacy Policy</h1>
       <p className="mt-2 text-sm text-slate-500">Last updated: {UPDATED}</p>
 
       <p className="mt-6 text-[15px] leading-relaxed text-slate-700">
-        Namma Kural is a civic grievance app for Chennai. It lets residents report
+        Nam Kural Connect is a civic grievance app for Chennai. It lets residents report
         street-level problems — potholes, drainage, streetlights and the like — to
         the officials responsible for fixing them, and follow what happens next.
         This policy explains what the app collects, why, who it is shared with, and
@@ -120,7 +120,7 @@ export default function PrivacyPolicyPage() {
 
       <Section title="Children">
         <p>
-          Namma Kural is intended for adult residents reporting civic issues. It is not
+          Nam Kural Connect is intended for adult residents reporting civic issues. It is not
           directed at children.
         </p>
       </Section>
@@ -140,7 +140,7 @@ export default function PrivacyPolicyPage() {
       </Section>
 
       <footer className="mt-12 border-t border-slate-200 pt-6 text-[13px] text-slate-400">
-        Namma Kural · நம்குரல் — a civic voice platform for Tamil Nadu.
+        Nam Kural Connect · நம்குரல் — a civic voice platform for Tamil Nadu.
       </footer>
     </main>
   );

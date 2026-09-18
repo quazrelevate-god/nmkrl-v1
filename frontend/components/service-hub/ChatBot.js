@@ -3,7 +3,7 @@
 /**
  * ChatBot — Gemini assistant for the Service Hub.
  *
- * Reskinned to the Namkural citizen PWA design language:
+ * Reskinned to the Nam Kural Connect citizen PWA design language:
  *   • slate-teal `brand` for accents (no gold/blue/white gimmicks)
  *   • glassy surfaces + soft slate hairlines, matches MobileShell aesthetic
  *   • system font — no Playfair — so it feels native inside the phone frame

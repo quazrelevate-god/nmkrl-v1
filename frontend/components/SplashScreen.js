@@ -51,7 +51,7 @@ export default function SplashScreen({ onDone }) {
       </div>
 
       <p className="mt-6 text-[11px] font-medium tracking-[0.28em] text-white/55">
-        TAMIL NADU GOVERNMENT
+        NAM KURAL CONNECT
       </p>
 
       <p className="mt-2 text-xs text-white/40">

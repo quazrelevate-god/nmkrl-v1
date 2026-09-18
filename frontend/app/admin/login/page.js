@@ -51,7 +51,7 @@ export default function AdminLoginPage() {
             <Lock size={22} />
           </div>
           <h1 className="text-xl font-extrabold tracking-tight text-slate-900">
-            Namkural GMS Portal
+            Nam Kural Connect
           </h1>
           <p className="mt-1 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
             MLA Office · Staff portal
