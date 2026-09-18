@@ -5,7 +5,7 @@
  *
  * Government portals cannot be iframed (X-Frame-Options), so we present the
  * portal cleanly with a big "Open portal" CTA and a floating Gemini assistant
- * bubble scoped to this portal. Styled to match the Nam Kural Connect PWA brand.
+ * bubble scoped to this portal. Styled to match the Namkural PWA brand.
  */
 
 import { useParams, useRouter } from "next/navigation";

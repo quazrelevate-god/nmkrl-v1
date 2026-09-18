@@ -1,5 +1,5 @@
 export const metadata = {
-  title: "Nam Kural Connect — Service Hub",
+  title: "Namkural — Service Hub",
   description:
     "Discover Tamil Nadu government portals and schemes. Ask the Gemini assistant for guidance.",
 };

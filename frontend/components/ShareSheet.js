@@ -103,7 +103,7 @@ export default function ShareSheet({
         label: "Email",
         tint: "bg-amber-500",
         icon: EmailIcon,
-        href: `mailto:?subject=${encodeURIComponent(title || "Nam Kural Connect")}&body=${encodeURIComponent(
+        href: `mailto:?subject=${encodeURIComponent(title || "Namkural")}&body=${encodeURIComponent(
           composed
         )}`,
       },
