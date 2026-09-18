@@ -131,7 +131,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   // Location
   LatLng? _geoCoords;
-  LatLng? _override; // demo: jump to an Egmore ward
+  LatLng? _override; // testing: overrides device GPS to a chosen ward + spot
+  // Testing tool (replaces the old Egmore-108 jump): pick any ward and one of
+  // two interior coordinates, so a tester can file grievances anywhere — and
+  // two spots per ward, e.g. to exercise the duplicate check — from one device.
+  String? _testWard;
+  int _testSpot = 0; // 0 = spot A, 1 = spot B
   String _geoStatus = 'loading'; // loading | ready | fallback
   double? _accuracy;
   String _areaName = '';
@@ -601,30 +606,57 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   // ── Actions ────────────────────────────────────────────────────────────
 
-  /// Demo shortcut: our GPS may be outside GCC, so jump the detected location
-  /// to Egmore Ward 108 so ward-level data can be visualised. Once toggled on
-  /// the override propagates to every consumer of [_coords] — including the
-  /// report sheet's "Current Location" — until the user pulls to refresh.
-  void _jumpToEgmore() {
+  /// Every ward that has a loaded boundary, in ward-number order — the options
+  /// in the test-location picker.
+  List<String> get _sortedWards {
+    final ws = (_boundaries?.wards ?? const <BoundaryFeature>[])
+        .map((f) => f.ward)
+        .whereType<String>()
+        .toSet()
+        .toList()
+      ..sort((a, b) => (int.tryParse(a) ?? 0).compareTo(int.tryParse(b) ?? 0));
+    return ws;
+  }
+
+  /// Two interior test coordinates for [ward]: spot A is the ward centroid,
+  /// spot B is partway to the ward's edge. Both fall inside the ward so
+  /// /api/locate resolves it. Returns null if the ward's boundary isn't loaded.
+  List<LatLng>? _wardTestSpots(String ward) {
     final feats = _boundaries?.wards ?? const <BoundaryFeature>[];
-    BoundaryFeature? f;
-    // Prefer Ward 108 (the canonical demo target); fall back to any Egmore
-    // ward if 108's boundary isn't loaded yet.
-    for (final ft in feats) {
-      if (ft.ward == '108') { f = ft; break; }
-    }
-    if (f == null) {
-      for (final ft in feats) {
-        if (ft.ward != null && kEgmoreWards.contains(ft.ward)) { f = ft; break; }
+    for (final f in feats) {
+      if (f.ward != ward) continue;
+      final a = f.centroid();
+      LatLng b = a;
+      for (final part in f.parts) {
+        if (part.isNotEmpty && part.first.isNotEmpty) {
+          final v = part.first.first; // a point on the outer ring
+          b = LatLng((a.latitude + v.latitude) / 2,
+              (a.longitude + v.longitude) / 2);
+          break;
+        }
       }
+      return [a, b];
     }
-    if (f == null) return;
+    return null;
+  }
+
+  /// Testing tool: override the detected location to a chosen ward + spot so a
+  /// tester can file grievances in any ward (two spots per ward) from one
+  /// device. Replaces the old Egmore-108 demo jump. The override propagates to
+  /// every consumer of [_coords] — including the report sheet's "Current
+  /// Location" — until the user pulls to refresh.
+  void _applyTestLocation(String ward, int spot) {
+    final spots = _wardTestSpots(ward);
+    if (spots == null) return;
+    final idx = spot.clamp(0, spots.length - 1);
     setState(() {
-      _override = f!.centroid();
+      _testWard = ward;
+      _testSpot = idx;
+      _override = spots[idx];
       // Reset the reverse-geocoded label so the report sheet doesn't show a
-      // stale real-GPS neighbourhood; _resolveWard will replace it with the
+      // stale real-GPS neighbourhood; _resolveWard replaces it with the
       // ward-derived zone once /api/locate returns.
-      _areaName = 'Egmore · Ward 108';
+      _areaName = 'Ward $ward · ${idx == 0 ? 'A' : 'B'}';
     });
     _afterLocationChanged();
   }
@@ -685,9 +717,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       // refuse the report; the sheet says so instead of letting them record.
       insideGcc: _currentWard != null,
       onRefreshLocation: () {
-        // Refresh clears any Egmore-jump override so the sheet's location
+        // Refresh clears any test-location override so the sheet's location
         // returns to real-device GPS detection.
-        setState(() => _override = null);
+        setState(() {
+          _override = null;
+          _testWard = null;
+        });
         _locateDevice();
       },
       onSubmitted: () {
@@ -888,16 +923,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 ),
               ),
 
-            // ── 3b. Sneaky demo button: jump the detected location to Egmore
-            // Ward 108 so ward-level data + the camera lock can be tested when
-            // real GPS is outside GCC limits. ──
+            // ── 3b. Test-location picker: choose any ward + one of two interior
+            // spots so grievances can be filed anywhere from one device when
+            // real GPS is outside GCC limits. Replaces the old Egmore-108 jump.
             Positioned(
-              key: const ValueKey('home-demojump'),
+              key: const ValueKey('home-testloc'),
               top: topInset + 8 + 56 + 10,
               right: 14,
-              child: _DemoJumpButton(
+              child: _TestLocationPicker(
+                wards: _sortedWards,
+                ward: _testWard,
+                spot: _testSpot,
                 active: _override != null,
-                onTap: _jumpToEgmore,
+                onPick: _applyTestLocation,
               ),
             ),
 
@@ -2079,30 +2117,102 @@ class _FilterPill extends StatelessWidget {
   }
 }
 
-/// Sneaky demo shortcut — a small frosted circle on the top-right of the map
-/// that jumps the detected location to Egmore Ward 108 for testing when real
-/// GPS falls outside GCC limits. Turns gold while the override is active.
-class _DemoJumpButton extends StatelessWidget {
-  const _DemoJumpButton({required this.active, required this.onTap});
+/// Testing tool on the top-right of the map (replaces the old Egmore-108 jump).
+/// A frosted capsule with a ward dropdown and an A/B spot toggle: picking either
+/// overrides the detected location to that ward's spot, so grievances can be
+/// filed in any ward — two spots each — from one device. Turns gold while an
+/// override is active.
+class _TestLocationPicker extends StatelessWidget {
+  const _TestLocationPicker({
+    required this.wards,
+    required this.ward,
+    required this.spot,
+    required this.active,
+    required this.onPick,
+  });
 
+  final List<String> wards;
+  final String? ward;
+  final int spot;
   final bool active;
-  final VoidCallback onTap;
+  final void Function(String ward, int spot) onPick;
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () {
-        HapticFeedback.selectionClick();
-        onTap();
-      },
-      behavior: HitTestBehavior.opaque,
-      child: SolidCapsule(
-        padding: const EdgeInsets.all(10),
-        child: Icon(
-          Icons.account_balance,
-          size: 16,
-          color: active ? NkColors.gold300 : NkColors.slate500,
+    Widget spotDot(int s) {
+      final on = ward != null && spot == s;
+      return GestureDetector(
+        onTap: ward == null
+            ? null
+            : () {
+                HapticFeedback.selectionClick();
+                onPick(ward!, s);
+              },
+        behavior: HitTestBehavior.opaque,
+        child: Container(
+          margin: const EdgeInsets.only(left: 4),
+          width: 22,
+          height: 22,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: on ? NkColors.refBlue : const Color(0xFFF1F3F7),
+            shape: BoxShape.circle,
+          ),
+          child: Text(
+            s == 0 ? 'A' : 'B',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+              color: on ? Colors.white : NkColors.slate500,
+            ),
+          ),
         ),
+      );
+    }
+
+    return SolidCapsule(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.science_outlined,
+              size: 14, color: active ? NkColors.gold300 : NkColors.slate500),
+          const SizedBox(width: 6),
+          SizedBox(
+            width: 96,
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<String>(
+                value: ward,
+                isDense: true,
+                isExpanded: true,
+                hint: Text(context.tr('Ward'),
+                    style: const TextStyle(
+                        fontSize: 12, color: NkColors.slate500)),
+                icon: const Icon(Icons.expand_more,
+                    size: 14, color: NkColors.slate500),
+                style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: NkColors.slate700),
+                borderRadius: BorderRadius.circular(12),
+                items: [
+                  for (final w in wards)
+                    DropdownMenuItem(
+                      value: w,
+                      child: Text('${context.tr('Ward')} $w',
+                          overflow: TextOverflow.ellipsis),
+                    ),
+                ],
+                onChanged: (w) {
+                  if (w != null) onPick(w, spot);
+                },
+              ),
+            ),
+          ),
+          const SizedBox(width: 4),
+          spotDot(0),
+          spotDot(1),
+        ],
       ),
     );
   }
