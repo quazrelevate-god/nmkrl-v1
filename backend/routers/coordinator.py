@@ -359,6 +359,10 @@ async def coord_close(
     The coordinator app will not let a ticket be closed without a live photo
     and a voice note ("Live photo + voice note required to close"), so the
     proof of work arrives here and is stored on both the event and the issue.
+    That requirement is now enforced HERE too: a resolution without evidence is
+    the one thing the citizen's verify prompt and the admin audit both rely on,
+    so the API must not accept a proofless close the app would never send. Only
+    close carries this — transfer/escalate/mark_false keep evidence optional.
     """
     prev = _load(conn, issue_id)
     coordinator = require_same_coordinator(session_username, coordinator)
@@ -367,6 +371,15 @@ async def coord_close(
     # is already PENDING_VERIFICATION, CLOSED, or FALSE.
     _require_status(prev, ("ACTIVE", "FORWARDED", "IN_PROGRESS"), "close")
     image_url, audio_url = await audit.store_evidence(photo, voice)
+    if not image_url or not audio_url:
+        missing = " and ".join(
+            m for m, present in (("a photo", image_url), ("a voice note", audio_url))
+            if not present
+        )
+        raise HTTPException(
+            status_code=400,
+            detail=f"A closure needs {missing} as proof the grievance was resolved.",
+        )
     conn.execute(
         "UPDATE issues SET status = 'PENDING_VERIFICATION', notify_reporter = 1, "
         "closed_at = ?, coordinator_message = ?, "
