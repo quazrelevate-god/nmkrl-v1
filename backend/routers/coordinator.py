@@ -32,7 +32,7 @@ import audit
 import duplicates
 from database import get_db
 from session_auth import coordinator_session, require_same_coordinator
-from utils import haversine_m, now_iso, public_issue, serialize_issue
+from utils import CHENNAI_AC_MAP, haversine_m, now_iso, public_issue, serialize_issue
 from routers.notifications import emit_status_change
 
 router = APIRouter(prefix="/api/coordinator", tags=["coordinator"])
@@ -168,6 +168,69 @@ def coordinator_my_reports(
         (coordinator.strip().lower(),),
     ).fetchall()
     return {"count": len(rows), "issues": [serialize_issue(r) for r in rows]}
+
+
+@router.get("/constituency")
+def coordinator_constituency_issues(
+    coordinator: str = Query(""),
+    sort: str = Query("recent"),
+    session_username: str = Depends(coordinator_session),
+    conn=Depends(get_db),
+):
+    """Every grievance across the signed-in coordinator's whole CONSTITUENCY —
+    the browse surface for the mobile list.
+
+    A coordinator is still assigned one home ward in the admin console, and that
+    ward stays their priority: it is where their new-grievance notifications go
+    (see routers/notifications.emit_new_grievance, deliberately ward-locked).
+    But the list is no longer confined to it — any coordinator in the AC can see
+    every grievance in the AC and claim any of them, so the MLA can point anyone
+    at anything. This returns:
+       — unassigned grievances in ANY of the AC's wards (anyone may verify)
+       — grievances assigned to THIS coordinator (any ward)
+       — hides grievances assigned to a DIFFERENT coordinator
+    plus `wards` (the AC's ward list, for the app's ward filter) and `home_ward`
+    (so the app can float the coordinator's own ward to the top).
+    """
+    coordinator = require_same_coordinator(session_username, coordinator)
+    if not coordinator:
+        raise HTTPException(status_code=400, detail="coordinator is required.")
+    _reject_if_disabled(conn, coordinator)
+    me = conn.execute(
+        "SELECT constituency, home_ward FROM coordinators WHERE LOWER(username) = ?",
+        (coordinator.strip().lower(),),
+    ).fetchone()
+    if me is None:
+        raise HTTPException(status_code=404, detail="Unknown coordinator.")
+    constituency = (me["constituency"] or "").strip()
+    home_ward = (me["home_ward"] or "").strip()
+    wards = CHENNAI_AC_MAP.get(constituency, [])
+    # Never widen to the whole city: if the stored AC name doesn't resolve, fall
+    # back to the coordinator's own ward alone.
+    if not wards:
+        wards = [home_ward] if home_ward else []
+    if not wards:
+        return {"count": 0, "issues": [], "wards": [], "home_ward": home_ward,
+                "constituency": constituency}
+
+    order = "upvotes DESC, created_at DESC" if sort == "priority" else "created_at DESC"
+    placeholders = ",".join("?" for _ in wards)
+    # ward_no is stored INTEGER; the AC map holds ward strings — compare as TEXT.
+    rows = conn.execute(
+        f"""SELECT * FROM issues
+             WHERE CAST(ward_no AS TEXT) IN ({placeholders})
+               AND (assigned_coordinator = '' OR assigned_coordinator IS NULL
+                    OR assigned_coordinator = ?)
+             ORDER BY {order}""",
+        [*wards, coordinator.strip().lower()],
+    ).fetchall()
+    return {
+        "count": len(rows),
+        "issues": [serialize_issue(r) for r in rows],
+        "wards": wards,
+        "home_ward": home_ward,
+        "constituency": constituency,
+    }
 
 
 @router.post("/issues/{issue_id}/verify")
