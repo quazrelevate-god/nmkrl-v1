@@ -99,6 +99,27 @@ def _authorize(conn, row, coordinator: str):
         )
 
 
+# The lifecycle the coordinator app drives:
+#   SUBMITTED → ACTIVE → (FORWARDED | IN_PROGRESS) → PENDING_VERIFICATION → CLOSED
+#   any assigned state → FALSE (terminal)
+# CLOSED and FALSE are terminal: nothing a coordinator does may move them, and a
+# ticket already awaiting the citizen's verdict (PENDING_VERIFICATION) is theirs
+# to approve or reject, not the coordinator's to re-drive. The mobile app already
+# hides the buttons for these states — terminal tickets render in the buttonless
+# "Resolved" tab and PENDING_VERIFICATION shows a disabled chip — but that guard
+# is only as fresh as the last 15s poll. A stale card, a double-tap retry, or any
+# non-app client can still send the transition, so it must be rejected HERE too.
+# Admin actions already guard this way (routers/admin.py); the coordinator ones
+# did not, which let a CLOSED ticket be re-closed or a FALSE one transferred.
+def _require_status(prev, allowed, action: str) -> None:
+    status = (prev["status"] or "").strip().upper()
+    if status not in allowed:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot {action} a grievance that is {status or 'in an unknown state'}.",
+        )
+
+
 @router.get("/ward/{ward_no}")
 def coordinator_ward_issues(
     ward_no: int,
@@ -171,6 +192,9 @@ def coord_verify(
             status_code=409,
             detail=f"Already assigned to @{prev['assigned_coordinator']}.",
         )
+    # SUBMITTED (fresh or redirected back) is the only state to take ownership
+    # from; ACTIVE is allowed so the same coordinator re-tapping is idempotent.
+    _require_status(prev, ("SUBMITTED", "ACTIVE"), "assign")
     conn.execute(
         """UPDATE issues
               SET status = 'ACTIVE', coordinator_message = '',
@@ -212,6 +236,9 @@ async def coord_transfer(
     prev = _load(conn, issue_id)
     coordinator = require_same_coordinator(session_username, coordinator)
     _authorize(conn, prev, coordinator)
+    # Must be assigned first; a re-transfer (FORWARDED→FORWARDED) is allowed to
+    # correct the department. Blocked once closed/false or awaiting the citizen.
+    _require_status(prev, ("ACTIVE", "FORWARDED", "IN_PROGRESS"), "transfer")
     image_url, audio_url = await audit.store_evidence(photo, voice)
     if officer:
         msg = f"Routed to {department} — Responsible officer: {officer}."
@@ -254,6 +281,7 @@ async def coord_escalate(
     prev = _load(conn, issue_id)
     coordinator = require_same_coordinator(session_username, coordinator)
     _authorize(conn, prev, coordinator)
+    _require_status(prev, ("ACTIVE", "FORWARDED", "IN_PROGRESS"), "escalate")
     image_url, audio_url = await audit.store_evidence(photo, voice)
     conn.execute(
         """UPDATE issues
@@ -290,6 +318,9 @@ def coord_redirect(
     prev = _load(conn, issue_id)
     coordinator = require_same_coordinator(session_username, coordinator)
     _authorize(conn, prev, coordinator)
+    # Sending a ticket back to the ward pool only makes sense while it is in
+    # flight; it is already SUBMITTED, or is terminal/awaiting-citizen otherwise.
+    _require_status(prev, ("ACTIVE", "FORWARDED", "IN_PROGRESS"), "redirect")
     msg = (
         "Sorry for the delay, will re-assign another team to resolve this issue faster. "
         f"Reason: {description}"
@@ -332,6 +363,9 @@ async def coord_close(
     prev = _load(conn, issue_id)
     coordinator = require_same_coordinator(session_username, coordinator)
     _authorize(conn, prev, coordinator)
+    # Close only an assigned, in-flight ticket. Blocks re-closing something that
+    # is already PENDING_VERIFICATION, CLOSED, or FALSE.
+    _require_status(prev, ("ACTIVE", "FORWARDED", "IN_PROGRESS"), "close")
     image_url, audio_url = await audit.store_evidence(photo, voice)
     conn.execute(
         "UPDATE issues SET status = 'PENDING_VERIFICATION', notify_reporter = 1, "
@@ -375,6 +409,12 @@ async def coord_mark_false(
     prev = _load(conn, issue_id)
     coordinator = require_same_coordinator(session_username, coordinator)
     _authorize(conn, prev, coordinator)
+    # False can be flagged from the ward pool (SUBMITTED, the Open tab shows it)
+    # or while assigned — but never on a resolved ticket or one the citizen is
+    # already verifying.
+    _require_status(
+        prev, ("SUBMITTED", "ACTIVE", "FORWARDED", "IN_PROGRESS"), "mark as false"
+    )
     image_url, audio_url = await audit.store_evidence(photo, voice)
     msg = f"Marked as false petition. Reason: {reason}" + (f" — {details}" if details else "")
     if coordinator:
