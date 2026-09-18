@@ -27,6 +27,7 @@ from database import get_connection, get_db
 from session_auth import citizen_session, require_same_citizen, resolve_self
 from gemini_service import ai_available, check_duplicate, classify_department, process_audio
 from utils import (
+    bbox_for,
     haversine_m,
     new_id,
     now_iso,
@@ -54,8 +55,15 @@ _DEFAULT_TITLE_SENTINEL = "Street Issue"
 
 def _nearby_open_issues(conn, lat: float, lng: float, radius_m: float) -> list[dict]:
     """Return all open issues within radius as dicts (for Gemini comparison)."""
+    min_lat, max_lat, min_lng, max_lng = bbox_for(lat, lng, radius_m)
+    # Bounding-box pre-filter in SQL so the Haversine below only runs on the
+    # rows that could possibly be within the radius, not every open grievance
+    # in the city. See utils.bbox_for.
     rows = conn.execute(
-        "SELECT * FROM issues WHERE status IN ('SUBMITTED', 'ACTIVE', 'IN_PROGRESS')"
+        """SELECT * FROM issues
+            WHERE status IN ('SUBMITTED', 'ACTIVE', 'IN_PROGRESS')
+              AND latitude BETWEEN ? AND ? AND longitude BETWEEN ? AND ?""",
+        (min_lat, max_lat, min_lng, max_lng),
     ).fetchall()
     results = []
     for row in rows:
@@ -320,8 +328,14 @@ def nearby_issues(
     SUBMITTED issues are awaiting authority verification and are intentionally
     hidden from the public map until an admin approves them.
     """
+    min_lat, max_lat, min_lng, max_lng = bbox_for(lat, lng, radius)
+    # Same bounding-box pre-filter as the duplicate scan: SQL narrows to the box,
+    # the Haversine trims it to a true circle (see utils.bbox_for).
     rows = conn.execute(
-        "SELECT * FROM issues WHERE status != 'SUBMITTED'"
+        """SELECT * FROM issues
+            WHERE status != 'SUBMITTED'
+              AND latitude BETWEEN ? AND ? AND longitude BETWEEN ? AND ?""",
+        (min_lat, max_lat, min_lng, max_lng),
     ).fetchall()
     results = []
     for row in rows:

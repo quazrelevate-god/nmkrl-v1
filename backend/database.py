@@ -345,6 +345,32 @@ def init_db() -> None:
             )
         except Exception:
             pass
+        # Spatial pre-filter for the duplicate scan and the public "/nearby"
+        # map. Both bound a lat/lng box in SQL before Haversining the survivors
+        # (see utils.bbox_for); this composite index backs that BETWEEN so the
+        # box lookup stays sub-linear as the table grows to city scale.
+        try:
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_issues_lat_lng "
+                "ON issues (latitude, longitude)"
+            )
+        except Exception:
+            pass
+        # Admin console filters and the ward feeds all narrow by status, and the
+        # dashboard counts per status — an index keeps those off a full scan.
+        try:
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_issues_status ON issues (status)"
+            )
+        except Exception:
+            pass
+        # Ward feeds (citizen + coordinator) filter by ward_no on every load.
+        try:
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_issues_ward ON issues (ward_no)"
+            )
+        except Exception:
+            pass
         # Account state. Admin's enable/disable was a per-browser flag with no
         # column behind it, so a "disabled" coordinator went on signing into the
         # mobile app and working normally. Revocation needs somewhere to live.

@@ -49,6 +49,8 @@ def list_admin_issues(
     department: str = Query(None),
     constituency: str = Query(None),
     q: str = Query(None),
+    limit: int = Query(None),
+    offset: int = Query(0),
     conn=Depends(get_db),
 ):
     """
@@ -64,6 +66,10 @@ def list_admin_issues(
     - constituency: Assembly Constituency name — expands to that AC's wards.
     - q: free-text search across ticket_number, title, reporter name and phone.
     - sort: 'upvotes' (default) or 'recent'
+    - limit / offset: OPT-IN pagination. Omit `limit` and the full matching set
+      is returned exactly as before (the dashboard and heatmap need every row).
+      Pass a `limit` to page the tickets/users surfaces — the response then also
+      carries `total`, `limit`, `offset` and `has_more`.
     """
     clauses, params = [], []
     if status and status.upper() in VALID_STATUSES:
@@ -98,23 +104,42 @@ def list_admin_issues(
         )
         params.extend([needle, needle, needle, needle])
 
-    sql = "SELECT * FROM issues"
-    if clauses:
-        sql += " WHERE " + " AND ".join(clauses)
+    where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+    # Sort in SQL, not in Python: the old code pulled every row and sorted the
+    # whole list on each console load. 'upvotes' mirrors the old key exactly
+    # (highest support first, oldest breaking ties).
+    order = "created_at DESC" if sort == "recent" else "upvotes DESC, created_at ASC"
+    sql = f"SELECT * FROM issues{where} ORDER BY {order}"
+
+    # Opt-in pagination — see the docstring. With no `limit` the shape and
+    # contents are exactly what every current caller already gets.
+    if limit is not None and limit > 0:
+        total = conn.execute(
+            f"SELECT COUNT(*) AS c FROM issues{where}", params
+        ).fetchone()["c"]
+        offset = max(0, offset)
+        rows = conn.execute(
+            sql + " LIMIT ? OFFSET ?", [*params, limit, offset]
+        ).fetchall()
+        issues = [serialize_issue(r) for r in rows]
+        return {
+            "count": len(issues), "issues": issues,
+            "total": total, "limit": limit, "offset": offset,
+            "has_more": offset + len(issues) < total,
+        }
+
     rows = conn.execute(sql, params).fetchall()
-
     issues = [serialize_issue(r) for r in rows]
-
-    if sort == "recent":
-        issues.sort(key=lambda x: x.get("created_at", ""), reverse=True)
-    else:
-        issues.sort(key=lambda x: (-x.get("upvotes", 0), x.get("created_at", "")))
-
     return {"count": len(issues), "issues": issues}
 
 
 @router.get("/users")
-def list_users(q: str = Query(None), conn=Depends(get_db)):
+def list_users(
+    q: str = Query(None),
+    limit: int = Query(None),
+    offset: int = Query(0),
+    conn=Depends(get_db),
+):
     """
     List citizen accounts with per-user grievance counters, so the admin console
     can show real 'user related data' (who reported, how much, how much resolved).
@@ -123,30 +148,61 @@ def list_users(q: str = Query(None), conn=Depends(get_db)):
       - reports:  total grievances submitted
       - resolved: grievances now CLOSED
       - open:     grievances not yet CLOSED/FALSE
-    Optional q filters by name or phone.
+    Optional q filters by name or phone. limit/offset are opt-in pagination, as
+    on /issues — omit `limit` for the full list, unchanged.
     """
     clauses, params = [], []
     if q:
         needle = f"%{q.strip().lower()}%"
         clauses.append("(LOWER(name) LIKE ? OR phone LIKE ?)")
         params.extend([needle, needle])
-    sql = "SELECT id, name, phone, created_at FROM users"
-    if clauses:
-        sql += " WHERE " + " AND ".join(clauses)
-    sql += " ORDER BY created_at DESC"
-    users = [dict(r) for r in conn.execute(sql, params).fetchall()]
+    where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+    sql = f"SELECT id, name, phone, created_at FROM users{where} ORDER BY created_at DESC"
 
-    # Aggregate grievance counts per user in one pass.
+    total = None
+    if limit is not None and limit > 0:
+        total = conn.execute(
+            f"SELECT COUNT(*) AS c FROM users{where}", params
+        ).fetchone()["c"]
+        offset = max(0, offset)
+        users = [
+            dict(r) for r in conn.execute(
+                sql + " LIMIT ? OFFSET ?", [*params, limit, offset]
+            ).fetchall()
+        ]
+    else:
+        users = [dict(r) for r in conn.execute(sql, params).fetchall()]
+
+    # Aggregate grievance counts per user. When a page was requested, scope the
+    # aggregate to just that page's ids so a city-scale issues table is not
+    # scanned to decorate 25 rows; otherwise one GROUP BY over the whole table.
     agg = {}
-    for row in conn.execute(
-        """SELECT created_by,
-                  COUNT(*) AS reports,
-                  SUM(CASE WHEN status = 'CLOSED' THEN 1 ELSE 0 END) AS resolved,
-                  SUM(CASE WHEN status NOT IN ('CLOSED','FALSE') THEN 1 ELSE 0 END) AS open
-             FROM issues
-            WHERE created_by IS NOT NULL AND created_by != ''
-         GROUP BY created_by"""
-    ).fetchall():
+    if total is not None:
+        ids = [u["id"] for u in users if u["id"]]
+        agg_rows = []
+        if ids:
+            ph = ",".join("?" for _ in ids)
+            agg_rows = conn.execute(
+                f"""SELECT created_by,
+                           COUNT(*) AS reports,
+                           SUM(CASE WHEN status = 'CLOSED' THEN 1 ELSE 0 END) AS resolved,
+                           SUM(CASE WHEN status NOT IN ('CLOSED','FALSE') THEN 1 ELSE 0 END) AS open
+                      FROM issues
+                     WHERE created_by IN ({ph})
+                  GROUP BY created_by""",
+                ids,
+            ).fetchall()
+    else:
+        agg_rows = conn.execute(
+            """SELECT created_by,
+                      COUNT(*) AS reports,
+                      SUM(CASE WHEN status = 'CLOSED' THEN 1 ELSE 0 END) AS resolved,
+                      SUM(CASE WHEN status NOT IN ('CLOSED','FALSE') THEN 1 ELSE 0 END) AS open
+                 FROM issues
+                WHERE created_by IS NOT NULL AND created_by != ''
+             GROUP BY created_by"""
+        ).fetchall()
+    for row in agg_rows:
         agg[row["created_by"]] = {
             "reports": row["reports"] or 0,
             "resolved": row["resolved"] or 0,
@@ -157,6 +213,12 @@ def list_users(q: str = Query(None), conn=Depends(get_db)):
         stats = agg.get(u["id"], {"reports": 0, "resolved": 0, "open": 0})
         u.update(stats)
 
+    if total is not None:
+        return {
+            "count": len(users), "users": users,
+            "total": total, "limit": limit, "offset": offset,
+            "has_more": offset + len(users) < total,
+        }
     return {"count": len(users), "users": users}
 
 

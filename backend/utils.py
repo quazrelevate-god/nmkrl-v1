@@ -43,6 +43,30 @@ def haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return EARTH_RADIUS_M * c
 
 
+# One degree of latitude is ~111.32 km everywhere; longitude shrinks by cos(lat).
+_M_PER_DEG_LAT = 111_320.0
+
+
+def bbox_for(lat: float, lng: float, radius_m: float):
+    """A lat/lng bounding box that fully contains the ``radius_m`` circle.
+
+    A precise "within N meters" test is a Haversine over every candidate — fine
+    for a handful of rows, but the duplicate check and the public map both scan
+    the open/verified set and Haversine each one in Python, which is O(all
+    grievances) per call and does not survive a city-scale table. Pre-filtering
+    with this box in SQL (``latitude BETWEEN ? AND ? AND longitude BETWEEN ?
+    AND ?``, index-backed) hands the Haversine only the rows that could possibly
+    qualify. The box is a superset — the caller still Haversines to trim the
+    corners to a true circle — so results are identical, just far cheaper.
+
+    Returns ``(min_lat, max_lat, min_lng, max_lng)``.
+    """
+    dlat = radius_m / _M_PER_DEG_LAT
+    # Guard the poles so cos() never hits zero and blows the longitude span up.
+    dlng = radius_m / (_M_PER_DEG_LAT * max(cos(radians(lat)), 0.01))
+    return (lat - dlat, lat + dlat, lng - dlng, lng + dlng)
+
+
 def new_id() -> str:
     """Return a fresh UUID4 string."""
     return str(uuid.uuid4())
