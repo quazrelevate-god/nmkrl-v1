@@ -19,12 +19,13 @@ import { createPortal } from "react-dom";
 import {
   Users, Plus, Search, X, MoreVertical, Pencil, ShieldBan,
   ShieldCheck, MapPin, Building2, UserPlus, Check, Phone,
-  CheckCircle2, AlertCircle, Inbox, Send, TrendingUp, Ban, Camera, Timer,
+  CheckCircle2, AlertCircle, Inbox, Send, TrendingUp, Ban, Camera, Timer, Trash2,
 } from "lucide-react";
 import { fetchCoordinatorPerformance } from "@/lib/api";
 import {
   listCoordinators, listCoordinatorsRemote, ensureSeedCoordinators,
-  createCoordinatorRemote, updateCoordinatorRemote, initialsFrom,
+  createCoordinatorRemote, updateCoordinatorRemote, deleteCoordinatorRemote,
+  uploadCoordinatorPhotoRemote, initialsFrom,
 } from "@/lib/coordinators";
 import { CONSTITUENCIES, CHENNAI_AC_MAP } from "@/lib/constituencies";
 
@@ -52,6 +53,7 @@ export default function CoordinatorsPage() {
   // confirmations. Kept as sibling states so the page's state reads at a glance.
   const [editingUser, setEditingUser] = useState(null);   // null | "new" | username
   const [statusTarget, setStatusTarget] = useState(null); // coordinator | null
+  const [deleteTarget, setDeleteTarget] = useState(null); // coordinator | null
   const [toast, setToast] = useState(null);
   // One open menu at a time, owned here rather than by each row. Rows used to
   // own their menus and close them on blur, but clicking a button does not
@@ -231,6 +233,7 @@ export default function CoordinatorsPage() {
                 onMenuClose={() => setOpenMenu(null)}
                 onEdit={() => setEditingUser(c.username)}
                 onToggleStatus={() => setStatusTarget(c)}
+                onDelete={() => setDeleteTarget(c)}
               />
             ))}
           </div>
@@ -260,6 +263,15 @@ export default function CoordinatorsPage() {
           onDone={refresh}
         />
       )}
+      {deleteTarget && portal(
+        <DeleteCoordinatorDialog
+          coord={deleteTarget}
+          onClose={() => setDeleteTarget(null)}
+          onDone={(msg) => setToast({ kind: "ok", msg })}
+          onError={(msg) => setToast({ kind: "err", msg })}
+          onRefresh={refresh}
+        />
+      )}
       {statusTarget && portal(
         <ToggleStatusDialog
           coord={statusTarget}
@@ -275,7 +287,7 @@ export default function CoordinatorsPage() {
 }
 
 /* ── Row ──────────────────────────────────────────────────────────────────── */
-function CoordinatorRow({ coord, stats, menuOpen, onMenuToggle, onMenuClose, onEdit, onToggleStatus }) {
+function CoordinatorRow({ coord, stats, menuOpen, onMenuToggle, onMenuClose, onEdit, onToggleStatus, onDelete }) {
   const disabled = coord.status === "disabled";
   // .glass-panel sets backdrop-filter, which makes every row its own stacking
   // context — so the menu's own z-index can never lift it above a LATER row.
@@ -337,6 +349,7 @@ function CoordinatorRow({ coord, stats, menuOpen, onMenuToggle, onMenuClose, onE
               onClick={() => { onMenuClose(); onToggleStatus(); }}
               tone={disabled ? "text-emerald-700" : "text-rose-600"}
             />
+            <MenuItem icon={Trash2} label="Delete coordinator" onClick={() => { onMenuClose(); onDelete(); }} tone="text-rose-600" />
           </div>
         )}
       </div>
@@ -461,6 +474,24 @@ function CoordinatorFormDrawer({ mode, username, existingRow, onClose, onSaved, 
   const [role, setRole] = useState(existing?.role || ROLES[0]);
   const [constituency, setConstituency] = useState(existing?.constituency || DEFAULT_CONSTITUENCY);
   const [homeWard, setHomeWard] = useState(existing?.homeWard || "");
+  // Manually-uploaded profile photo. `touched` marks that the admin changed it,
+  // so an edit only re-uploads (or clears) when they actually picked/removed one.
+  const [photoFile, setPhotoFile] = useState(null);
+  const [photoPreview, setPhotoPreview] = useState(existing?.avatar || null);
+  const [photoTouched, setPhotoTouched] = useState(false);
+
+  function pickPhoto(e) {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    setPhotoFile(f);
+    setPhotoPreview(URL.createObjectURL(f));
+    setPhotoTouched(true);
+  }
+  function removePhoto() {
+    setPhotoFile(null);
+    setPhotoPreview(null);
+    setPhotoTouched(true);
+  }
 
   // When constituency changes, reset ward to the first one that AC covers.
   const wardOptions = useMemo(
@@ -487,11 +518,14 @@ function CoordinatorFormDrawer({ mode, username, existingRow, onClose, onSaved, 
         await updateCoordinatorRemote(username, {
           name: name.trim(), role, constituency, homeWard, phone: phone10,
         });
+        // Only touch the photo if the admin changed it (upload, or clear).
+        if (photoTouched) await uploadCoordinatorPhotoRemote(username, photoFile);
         onSaved(`Updated ${name.trim()}`);
       } else {
-        await createCoordinatorRemote({
+        const created = await createCoordinatorRemote({
           name: name.trim(), phone: phone10, role, constituency, homeWard,
         });
+        if (photoFile) await uploadCoordinatorPhotoRemote(created.username, photoFile);
         onSaved(`Created ${name.trim()}`);
       }
       onDone?.();
@@ -525,6 +559,33 @@ function CoordinatorFormDrawer({ mode, username, existingRow, onClose, onSaved, 
         </div>
 
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-5">
+          <Field label="Profile photo" hint="Optional — upload manually">
+            <div className="flex items-center gap-4">
+              <div className="h-16 w-16 shrink-0 overflow-hidden rounded-full shadow-md ring-2 ring-white">
+                {photoPreview ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={photoPreview} alt="" className="h-16 w-16 object-cover" />
+                ) : (
+                  <div className="flex h-16 w-16 items-center justify-center bg-gradient-to-br from-brand to-brand-dark text-lg font-bold text-white">
+                    {initialsFrom(name) || "?"}
+                  </div>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <label className="flex cursor-pointer items-center gap-1.5 rounded-xl bg-slate-800 px-3 py-2 text-xs font-bold text-white hover:bg-slate-700">
+                  <input type="file" accept="image/*" className="hidden" onChange={pickPhoto} />
+                  <Camera size={12} /> {photoPreview ? "Change photo" : "Upload photo"}
+                </label>
+                {photoPreview && (
+                  <button type="button" onClick={removePhoto}
+                    className="rounded-xl px-3 py-2 text-xs font-bold text-rose-600 hover:bg-rose-50">
+                    Remove
+                  </button>
+                )}
+              </div>
+            </div>
+          </Field>
+
           <Field label="Full name">
             <input
               value={name}
@@ -622,7 +683,7 @@ function ToggleStatusDialog({ coord, onClose, onDone, onRefresh }) {
     await updateCoordinatorRemote(coord.username, {
       status: disabling ? "disabled" : "active",
     });
-    onDone(`${disabling ? "Disabled" : "Re-enabled"} @${coord.username}`);
+    onDone(`${disabling ? "Disabled" : "Re-enabled"} ${coord.name}`);
     onRefresh?.();
     onClose();
   }
@@ -638,7 +699,7 @@ function ToggleStatusDialog({ coord, onClose, onDone, onRefresh }) {
             <p className="text-[15px] font-extrabold tracking-tight text-slate-900">
               {disabling ? "Disable account" : "Re-enable account"}
             </p>
-            <p className="text-[11px] font-semibold text-slate-500">@{coord.username} · {coord.name}</p>
+            <p className="text-[11px] font-semibold text-slate-500">{coord.name}{coord.phone ? ` · +91 ${coord.phone}` : ""}</p>
           </div>
         </div>
         <div className="px-5 py-4 text-[13px] leading-relaxed text-slate-600">
@@ -649,7 +710,7 @@ function ToggleStatusDialog({ coord, onClose, onDone, onRefresh }) {
             </>
           ) : (
             <>
-              <span className="font-bold text-slate-800">{coord.name}</span> will be able to sign in again with their current password.
+              <span className="font-bold text-slate-800">{coord.name}</span> will be able to sign in again with their name + mobile + OTP.
             </>
           )}
         </div>
@@ -666,6 +727,56 @@ function ToggleStatusDialog({ coord, onClose, onDone, onRefresh }) {
             }`}
           >
             {disabling ? "Disable" : "Re-enable"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Delete coordinator dialog ────────────────────────────────────────────── */
+function DeleteCoordinatorDialog({ coord, onClose, onDone, onError, onRefresh }) {
+  const [busy, setBusy] = useState(false);
+  async function confirm() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await deleteCoordinatorRemote(coord.username);
+      onDone(`Deleted ${coord.name}`);
+      onRefresh?.();
+      onClose();
+    } catch (err) {
+      onError?.(err.message || "Could not delete coordinator");
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="fixed inset-0 z-[1100] flex items-center justify-center px-4">
+      <div className="absolute inset-0 bg-slate-900/50 animate-scrim-in" onClick={onClose} />
+      <div className="relative w-full max-w-sm overflow-hidden rounded-3xl bg-white shadow-2xl animate-modal-float">
+        <div className="flex items-center gap-2.5 border-b border-slate-100 px-5 py-3.5">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-rose-100 text-rose-700">
+            <Trash2 size={16} />
+          </div>
+          <div>
+            <p className="text-[15px] font-extrabold tracking-tight text-slate-900">Delete coordinator</p>
+            <p className="text-[11px] font-semibold text-slate-500">{coord.name}{coord.phone ? ` · +91 ${coord.phone}` : ""}</p>
+          </div>
+        </div>
+        <div className="px-5 py-4 text-[13px] leading-relaxed text-slate-600">
+          <span className="font-bold text-slate-800">{coord.name}</span> will be removed permanently and can no longer sign in.
+          This cannot be undone. To keep their history instead, disable the account.
+        </div>
+        <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-3.5">
+          <button onClick={onClose} className="rounded-xl px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-100">
+            Cancel
+          </button>
+          <button
+            onClick={confirm}
+            disabled={busy}
+            className="rounded-xl bg-gradient-to-r from-rose-500 to-rose-600 px-4 py-2 text-sm font-bold text-white shadow-lg shadow-rose-500/30 disabled:opacity-60"
+          >
+            {busy ? "Deleting\u2026" : "Delete"}
           </button>
         </div>
       </div>

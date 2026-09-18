@@ -14,11 +14,11 @@ grievances, notifications and history stay linked to them.
 import re
 import secrets
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from database import get_db
-from utils import new_id, now_iso
+from utils import new_id, now_iso, save_upload
 
 router = APIRouter(prefix="/api/admin/coordinators", tags=["admin-coordinators"])
 
@@ -156,6 +156,34 @@ def update_coordinator(username: str, body: CoordinatorUpdate, conn=Depends(get_
             f"UPDATE coordinators SET {', '.join(updates)} WHERE username = ?",
             params,
         )
+    row = conn.execute(
+        "SELECT * FROM coordinators WHERE username = ?", (username.lower(),)
+    ).fetchone()
+    return _serialize(row)
+
+
+@router.post("/{username}/photo")
+async def set_coordinator_photo(
+    username: str,
+    photo: UploadFile = File(None),
+    conn=Depends(get_db),
+):
+    """Upload (or clear) a coordinator's profile photo. Admin uploads it by
+    hand — there are no random avatars."""
+    row = conn.execute(
+        "SELECT 1 FROM coordinators WHERE username = ?", (username.lower(),)
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Coordinator not found.")
+    photo_url = ""
+    if photo is not None:
+        data = await photo.read()
+        if data:
+            photo_url = save_upload(data, photo.filename, "image")
+    conn.execute(
+        "UPDATE coordinators SET photo_url = ? WHERE username = ?",
+        (photo_url, username.lower()),
+    )
     row = conn.execute(
         "SELECT * FROM coordinators WHERE username = ?", (username.lower(),)
     ).fetchone()

@@ -3,7 +3,7 @@
 /**
  * AdminSidebar
  * ------------
- * Light-grey frosted rail for the Petition Management staff portal. Three sections —
+ * Light-grey frosted rail for the Namkural GMS Portal staff portal. Three sections —
  * Performance, Tickets (live open-count badge), Petition Review (pending-
  * verification badge) — plus the signed-in staff footer.
  */
@@ -73,7 +73,7 @@ export default function AdminSidebar() {
           <Landmark size={22} className="text-amber-300" />
         </div>
         <div>
-          <p className="text-[15px] font-extrabold leading-tight text-slate-800">Petition Management</p>
+          <p className="text-[15px] font-extrabold leading-tight text-slate-800">Namkural GMS Portal</p>
           <p className="text-[11px] font-medium text-slate-500">Staff Portal</p>
         </div>
       </div>

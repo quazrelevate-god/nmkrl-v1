@@ -89,7 +89,9 @@ class LangToggle extends ConsumerWidget {
           duration: const Duration(milliseconds: 220),
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
           decoration: BoxDecoration(
-            color: active ? NkColors.gold300 : Colors.transparent,
+            // Warm-white on the dark login header; gold on light surfaces.
+            gradient: active && onDark ? nkWarmWhiteGradient : null,
+            color: active && !onDark ? NkColors.gold300 : null,
             borderRadius: BorderRadius.circular(999),
           ),
           child: Text(

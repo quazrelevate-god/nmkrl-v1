@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Admin layout — shared shell for the Petition Management staff portal.
+ * Admin layout — shared shell for the Namkural GMS Portal staff portal.
  * Renders the dark sidebar rail + the active page inside a light workspace.
  * Data is loaded once by AdminDataProvider and shared across all admin pages.
  *

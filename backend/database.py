@@ -333,6 +333,11 @@ def init_db() -> None:
             conn.execute("ALTER TABLE coordinators ADD COLUMN phone TEXT DEFAULT ''")
         except Exception:
             pass
+        # Optional profile photo, uploaded by the admin (no random avatars).
+        try:
+            conn.execute("ALTER TABLE coordinators ADD COLUMN photo_url TEXT DEFAULT ''")
+        except Exception:
+            pass
         # App-open PIN. Stores a HASH the client computes as
         # sha256("<user_id>:<pin>") — the server never receives the four
         # digits themselves, and the user id is the per-account salt, so the

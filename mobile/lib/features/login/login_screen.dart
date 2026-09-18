@@ -89,9 +89,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                   padding:
                       const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                   decoration: BoxDecoration(
-                    color: _coordinator == coord
-                        ? NkColors.gold300
-                        : Colors.transparent,
+                    gradient:
+                        _coordinator == coord ? nkWarmWhiteGradient : null,
                     borderRadius: BorderRadius.circular(999),
                   ),
                   child: Row(
@@ -375,7 +374,7 @@ class _CitizenLoginFormState extends ConsumerState<_CitizenLoginForm> {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
-          borderSide: const BorderSide(color: NkColors.gold300, width: 1.5),
+          borderSide: const BorderSide(color: Color(0xFFF0E9DC), width: 1.5),
         ),
       );
 
@@ -483,40 +482,44 @@ class _CitizenLoginFormState extends ConsumerState<_CitizenLoginForm> {
                     height: 46,
                     // Gold, like the Login CTA — a navy button on the navy
                     // sign-in background read as plain text and was easy to miss.
-                    child: FilledButton(
-                      onPressed: (_name.text.trim().length >= 2 &&
+                    child: GestureDetector(
+                      onTap: (_name.text.trim().length >= 2 &&
                               _mobileDigits.length >= 10 &&
                               !_sendingOtp)
                           ? _sendOtp
                           : null,
-                      style: FilledButton.styleFrom(
-                        backgroundColor: NkColors.gold300,
-                        foregroundColor: NkColors.brandDark,
-                        disabledBackgroundColor:
-                            NkColors.gold300.withValues(alpha: 0.35),
-                        disabledForegroundColor:
-                            NkColors.brandDark.withValues(alpha: 0.5),
-                        padding:
-                            const EdgeInsets.symmetric(horizontal: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
+                      child: Opacity(
+                        opacity: (_name.text.trim().length >= 2 &&
+                                _mobileDigits.length >= 10 &&
+                                !_sendingOtp)
+                            ? 1
+                            : 0.5,
+                        child: Container(
+                          alignment: Alignment.center,
+                          padding:
+                              const EdgeInsets.symmetric(horizontal: 14),
+                          decoration: BoxDecoration(
+                            gradient: nkWarmWhiteGradient,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: _sendingOtp
+                              ? const SizedBox(
+                                  height: 16,
+                                  width: 16,
+                                  child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: NkColors.brandDark),
+                                )
+                              : Text(
+                                  context.tr(_otpSent ? 'Resend' : 'Send OTP'),
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w800,
+                                    color: NkColors.brandDark,
+                                  ),
+                                ),
                         ),
                       ),
-                      child: _sendingOtp
-                          ? const SizedBox(
-                              height: 16,
-                              width: 16,
-                              child: CircularProgressIndicator(
-                                  strokeWidth: 2, color: NkColors.brandDark),
-                            )
-                          : Text(
-                              context.tr(_otpSent ? 'Resend' : 'Send OTP'),
-                              style: const TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w800,
-                                color: NkColors.brandDark,
-                              ),
-                            ),
                     ),
                   ),
                 ],
@@ -611,11 +614,11 @@ class _CitizenLoginFormState extends ConsumerState<_CitizenLoginForm> {
                   child: Container(
                     height: 48,
                     decoration: BoxDecoration(
-                      gradient: nkGoldGradient,
+                      gradient: nkWarmWhiteGradient,
                       borderRadius: BorderRadius.circular(14),
                       boxShadow: [
                         BoxShadow(
-                          color: NkColors.gold300.withValues(alpha: 0.28),
+                          color: Colors.black.withValues(alpha: 0.10),
                           blurRadius: 18,
                           offset: const Offset(0, 8),
                         ),
@@ -628,7 +631,7 @@ class _CitizenLoginFormState extends ConsumerState<_CitizenLoginForm> {
                               width: 20,
                               child: CircularProgressIndicator(
                                 strokeWidth: 2.4,
-                                color: Colors.white,
+                                color: NkColors.brandDark,
                               ),
                             ),
                           )
@@ -808,7 +811,7 @@ class _CoordinatorLoginFormState extends ConsumerState<_CoordinatorLoginForm> {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
-          borderSide: const BorderSide(color: NkColors.gold300, width: 1.5),
+          borderSide: const BorderSide(color: Color(0xFFF0E9DC), width: 1.5),
         ),
       );
 
@@ -859,18 +862,6 @@ class _CoordinatorLoginFormState extends ConsumerState<_CoordinatorLoginForm> {
         Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text(context.tr('Welcome back 👋'),
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w800,
-                  color: NkColors.slate900,
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(context.tr('Sign in to manage grievances and community posts.'),
-                style: TextStyle(fontSize: 13, color: NkColors.slate500),
-              ),
-              const SizedBox(height: 16),
               _label('FULL NAME'),
               TextField(
                 controller: _name,
@@ -907,34 +898,39 @@ class _CoordinatorLoginFormState extends ConsumerState<_CoordinatorLoginForm> {
                   const SizedBox(width: 8),
                   SizedBox(
                     height: 46,
-                    child: FilledButton(
-                      onPressed: (_name.text.trim().length >= 2 &&
+                    child: GestureDetector(
+                      onTap: (_name.text.trim().length >= 2 &&
                               _mobileDigits.length >= 10 &&
                               !_sendingOtp)
                           ? _sendOtp
                           : null,
-                      style: FilledButton.styleFrom(
-                        backgroundColor: NkColors.gold300,
-                        foregroundColor: NkColors.brandDark,
-                        disabledBackgroundColor:
-                            NkColors.gold300.withValues(alpha: 0.35),
-                        disabledForegroundColor:
-                            NkColors.brandDark.withValues(alpha: 0.5),
-                        padding: const EdgeInsets.symmetric(horizontal: 14),
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12)),
+                      child: Opacity(
+                        opacity: (_name.text.trim().length >= 2 &&
+                                _mobileDigits.length >= 10 &&
+                                !_sendingOtp)
+                            ? 1
+                            : 0.5,
+                        child: Container(
+                          alignment: Alignment.center,
+                          padding: const EdgeInsets.symmetric(horizontal: 14),
+                          decoration: BoxDecoration(
+                            gradient: nkWarmWhiteGradient,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: _sendingOtp
+                              ? const SizedBox(
+                                  height: 16,
+                                  width: 16,
+                                  child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: NkColors.brandDark))
+                              : Text(context.tr(_otpSent ? 'Resend' : 'Send OTP'),
+                                  style: const TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w800,
+                                      color: NkColors.brandDark)),
+                        ),
                       ),
-                      child: _sendingOtp
-                          ? const SizedBox(
-                              height: 16,
-                              width: 16,
-                              child: CircularProgressIndicator(
-                                  strokeWidth: 2, color: NkColors.brandDark))
-                          : Text(context.tr(_otpSent ? 'Resend' : 'Send OTP'),
-                              style: const TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w800,
-                                  color: NkColors.brandDark)),
                     ),
                   ),
                 ],
@@ -994,11 +990,11 @@ class _CoordinatorLoginFormState extends ConsumerState<_CoordinatorLoginForm> {
                   child: Container(
                     height: 48,
                     decoration: BoxDecoration(
-                      gradient: nkGoldGradient,
+                      gradient: nkWarmWhiteGradient,
                       borderRadius: BorderRadius.circular(14),
                       boxShadow: [
                         BoxShadow(
-                          color: NkColors.gold300.withValues(alpha: 0.28),
+                          color: Colors.black.withValues(alpha: 0.10),
                           blurRadius: 18,
                           offset: const Offset(0, 8),
                         ),
@@ -1011,7 +1007,7 @@ class _CoordinatorLoginFormState extends ConsumerState<_CoordinatorLoginForm> {
                               width: 20,
                               child: CircularProgressIndicator(
                                 strokeWidth: 2.4,
-                                color: Colors.white,
+                                color: NkColors.brandDark,
                               ),
                             ),
                           )
@@ -1035,19 +1031,6 @@ class _CoordinatorLoginFormState extends ConsumerState<_CoordinatorLoginForm> {
                 ),
               ),
             ],
-        ),
-        const SizedBox(height: 20),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          child: Text(
-            context.tr('Accounts are created in the /admin coordinators panel — no demo profiles are shipped in the app.'),
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 11,
-              color: Colors.white.withValues(alpha: 0.45),
-              fontStyle: FontStyle.italic,
-            ),
-          ),
         ),
         const SizedBox(height: 32),
       ],

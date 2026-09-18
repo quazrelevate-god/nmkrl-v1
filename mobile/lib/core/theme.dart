@@ -122,6 +122,15 @@ const nkGoldGradient = LinearGradient(
   colors: [NkColors.amber300, NkColors.yellow400, NkColors.amber500],
 );
 
+/// Subtle light warm-white gradient — the login page's button surface. Reads as
+/// a soft off-white with a faint warm cream at the far corner; pair with dark
+/// (brandDark) text/glyphs for contrast.
+const nkWarmWhiteGradient = LinearGradient(
+  begin: Alignment.topLeft,
+  end: Alignment.bottomRight,
+  colors: [Color(0xFFFDFBF7), Color(0xFFF0E9DC)],
+);
+
 ThemeData buildNkTheme() {
   final base = ThemeData(
     useMaterial3: true,

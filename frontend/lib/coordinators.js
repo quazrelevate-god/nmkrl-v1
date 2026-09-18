@@ -222,9 +222,27 @@ function mapRemoteCoordinator(row) {
     homeWard: row.home_ward,
     status: (row.status || "active").toLowerCase(),
     initials: initialsFrom(row.name),
-    avatar: seed.avatar || `https://i.pravatar.cc/160?u=${encodeURIComponent(row.username)}`,
+    // Only an admin-uploaded photo — no random avatars. Null falls back to
+    // initials in the UI.
+    photoUrl: row.photo_url || "",
+    avatar: row.photo_url ? `${API}${row.photo_url}` : null,
     createdAt: row.created_at || null,
   };
+}
+
+/** Upload (or clear, when file is null) a coordinator's profile photo. */
+export async function uploadCoordinatorPhotoRemote(username, file) {
+  const fd = new FormData();
+  if (file) fd.append("photo", file, file.name || "photo.jpg");
+  const res = await fetch(
+    `${API}/api/admin/coordinators/${encodeURIComponent(username)}/photo`,
+    { method: "POST", headers: adminHeaders(), body: fd }
+  );
+  if (!res.ok) {
+    const b = await res.json().catch(() => ({}));
+    throw new Error(b.detail || `Photo upload failed (${res.status})`);
+  }
+  return mapRemoteCoordinator(await res.json());
 }
 
 /** Fetch the whole directory from the backend. Throws on network/HTTP error. */
