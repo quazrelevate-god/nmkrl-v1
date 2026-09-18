@@ -24,7 +24,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPExcepti
 import audit
 import boundaries
 from database import get_connection, get_db
-from session_auth import citizen_session, require_same_citizen
+from session_auth import citizen_session, require_same_citizen, resolve_self
 from gemini_service import ai_available, check_duplicate, classify_department, process_audio
 from utils import (
     haversine_m,
@@ -203,6 +203,7 @@ async def report_issue(
     flags the row so the citizen's own list can offer "submit anyway" or
     "withdraw".
     """
+    user_id = resolve_self(user_id, session_uid)
     require_same_citizen(session_uid, user_id)
     user_id = session_uid
 
@@ -284,6 +285,7 @@ def upvote_issue(
     Public upvotes on someone else's grievance are OTP-verified on the client;
     the verified ``name`` is recorded against the vote.
     """
+    user_id = resolve_self(user_id, session_uid)
     require_same_citizen(session_uid, user_id)
     user_id = session_uid
     issue = conn.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
@@ -358,6 +360,7 @@ def user_history(user_id: str,
     ticket number travels along as ``merged_from_ticket`` so the app can say
     which of their reports this replaced.
     """
+    user_id = resolve_self(user_id, session_uid)
     require_same_citizen(session_uid, user_id)
     rows = conn.execute(
         "SELECT * FROM issues WHERE created_by = ? ORDER BY created_at DESC",
@@ -400,6 +403,7 @@ def user_supported(user_id: str,
 
     ``sort`` mirrors the ward feed: 'recent' (default) or 'priority'.
     """
+    user_id = resolve_self(user_id, session_uid)
     require_same_citizen(session_uid, user_id)
     rows = conn.execute(
         """SELECT i.* FROM issues i
@@ -422,6 +426,7 @@ def user_stats(user_id: str,
        open     — their submitted grievances not yet assigned to any
                   coordinator (and not terminal)
     """
+    user_id = resolve_self(user_id, session_uid)
     require_same_citizen(session_uid, user_id)
     reports = conn.execute(
         "SELECT COUNT(*) AS n FROM issues WHERE created_by = ?", (user_id,)
@@ -487,6 +492,7 @@ def verify_issue(
       * APPROVED -> status becomes CLOSED.
       * REJECTED -> status rolls back to IN_PROGRESS (reappears on admin board).
     """
+    user_id = resolve_self(user_id, session_uid)
     require_same_citizen(session_uid, user_id)
     user_id = session_uid
     response = response.upper().strip()

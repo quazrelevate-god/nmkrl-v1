@@ -44,7 +44,19 @@ final apiClientProvider = Provider<ApiClient>(
   ),
 );
 
-final userIdProvider = Provider<String>((ref) => ref.watch(prefsProvider).userId);
+/// The signed-in citizen's account id.
+///
+/// Watches [authProvider] so it is recomputed on every sign-in and sign-out.
+/// It used to read prefs once and cache that string for the life of the
+/// process, while the token reader above runs fresh on every request — so
+/// after an account switch the app asked for the PREVIOUS account's history
+/// holding the NEW account's token, and the server refused every such call.
+/// That surfaced as a permanent "That belongs to another account" pill and,
+/// less visibly, an empty report list.
+final userIdProvider = Provider<String>((ref) {
+  ref.watch(authProvider);
+  return ref.read(prefsProvider).userId;
+});
 
 /// The citizen's local profile picture (a file path), or null. Reactive so the
 /// avatar in the app bar and the profile screen update the moment it is set.
@@ -244,9 +256,15 @@ class CoordinatorAuthNotifier extends Notifier<Coordinator?> {
           otp: otp,
         );
     await ref.read(coordinatorStoreProvider).saveSession(c);
+    // One device acts as one account at a time, and the two roles share a
+    // single token slot — so end any citizen session first. Writing the
+    // coordinator's token over it while the citizen's "signed in" flag stayed
+    // set left the app believing both were active at once.
+    await ref.read(prefsProvider).clearSession();
     // Token lives in Prefs (shared with the citizen flow), not the cached
     // coordinator profile, so the interceptor finds it on a warm start too.
     await ref.read(prefsProvider).setSessionToken(c.token);
+    ref.invalidate(authProvider);
     state = c;
     await PushService.instance.bind(
       api: ref.read(apiClientProvider),
@@ -259,9 +277,12 @@ class CoordinatorAuthNotifier extends Notifier<Coordinator?> {
   Future<void> signOut() async {
     await PushService.instance.unbind(ref.read(apiClientProvider));
     await ref.read(coordinatorStoreProvider).clearSession();
-    await ref.read(prefsProvider).clearSessionToken();
-    await ref.read(prefsProvider).clearAvatar();
+    // Citizen and coordinator share one token slot, so clearing just the token
+    // used to leave the citizen's "signed in" flag set with no token behind it:
+    // the next cold start routed to the citizen home and every request 401'd.
+    await ref.read(prefsProvider).clearSession();
     ref.invalidate(avatarProvider);
+    ref.invalidate(authProvider);
     state = null;
   }
 }

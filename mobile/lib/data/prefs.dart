@@ -87,10 +87,16 @@ class Prefs {
   /// Sign out: end the session and drop this account's PIN, so the next
   /// person on this phone cannot unlock into it. Name and phone stay to
   /// prefill the next login.
+  ///
+  /// The account id goes too. It used to survive, and anything still holding
+  /// it went on naming the signed-out account — which, once somebody else
+  /// signed in here, meant requests carrying one account's id and the other's
+  /// token. The prefill needs the name and phone, not the id.
   Future<void> clearSession() async {
     await _prefs.remove(_pinHashKey);
     await _prefs.remove(_sessionTokenKey);
     await _prefs.remove(_avatarPathKey);
+    await _prefs.remove(_accountIdKey);
     await _prefs.setBool(_authedKey, false);
   }
 

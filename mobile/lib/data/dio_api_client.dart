@@ -215,16 +215,16 @@ class DioApiClient implements ApiClient {
 
   @override
   Future<List<Issue>> fetchHistory(String userId) =>
-      _get('/api/issues/history/$userId', parse: _issueList);
+      _get('/api/issues/history/$_self', parse: _issueList);
 
   @override
   Future<List<Issue>> fetchSupported(String userId) =>
-      _get('/api/issues/supported/$userId', parse: _issueList);
+      _get('/api/issues/supported/$_self', parse: _issueList);
 
   @override
   Future<({int reports, int upvotes, int resolved, int open})> fetchUserStats(
           String userId) =>
-      _get('/api/issues/stats/$userId', parse: (d) {
+      _get('/api/issues/stats/$_self', parse: (d) {
         final m = d as Map<String, dynamic>;
         int n(String k) => (m[k] as num?)?.toInt() ?? 0;
         return (
@@ -412,6 +412,15 @@ class DioApiClient implements ApiClient {
           {required String coordinator}) =>
       _coordPost('/api/coordinator/issues/$issueId/keep-separate',
           {'coordinator': coordinator});
+
+  /// What we put where our own account id would go.
+  ///
+  /// The session token already names the caller, and the server resolves this
+  /// to it. Sending a locally-stored copy of the id instead is what produced
+  /// "That belongs to another account": the token was always current, but the
+  /// stored id could be a previous account's, and every call carrying it was
+  /// refused — silently breaking the citizen's own report list.
+  static const _self = 'me';
 
   Future<Issue> _coordPost(
     String path, [

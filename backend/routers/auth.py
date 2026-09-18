@@ -292,10 +292,14 @@ def citizen_login(
                     "name. Enter the name it was registered with."
                 ),
             )
+        stamp = session_auth.new_stamp()
+        conn.execute(
+            "UPDATE users SET session_epoch = ? WHERE id = ?", (stamp, row["id"])
+        )
         return {
             **_serialize_user(row),
             "created": False,
-            "token": session_auth.issue("citizen", row["id"]),
+            "token": session_auth.issue("citizen", row["id"], stamp),
         }
 
     user_id = new_id()
@@ -303,11 +307,15 @@ def citizen_login(
         "INSERT INTO users (id, name, phone, created_at) VALUES (?, ?, ?, ?)",
         (user_id, clean_name, clean_phone, now_iso()),
     )
+    stamp = session_auth.new_stamp()
+    conn.execute(
+        "UPDATE users SET session_epoch = ? WHERE id = ?", (stamp, user_id)
+    )
     row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
     return {
         **_serialize_user(row),
         "created": True,
-        "token": session_auth.issue("citizen", user_id),
+        "token": session_auth.issue("citizen", user_id, stamp),
     }
 
 
@@ -403,6 +411,10 @@ def coordinator_login(
         raise HTTPException(status_code=400, detail="Enter a valid 10-digit mobile number.")
     _verify_otp(conn, clean_phone, otp)
     row = _match_coordinator(conn, name, clean_phone)
+    stamp = session_auth.new_stamp()
+    conn.execute(
+        "UPDATE coordinators SET session_epoch = ? WHERE id = ?", (stamp, row["id"])
+    )
     return {
         "id": row["id"],
         "username": row["username"],
@@ -411,7 +423,9 @@ def coordinator_login(
         "constituency": row["constituency"],
         "home_ward": row["home_ward"],
         "must_change_password": False,
-        "token": session_auth.issue("coordinator", row["username"].lower()),
+        "token": session_auth.issue(
+            "coordinator", row["username"].lower(), stamp
+        ),
     }
 
 

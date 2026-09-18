@@ -86,11 +86,30 @@ def _sign(payload: bytes) -> str:
     return _b64(hmac.new(_secret(), payload, hashlib.sha256).digest())
 
 
-def issue(kind: str, subject: str) -> str:
-    """Mint a token for a verified citizen (user id) or coordinator (username)."""
+def new_stamp() -> str:
+    """A fresh sign-in stamp, recorded on the account and sealed into its token.
+
+    This is what makes signing in somewhere else end the older session. The
+    token is self-contained and the server keeps no session table, so without a
+    value to compare against, every token ever minted stays valid until it
+    expires — up to 180 days — and a new sign-in could not revoke the old
+    device. Storing the newest stamp means exactly one token per account
+    verifies: the most recent one.
+    """
+    return secrets.token_hex(8)
+
+
+def issue(kind: str, subject: str, stamp: str = "") -> str:
+    """Mint a token for a verified citizen (user id) or coordinator (username).
+
+    [stamp] is the value just written to the account. Tokens minted before
+    stamps existed carry none and are accepted until that account next signs
+    in, which is the point at which older devices should drop out anyway.
+    """
     days = CITIZEN_DAYS if kind == "citizen" else COORDINATOR_DAYS
     payload = json.dumps(
-        {"k": kind, "s": subject, "exp": int(time.time()) + days * 86400},
+        {"k": kind, "s": subject, "exp": int(time.time()) + days * 86400,
+         "v": stamp},
         separators=(",", ":"),
     ).encode("utf-8")
     return f"{_b64(payload)}.{_sign(payload)}"
@@ -118,6 +137,25 @@ def _sign_in_again() -> None:
     )
 
 
+def _signed_in_elsewhere() -> None:
+    """This account signed in on another device; this token is the older one.
+
+    401 rather than 403 on purpose: the clients already treat 401 as "clear the
+    local session and go to sign-in", which is exactly the required behaviour.
+    """
+    raise HTTPException(
+        status_code=401,
+        detail="You signed in on another device. Please sign in again here.",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
+def _stamp_matches(stored, presented: str) -> bool:
+    """An account with no stored stamp predates this and accepts any token."""
+    current = (stored or "")
+    return not current or current == (presented or "")
+
+
 def _read(authorization: str, x_session_token: str):
     token = (x_session_token or "").strip()
     if not token and authorization.lower().startswith("bearer "):
@@ -125,22 +163,28 @@ def _read(authorization: str, x_session_token: str):
     return _decode(token) if token else None
 
 
-def _citizen(conn, user_id: str) -> str:
+def _citizen(conn, user_id: str, stamp: str = "") -> str:
     # A token outlives the account it names, so a deleted account lands here.
-    if not user_id or conn.execute(
-        "SELECT 1 FROM users WHERE id = ?", (user_id,)
-    ).fetchone() is None:
+    row = conn.execute(
+        "SELECT session_epoch FROM users WHERE id = ?", (user_id,)
+    ).fetchone() if user_id else None
+    if row is None:
         _sign_in_again()
+    if not _stamp_matches(row["session_epoch"], stamp):
+        _signed_in_elsewhere()
     return user_id
 
 
-def _coordinator(conn, username: str) -> str:
+def _coordinator(conn, username: str, stamp: str = "") -> str:
     who = (username or "").strip().lower()
     row = conn.execute(
-        "SELECT status FROM coordinators WHERE LOWER(username) = ?", (who,)
+        "SELECT status, session_epoch FROM coordinators WHERE LOWER(username) = ?",
+        (who,),
     ).fetchone() if who else None
     if row is None:
         _sign_in_again()
+    if not _stamp_matches(row["session_epoch"], stamp):
+        _signed_in_elsewhere()
     # Checked on every request, so disabling an account in the admin console
     # takes effect on the coordinator's next tap.
     if (row[0] or "active").lower() != "active":
@@ -160,7 +204,7 @@ def citizen_session(
     data = _read(authorization, x_session_token)
     if not data or data.get("k") != "citizen":
         _sign_in_again()
-    return _citizen(conn, str(data.get("s") or ""))
+    return _citizen(conn, str(data.get("s") or ""), str(data.get("v") or ""))
 
 
 def coordinator_session(
@@ -172,7 +216,7 @@ def coordinator_session(
     data = _read(authorization, x_session_token)
     if not data or data.get("k") != "coordinator":
         _sign_in_again()
-    return _coordinator(conn, str(data.get("s") or ""))
+    return _coordinator(conn, str(data.get("s") or ""), str(data.get("v") or ""))
 
 
 def any_session(
@@ -184,11 +228,28 @@ def any_session(
     data = _read(authorization, x_session_token)
     kind = (data or {}).get("k")
     subject = str((data or {}).get("s") or "")
+    stamp = str((data or {}).get("v") or "")
     if kind == "citizen":
-        return kind, _citizen(conn, subject)
+        return kind, _citizen(conn, subject, stamp)
     if kind == "coordinator":
-        return kind, _coordinator(conn, subject)
+        return kind, _coordinator(conn, subject, stamp)
     _sign_in_again()
+
+
+#: What a client sends instead of repeating its own account id.
+SELF = "me"
+
+
+def resolve_self(user_id: str, session_uid: str) -> str:
+    """Accept the literal "me" in place of the caller's own account id.
+
+    Several endpoints take the account in the URL path, where an empty value
+    cannot be sent — so a client had to repeat an id it also stores locally,
+    and any drift between that copy and the token meant every one of those
+    calls was refused. "me" lets the caller name itself without holding a
+    second copy of its identity that can go stale.
+    """
+    return session_uid if (user_id or "").strip() == SELF else user_id
 
 
 def require_same_citizen(session_uid: str, user_id: str) -> None:
@@ -214,7 +275,7 @@ def require_same_coordinator(session_username: str, username: str) -> str:
 def require_recipient(session: tuple, recipient_type: str, recipient_id: str) -> None:
     """Notifications and push tokens may only be read or bound by their owner."""
     kind, account = session
-    rid = (recipient_id or "").strip()
+    rid = resolve_self((recipient_id or "").strip(), account)
     same = rid.lower() == account if kind == "coordinator" else rid == account
     if (recipient_type or "").strip() != kind or not same:
         raise HTTPException(
