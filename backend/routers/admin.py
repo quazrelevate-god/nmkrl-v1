@@ -475,3 +475,52 @@ def summarise_attached_document(
             (json.dumps(result), issue_id),
         )
     return {**result, "cached": False}
+
+
+# ── DESTRUCTIVE: reset to a clean slate for testing ────────────────────────
+#
+# Double-gated: the whole admin router already requires admin auth, AND this
+# refuses unless ALLOW_DB_RESET is set on the environment. It wipes all
+# user-generated data (grievances, accounts, coordinators, notifications) and
+# every uploaded file, leaving an empty schema. It keeps the session signing
+# key (app_secrets) and the department officer directory (dept_officers, which
+# re-seeds on boot and is routing config, not test data). Admin sign-in is
+# env-based, so it is unaffected.
+_RESET_TABLES = [
+    "issues", "users", "upvotes", "verifications", "coordinators",
+    "otp_codes", "notifications", "device_tokens", "issue_events",
+    "location_logs", "content_reports",
+]
+
+
+@router.post("/reset-all")
+def reset_all_data(conn=Depends(get_db)):
+    if os.getenv("ALLOW_DB_RESET", "").strip().lower() not in ("1", "true", "yes"):
+        raise HTTPException(
+            status_code=403,
+            detail="Reset is disabled. Set ALLOW_DB_RESET=1 on the backend to enable it.",
+        )
+    wiped = {}
+    for table in _RESET_TABLES:
+        try:
+            n = conn.execute(f"SELECT COUNT(*) AS c FROM {table}").fetchone()["c"]
+            conn.execute(f"DELETE FROM {table}")
+            wiped[table] = n
+        except Exception as exc:  # noqa: BLE001
+            wiped[table] = f"skipped ({exc})"
+    conn.commit()
+
+    from utils import IMAGE_DIR, AUDIO_DIR, DOC_DIR, ensure_upload_dirs
+    files_removed = 0
+    for directory in (IMAGE_DIR, AUDIO_DIR, DOC_DIR):
+        if os.path.isdir(directory):
+            for name in os.listdir(directory):
+                path = os.path.join(directory, name)
+                try:
+                    if os.path.isfile(path):
+                        os.remove(path)
+                        files_removed += 1
+                except OSError:
+                    pass
+    ensure_upload_dirs()
+    return {"ok": True, "wiped": wiped, "files_removed": files_removed}
