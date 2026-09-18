@@ -49,6 +49,9 @@ def list_admin_issues(
     department: str = Query(None),
     constituency: str = Query(None),
     q: str = Query(None),
+    unassigned: bool = Query(False),
+    since: str = Query(None),
+    board: bool = Query(False),
     limit: int = Query(None),
     offset: int = Query(0),
     conn=Depends(get_db),
@@ -103,6 +106,18 @@ def list_admin_issues(
             " OR LOWER(COALESCE(name,'')) LIKE ? OR COALESCE(phone,'') LIKE ?)"
         )
         params.extend([needle, needle, needle, needle])
+    if unassigned:
+        clauses.append("(assigned_coordinator IS NULL OR assigned_coordinator = '')")
+    if since:
+        clauses.append("created_at >= ?")
+        params.append(since)
+    if board:
+        # The Tickets board is everything past verification — SUBMITTED lives in
+        # Petition Review and FALSE/MERGED are off the queue. Lets the "All" tab
+        # page server-side instead of pulling every row to filter in the browser.
+        clauses.append(
+            "status IN ('ACTIVE','FORWARDED','IN_PROGRESS','PENDING_VERIFICATION','CLOSED')"
+        )
 
     where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
     # Sort in SQL, not in Python: the old code pulled every row and sorted the
@@ -131,6 +146,60 @@ def list_admin_issues(
     rows = conn.execute(sql, params).fetchall()
     issues = [serialize_issue(r) for r in rows]
     return {"count": len(issues), "issues": issues}
+
+
+@router.get("/issues/stats")
+def admin_issue_stats(
+    zone: str = Query(None),
+    ward: int = Query(None),
+    coordinator: str = Query(None),
+    department: str = Query(None),
+    constituency: str = Query(None),
+    q: str = Query(None),
+    unassigned: bool = Query(False),
+    since: str = Query(None),
+    conn=Depends(get_db),
+):
+    """Per-status counts for the ticket queue, so the console's tab badges stay
+    accurate while the list itself is paged. Applies the same scoping filters as
+    /issues (everything EXCEPT status — status is what we're counting), then
+    GROUPs BY status in SQL. One cheap aggregate instead of shipping every row to
+    the browser to be counted there.
+    """
+    clauses, params = [], []
+    if zone:
+        clauses.append("zone = ?"); params.append(zone)
+    if ward is not None:
+        clauses.append("ward_no = ?"); params.append(ward)
+    if coordinator:
+        clauses.append("assigned_coordinator = ?"); params.append(coordinator)
+    if department:
+        clauses.append("department = ?"); params.append(department)
+    if constituency:
+        wards = CHENNAI_AC_MAP.get(constituency, [])
+        if wards:
+            placeholders = ",".join("?" for _ in wards)
+            clauses.append(f"CAST(ward_no AS TEXT) IN ({placeholders})")
+            params.extend(wards)
+        else:
+            clauses.append("1 = 0")
+    if q:
+        needle = f"%{q.strip().lower()}%"
+        clauses.append(
+            "(LOWER(COALESCE(ticket_number,'')) LIKE ? OR LOWER(COALESCE(title,'')) LIKE ?"
+            " OR LOWER(COALESCE(name,'')) LIKE ? OR COALESCE(phone,'') LIKE ?)"
+        )
+        params.extend([needle, needle, needle, needle])
+    if unassigned:
+        clauses.append("(assigned_coordinator IS NULL OR assigned_coordinator = '')")
+    if since:
+        clauses.append("created_at >= ?"); params.append(since)
+    where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+    rows = conn.execute(
+        f"SELECT status, COUNT(*) AS c FROM issues{where} GROUP BY status", params
+    ).fetchall()
+    counts = {r["status"]: r["c"] for r in rows}
+    return {"total": sum(counts.values()), "counts": counts}
 
 
 @router.get("/users")
@@ -298,6 +367,72 @@ def forward_issue(issue_id: str, conn=Depends(get_db)):
               "Your grievance was forwarded to the responsible department.",
               "A grievance you hold was forwarded by the MLA office.",
               "admin_forward", issue["status"])
+    return serialize_issue(row)
+
+
+@router.post("/issues/{issue_id}/assign")
+def assign_coordinator(
+    issue_id: str,
+    coordinator: str = Form(""),
+    conn=Depends(get_db),
+):
+    """MLA office assigns (or reassigns) a grievance to a coordinator.
+
+    Assignment used to happen only one way — a coordinator self-claiming an
+    unassigned ward grievance in the mobile app. The MLA office had no way to
+    hand a specific grievance to a specific coordinator from the console, which
+    is exactly what the constituency model needs: any coordinator in the AC can
+    be pointed at any grievance. This is that control.
+
+    `coordinator` empty un-assigns. A real, active account is required otherwise.
+    Assignment is orthogonal to the lifecycle — it never changes the status — and
+    terminal grievances (closed / false / merged) cannot be reassigned.
+    """
+    issue = conn.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
+    if issue is None:
+        raise HTTPException(status_code=404, detail="Issue not found")
+    if issue["status"] in ("CLOSED", "FALSE", "MERGED"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"A {issue['status'].lower()} grievance cannot be reassigned.",
+        )
+    who = (coordinator or "").strip().lower()
+    if who:
+        crow = conn.execute(
+            "SELECT username, status FROM coordinators WHERE LOWER(username) = ?", (who,)
+        ).fetchone()
+        if crow is None:
+            raise HTTPException(status_code=400, detail=f"Unknown coordinator '{who}'.")
+        if (crow["status"] or "active").lower() != "active":
+            raise HTTPException(
+                status_code=400, detail="That coordinator account is disabled."
+            )
+        conn.execute(
+            "UPDATE issues SET assigned_coordinator = ?, "
+            "assigned_at = COALESCE(assigned_at, ?) WHERE id = ?",
+            (who, now_iso(), issue_id),
+        )
+        note = f"Assigned to @{who} by the MLA office."
+    else:
+        conn.execute(
+            "UPDATE issues SET assigned_coordinator = '' WHERE id = ?", (issue_id,)
+        )
+        note = "Unassigned by the MLA office."
+    row = conn.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
+    # Notify the newly-assigned coordinator (the updated row now names them); an
+    # unassign has no owner to tell. Best-effort — never fail the assignment.
+    if who:
+        try:
+            emit_to_coordinator(
+                conn, row, "assigned",
+                "The MLA office assigned this grievance to you.",
+            )
+        except Exception:
+            pass
+    audit.record(
+        conn, issue_id, action="assign", actor_type="admin", actor_id="admin",
+        from_status=issue["status"], to_status=row["status"], note=note,
+    )
     return serialize_issue(row)
 
 
