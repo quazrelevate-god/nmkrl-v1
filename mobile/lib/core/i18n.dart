@@ -290,6 +290,29 @@ const Map<String, String> _ta = {
   'Escalated': 'மேல்முறையீடு',
   'Assign Grievance': 'குறையை ஒதுக்கு',
   'False Petition': 'தவறான மனு',
+  // Duplicate review — the coordinator decides whether two reports describe
+  // the same problem, and merges them into one ticket if they do.
+  'Possible duplicate': 'நகல் இருக்கலாம்',
+  'Review': 'பரிசீலி',
+  'Already reviewed': 'ஏற்கனவே பரிசீலிக்கப்பட்டது',
+  'This grievance was merged into another.':
+      'இந்தக் குறை மற்றொன்றுடன் இணைக்கப்பட்டது.',
+  'This was confirmed as a separate grievance.':
+      'இது தனிக் குறை என உறுதிசெய்யப்பட்டது.',
+  'The matching grievance is no longer available.':
+      'பொருந்திய குறை இப்போது கிடைக்கவில்லை.',
+  'A similar grievance was already reported nearby. Compare them, then merge into one ticket or keep this as its own.':
+      'இதே போன்ற குறை அருகில் ஏற்கனவே பதிவாகியுள்ளது. இரண்டையும் ஒப்பிட்டு, ஒரே டிக்கெட்டாக இணைக்கவும் அல்லது இதைத் தனியாக வைக்கவும்.',
+  'THIS REPORT': 'இந்தப் புகார்',
+  'ALREADY REPORTED': 'ஏற்கனவே பதிவானது',
+  'supporting': 'ஆதரவு',
+  'Merge into one grievance': 'ஒரே குறையாக இணை',
+  'Keep as a separate grievance': 'தனிக் குறையாக வைத்திரு',
+  'In Ward': 'வார்டு',
+  'merging moves this report to that ward’s ticket.':
+      'இணைத்தால் இந்தப் புகார் அந்த வார்டின் டிக்கெட்டுக்கு மாறும்.',
+  'Merging keeps this citizen’s photo and voice note as evidence on the original, adds their support to it, and tells them it is being prioritised.':
+      'இணைக்கும்போது இந்தக் குடிமகனின் புகைப்படமும் குரல் குறிப்பும் மூலக் குறையில் ஆதாரமாகச் சேர்க்கப்படும், அவரது ஆதரவும் சேரும், முன்னுரிமை அளிக்கப்படுவதாக அவருக்குத் தெரிவிக்கப்படும்.',
   'Dept. Transfer': 'துறை மாற்றம்',
   'Transferred': 'மாற்றப்பட்டது',
   'Escalate': 'மேல்முறையீடு',
