@@ -13,6 +13,7 @@ import {
   ClipboardCheck, ShieldCheck, ImageIcon, Volume2, MapPin, Phone,
   ThumbsUp, Search, X, Landmark, ArrowRightLeft, Ban, Send,
   Sparkles, MessageSquare, UserCog, History, Loader2,
+  GitMerge, AlertCircle,
 } from "lucide-react";
 import { useAdminData } from "@/components/admin/AdminDataProvider";
 import TicketDrawer from "@/components/admin/TicketDrawer";
@@ -58,6 +59,9 @@ export default function PetitionReviewPage() {
   const { pending, issues, loading, reload } = useAdminData();
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(null);
+  // Comparing a duplicate means opening its original and coming back, so the
+  // drawer keeps a trail rather than a single selection.
+  const [trail, setTrail] = useState([]);
   const [busyId, setBusyId] = useState(null);
   const [tab, setTab] = useState("pending");
   const [coordMap, setCoordMap] = useState({});
@@ -186,6 +190,19 @@ export default function PetitionReviewPage() {
                             <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-brand" />
                             <span className="text-[11px] font-bold uppercase tracking-wide text-brand">Pending</span>
                           </span>
+                          {/* Flagged by the duplicate check and not yet ruled on.
+                              Shown in the queue so it is clear which rows need a
+                              decision before anyone starts work on them. */}
+                          {issue.possible_duplicate_id && !issue.duplicate_decision && (
+                            <span className="mt-1 flex w-fit items-center gap-1 whitespace-nowrap rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-700 ring-1 ring-amber-200">
+                              <GitMerge size={9} /> Duplicate
+                            </span>
+                          )}
+                          {issue.processing_error && (
+                            <span className="mt-1 flex w-fit items-center gap-1 whitespace-nowrap rounded-md bg-rose-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-rose-700 ring-1 ring-rose-200">
+                              <AlertCircle size={9} /> Needs retry
+                            </span>
+                          )}
                         </td>
                         {/* Citizen */}
                         <td className="px-3 py-3.5">
@@ -257,8 +274,23 @@ export default function PetitionReviewPage() {
       {selected && (
         <TicketDrawer
           issue={selected}
-          onClose={() => setSelected(null)}
-          onChanged={async () => { await reload(); setSelected(null); }}
+          onClose={() => { setSelected(null); setTrail([]); }}
+          onChanged={async (updated) => {
+            await reload();
+            // A duplicate ruling passes nothing and keeps the drawer open on
+            // the same grievance; every other action closes it as before.
+            if (updated !== null) { setSelected(null); setTrail([]); }
+          }}
+          onOpenIssue={(id) => {
+            const next = issues.find((i) => i.id === id);
+            if (!next) return;
+            setTrail((t) => [...t, selected]);
+            setSelected(next);
+          }}
+          onBack={trail.length ? () => {
+            setSelected(trail[trail.length - 1]);
+            setTrail((t) => t.slice(0, -1));
+          } : null}
         />
       )}
     </>

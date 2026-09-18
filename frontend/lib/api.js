@@ -267,6 +267,58 @@ export async function adminVerifyGrievance(issueId) {
   return handle(res);
 }
 
+/* ── Duplicates: review, merge, undo ──────────────────────────────────────
+ * Detection runs on the backend when a report arrives; ruling on it is staff
+ * work. The citizen is never asked and never sees these.
+ * ──────────────────────────────────────────────────────────────────────── */
+
+/** The suspected original, plus any reports already merged into this one. */
+export async function fetchDuplicateContext(issueId) {
+  const res = await fetch(`${API_BASE}/api/admin/issues/${issueId}/duplicate`, {
+    headers: adminHeaders(),
+  });
+  return handle(res);
+}
+
+/** Fold this grievance into the one it duplicates. */
+export async function adminMergeDuplicate(issueId, parentId) {
+  const fd = new FormData();
+  fd.append("parent_id", parentId);
+  const res = await fetch(`${API_BASE}/api/admin/issues/${issueId}/merge`, {
+    method: "POST",
+    headers: adminHeaders(),
+    body: fd,
+  });
+  return handle(res);
+}
+
+/** Rule that the flagged grievance is a different problem after all. */
+export async function adminKeepSeparate(issueId) {
+  const res = await fetch(`${API_BASE}/api/admin/issues/${issueId}/keep-separate`, {
+    method: "POST",
+    headers: adminHeaders(),
+  });
+  return handle(res);
+}
+
+/** Reverse a merge — restores the grievance as its own ticket. */
+export async function adminUnmergeDuplicate(issueId) {
+  const res = await fetch(`${API_BASE}/api/admin/issues/${issueId}/unmerge`, {
+    method: "POST",
+    headers: adminHeaders(),
+  });
+  return handle(res);
+}
+
+/** Retry a transcription/routing that failed in the background. */
+export async function adminReprocessIssue(issueId) {
+  const res = await fetch(`${API_BASE}/api/admin/issues/${issueId}/reprocess`, {
+    method: "POST",
+    headers: adminHeaders(),
+  });
+  return handle(res);
+}
+
 /* ── Coordinator action endpoints (update the citizen-facing status) ── */
 
 /** Coordinator ward listing — includes every status (SUBMITTED, ACTIVE, …). */

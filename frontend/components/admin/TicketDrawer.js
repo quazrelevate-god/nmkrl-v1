@@ -19,8 +19,14 @@ import {
   ShieldCheck, Send, CheckCircle2, Clock, Landmark, Hash, Flag, FileText, Mic, Square, Camera,
   ChevronDown, ExternalLink, Loader2,
   Route, CornerDownRight, UserCheck, AlertCircle, MessageCircle,
+  GitMerge, Split, RotateCw, Undo2, Users2,
 } from "lucide-react";
-import { mediaUrl, adminVerifyGrievance, adminForwardIssue, adminCloseIssue, fetchOfficerContacts, fetchIssueTimeline, summariseDocument } from "@/lib/api";
+import {
+  mediaUrl, adminVerifyGrievance, adminForwardIssue, adminCloseIssue,
+  fetchOfficerContacts, fetchIssueTimeline, summariseDocument,
+  fetchDuplicateContext, adminMergeDuplicate, adminKeepSeparate,
+  adminUnmergeDuplicate, adminReprocessIssue,
+} from "@/lib/api";
 import { departmentMeta } from "@/lib/departments";
 import { loadDeptTree, resolveRouting } from "@/lib/deptRouting";
 
@@ -55,7 +61,7 @@ const LIFECYCLE = [
 ];
 const STAGE_INDEX = { SUBMITTED: 0, ACTIVE: 1, FORWARDED: 2, IN_PROGRESS: 3, PENDING_VERIFICATION: 4, CLOSED: 5 };
 
-export default function TicketDrawer({ issue, onClose, onChanged }) {
+export default function TicketDrawer({ issue, onClose, onChanged, onOpenIssue, onBack }) {
   const [busy, setBusy] = useState(null);
   const [error, setError] = useState(null);
   const [wa, setWa] = useState(false);
@@ -63,6 +69,10 @@ export default function TicketDrawer({ issue, onClose, onChanged }) {
   const [routing, setRouting] = useState(null);
   const [contact, setContact] = useState(null);
   const [closure, setClosure] = useState(null); // the closing event, from the timeline
+  // Duplicate context: the suspected original, and any reports already folded
+  // into this one. Fetched per ticket — the flag alone sits on the issue row,
+  // but the original's ticket number, photo and distance do not.
+  const [dup, setDup] = useState(null);
 
   // Resolve the AI routing chain (Gov Dept → … → Responsible Officer) + look up
   // the officer's configured contact whenever the ticket changes; re-check the
@@ -79,6 +89,16 @@ export default function TicketDrawer({ issue, onClose, onChanged }) {
       setRouting(current);
       setContact(pickContact(current, contacts));
     });
+    return () => { alive = false; };
+  }, [issue]);
+
+  useEffect(() => {
+    if (!issue) return undefined;
+    let alive = true;
+    setDup(null);
+    fetchDuplicateContext(issue.id)
+      .then((d) => { if (alive) setDup(d); })
+      .catch(() => { if (alive) setDup(null); });
     return () => { alive = false; };
   }, [issue]);
 
@@ -129,6 +149,18 @@ export default function TicketDrawer({ issue, onClose, onChanged }) {
     finally { setBusy(null); }
   }
 
+  // A duplicate ruling keeps the admin on this grievance rather than closing
+  // the drawer, so they can see what became of it.
+  async function rule(key, fn) {
+    setBusy(key); setError(null);
+    try {
+      await fn();
+      setDup(await fetchDuplicateContext(issue.id));
+      onChanged?.(null);
+    } catch (err) { setError(err.message); }
+    finally { setBusy(null); }
+  }
+
   const canDispatch = issue.department && ["ACTIVE", "FORWARDED", "IN_PROGRESS"].includes(issue.status);
   // Dispatched already: FORWARDED, or moved on to IN_PROGRESS after a hand-off.
   // An ACTIVE ticket (new, or bounced back by the citizen) still dispatches,
@@ -156,7 +188,17 @@ export default function TicketDrawer({ issue, onClose, onChanged }) {
               <p className="flex items-center gap-1 text-[11px] text-slate-400"><Hash size={10} /> {tokenNo(issue)}</p>
             </div>
           </div>
-          <button onClick={onClose} className="rounded-full p-2 text-slate-400 hover:bg-slate-100"><X size={20} /></button>
+          <div className="flex items-center gap-1">
+            {onBack && (
+              <button
+                onClick={onBack}
+                className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[12px] font-bold text-brand hover:bg-brand/5"
+              >
+                <Undo2 size={14} /> Back to the duplicate
+              </button>
+            )}
+            <button onClick={onClose} className="rounded-full p-2 text-slate-400 hover:bg-slate-100"><X size={20} /></button>
+          </div>
         </div>
 
         {/* Two panes */}
@@ -230,6 +272,66 @@ export default function TicketDrawer({ issue, onClose, onChanged }) {
           {/* ── RIGHT: details + actions ── */}
           <div className="min-h-0 overflow-y-auto p-5 space-y-5">
             {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600">{error}</p>}
+
+            <DuplicateReview
+              issue={issue}
+              dup={dup}
+              busy={busy}
+              onOpenParent={() => dup?.parent && onOpenIssue?.(dup.parent.id)}
+              onMerge={() => rule("merge", () => adminMergeDuplicate(issue.id, dup.parent.id))}
+              onSeparate={() => rule("separate", () => adminKeepSeparate(issue.id))}
+              onUnmerge={() => rule("unmerge", () => adminUnmergeDuplicate(issue.id))}
+            />
+
+            {issue.processing_error && (
+              <div className="rounded-2xl border border-amber-200 bg-amber-50/70 p-4">
+                <p className="mb-1 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-amber-700">
+                  <AlertCircle size={12} /> Processing failed
+                </p>
+                <p className="text-[13px] text-amber-900">{issue.processing_error}</p>
+                <p className="mt-1 text-[11.5px] text-amber-800/80">
+                  The grievance was saved. The citizen was not shown this — retry to
+                  transcribe and route it from the voice note already on file.
+                </p>
+                <button
+                  onClick={() => run("reprocess", adminReprocessIssue)}
+                  disabled={busy === "reprocess"}
+                  className="mt-2.5 flex items-center gap-1.5 rounded-xl bg-amber-600 px-3 py-2 text-xs font-bold text-white hover:bg-amber-700 disabled:opacity-60"
+                >
+                  {busy === "reprocess"
+                    ? <><Loader2 size={13} className="animate-spin" /> Retrying…</>
+                    : <><RotateCw size={13} /> Retry</>}
+                </button>
+              </div>
+            )}
+
+            {!!dup?.children?.length && (
+              <div className="rounded-2xl border border-slate-200 p-4">
+                <p className="mb-2.5 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-slate-400">
+                  <Users2 size={12} /> Also reported by · {dup.children.length}
+                </p>
+                <div className="space-y-2.5">
+                  {dup.children.map((c) => (
+                    <div key={c.id} className="flex gap-3 rounded-xl bg-slate-50 p-2.5">
+                      {c.image_url ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={mediaUrl(c.image_url)} alt="" className="h-14 w-14 shrink-0 rounded-lg object-cover ring-1 ring-slate-200" />
+                      ) : (
+                        <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-slate-200 text-slate-400"><ImageIcon size={16} /></div>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-[13px] font-bold text-slate-800">{c.name || "Citizen"}</p>
+                        <p className="text-[11px] text-slate-500">{c.ticket_number}{c.phone ? ` · +91 ${c.phone}` : ""}</p>
+                        {c.transcript && <p className="mt-1 line-clamp-2 text-[11.5px] text-slate-600">{c.transcript}</p>}
+                        {c.audio_url && (
+                          <audio controls src={mediaUrl(c.audio_url)} className="mt-1.5 h-7 w-full max-w-[260px]" />
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Citizen */}
             <div className="rounded-2xl border border-slate-200 p-4">
@@ -750,6 +852,132 @@ function ResolveModal({ issue, onClose, onDone }) {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ── Duplicate review ──────────────────────────────────────────────────────
+ * The one place an admin rules on a suspected duplicate. It sits at the top of
+ * the detail pane because it is a gate: until it is answered, the grievance is
+ * waiting on a decision, and everything below it may be about to be folded
+ * into another ticket.
+ * ───────────────────────────────────────────────────────────────────────── */
+function DuplicateReview({ issue, dup, busy, onOpenParent, onMerge, onSeparate, onUnmerge }) {
+  if (!dup) return null;
+
+  // Already merged away — offer the way back out.
+  if (dup.merged_into_id) {
+    return (
+      <div className="rounded-2xl border border-slate-300 bg-slate-50 p-4">
+        <p className="mb-1 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-slate-500">
+          <GitMerge size={12} /> Merged
+        </p>
+        <p className="text-[13px] text-slate-700">
+          This grievance was folded into{" "}
+          <button onClick={onOpenParent} className="font-bold text-brand underline underline-offset-2">
+            {dup.parent?.ticket_number || "the original"}
+          </button>
+          {dup.decided_by ? ` by ${dup.decided_by}` : ""}. Its reporter follows that
+          ticket now.
+        </p>
+        <button
+          onClick={onUnmerge}
+          disabled={busy === "unmerge"}
+          className="mt-2.5 flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+        >
+          {busy === "unmerge"
+            ? <><Loader2 size={13} className="animate-spin" /> Undoing…</>
+            : <><Undo2 size={13} /> Undo merge</>}
+        </button>
+      </div>
+    );
+  }
+
+  if (!dup.awaiting_review) {
+    // Ruled separate: say so quietly, so nobody re-litigates it.
+    if (dup.decision === "separate") {
+      return (
+        <p className="flex items-center gap-1.5 rounded-xl bg-slate-50 px-3 py-2 text-[11.5px] text-slate-500">
+          <Split size={12} /> Reviewed as a separate grievance
+          {dup.decided_by ? ` by ${dup.decided_by}` : ""}.
+        </p>
+      );
+    }
+    return null;
+  }
+
+  const parent = dup.parent;
+  return (
+    <div className="rounded-2xl border-2 border-amber-300 bg-amber-50/70 p-4">
+      <p className="mb-1 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-amber-700">
+        <GitMerge size={12} /> Duplicate found
+      </p>
+      <p className="text-[13.5px] font-semibold text-amber-950">
+        A duplicate similar grievance has been found.
+      </p>
+
+      {parent ? (
+        <>
+          <div className="mt-3 flex gap-3 rounded-xl bg-white/80 p-2.5 ring-1 ring-amber-200">
+            {parent.image_url ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={mediaUrl(parent.image_url)} alt="" className="h-16 w-16 shrink-0 rounded-lg object-cover ring-1 ring-slate-200" />
+            ) : (
+              <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-400"><ImageIcon size={16} /></div>
+            )}
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-[13px] font-extrabold text-slate-900">{parent.title || "Untitled"}</p>
+              <p className="text-[11px] font-bold text-brand">{parent.ticket_number}</p>
+              <p className="mt-0.5 text-[11px] text-slate-500">
+                {parent.distance_m} m away · {parent.upvotes} supporting
+                {parent.same_ward ? "" : ` · Ward ${parent.ward_no ?? "?"}`}
+              </p>
+              {!parent.same_ward && (
+                <p className="mt-0.5 text-[11px] font-semibold text-amber-700">
+                  In a different ward — merging moves this report to that ticket.
+                </p>
+              )}
+            </div>
+          </div>
+
+          <button
+            onClick={onOpenParent}
+            className="mt-2 flex items-center gap-1.5 text-[12px] font-bold text-brand hover:underline"
+          >
+            <ExternalLink size={12} /> Open the original to compare
+          </button>
+
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              onClick={onMerge}
+              disabled={!!busy}
+              className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-brand to-brand-dark px-3.5 py-2 text-xs font-bold text-white shadow-lg shadow-brand/25 disabled:opacity-60"
+            >
+              {busy === "merge"
+                ? <><Loader2 size={13} className="animate-spin" /> Merging…</>
+                : <><GitMerge size={13} className="text-amber-300" /> Merge into {parent.ticket_number}</>}
+            </button>
+            <button
+              onClick={onSeparate}
+              disabled={!!busy}
+              className="flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+            >
+              {busy === "separate"
+                ? <><Loader2 size={13} className="animate-spin" /> Saving…</>
+                : <><Split size={13} /> Submit as a separate grievance</>}
+            </button>
+          </div>
+          <p className="mt-2 text-[11px] text-amber-800/80">
+            Merging keeps this citizen&apos;s photo and voice note as evidence on the
+            original, adds their support to it, and tells them it is being prioritised.
+          </p>
+        </>
+      ) : (
+        <p className="mt-2 text-[12px] text-amber-800">
+          The grievance it matched is no longer available.{" "}
+          <button onClick={onSeparate} className="font-bold underline">Keep this as its own grievance</button>.
+        </p>
+      )}
     </div>
   );
 }
