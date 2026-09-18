@@ -19,7 +19,7 @@ import audit
 import boundaries
 from database import get_connection, get_db
 from session_auth import citizen_session, require_same_citizen
-from gemini_service import check_duplicate, classify_department, process_audio
+from gemini_service import ai_available, check_duplicate, classify_department, process_audio
 from utils import (
     haversine_m,
     new_id,
@@ -101,6 +101,13 @@ def _finish_report(
         except Exception:
             department = ""
 
+        # Duplicate detection. With a Gemini key, ask the model whether this
+        # report describes the same problem as an open one nearby (semantic).
+        # Without a key — the deliberately AI-free path — fall back to a plain
+        # proximity rule so the "already reported" experience still works: the
+        # nearest OPEN grievance in the SAME ward within the radius is treated as
+        # the likely original. Proximity alone over-merges, so it is used only
+        # when the model cannot be consulted, never to override its judgement.
         dup_id = None
         if not force:
             try:
@@ -109,8 +116,13 @@ def _finish_report(
                     if i["id"] != issue_id
                 ]
                 if nearby:
-                    dup = check_duplicate(title, transcript, highlights, nearby)
-                    dup_id = dup["id"] if dup else None
+                    if ai_available():
+                        dup = check_duplicate(title, transcript, highlights, nearby)
+                        dup_id = dup["id"] if dup else None
+                    else:
+                        same_ward = [i for i in nearby if i.get("ward_no") == row["ward_no"]]
+                        if same_ward:
+                            dup_id = min(same_ward, key=lambda i: i["distance_m"])["id"]
             except Exception:
                 dup_id = None
 
@@ -142,6 +154,17 @@ def _finish_report(
             emit_new_grievance(conn, row)
         except Exception:
             pass
+        # Tell the reporter, gently, when their report looks like a duplicate of
+        # one already open nearby: "already reported — noted as added support".
+        if dup_id:
+            try:
+                from routers.notifications import emit_possible_duplicate
+                original = conn.execute(
+                    "SELECT ticket_number FROM issues WHERE id = ?", (dup_id,)
+                ).fetchone()
+                emit_possible_duplicate(conn, row, original)
+            except Exception:
+                pass
         conn.commit()
 
 

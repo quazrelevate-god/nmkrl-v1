@@ -71,6 +71,44 @@ def emit_status_change(conn, issue_row, kind: str, message: str) -> None:
     )
 
 
+def emit_possible_duplicate(conn, issue_row, original_row=None) -> None:
+    """Reassure the reporter that a matching grievance already exists nearby.
+
+    When the background check decides a fresh report likely duplicates an open
+    one close by, the citizen is told it is already being tracked and that their
+    report counts as added support — rather than being left to wonder whether it
+    was received. This is a gentle, non-blocking message: the app still offers
+    "submit anyway" / "withdraw" off `possible_duplicate_id`; this only makes the
+    outcome visible instead of silent.
+    """
+    if issue_row is None:
+        return
+    recipient = issue_row["created_by"]
+    original_ticket = ""
+    if original_row is not None:
+        try:
+            original_ticket = original_row["ticket_number"] or ""
+        except (KeyError, IndexError, TypeError):
+            original_ticket = ""
+    _insert(
+        conn,
+        recipient_type="citizen",
+        recipient_id=str(recipient or ""),
+        kind="possible_duplicate",
+        issue_id=issue_row["id"],
+        title="Already reported nearby",
+        message=(
+            "A similar grievance is already reported nearby. We've noted your "
+            "report as added support and will work to resolve it soon."
+        ),
+        data={
+            "possible_duplicate_id": issue_row["possible_duplicate_id"],
+            "original_ticket": original_ticket,
+            "ward_no": issue_row["ward_no"],
+        },
+    )
+
+
 def emit_to_coordinator(conn, issue_row, kind: str, message: str) -> None:
     """Notify the coordinator who owns this grievance.
 

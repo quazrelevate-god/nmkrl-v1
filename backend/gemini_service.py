@@ -39,6 +39,17 @@ _RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
 _MAX_ATTEMPTS = 2
 _BASE_DELAY = 0.7
 
+
+def ai_available() -> bool:
+    """True when a Gemini/Google key is configured.
+
+    Callers use this to decide whether an AI-backed step (transcription,
+    department routing, semantic duplicate detection) can run, or whether they
+    should take a non-AI fallback path instead of silently doing nothing.
+    """
+    return bool(os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY"))
+
+
 PROMPT = """You are an assistant for a civic grievance app in India.
 You will receive an audio voice note in which a citizen describes a street/civic
 problem (pothole, water logging, broken streetlight, garbage, etc.), most likely
