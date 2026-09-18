@@ -180,21 +180,17 @@ class Issue {
 
 /// Result of POST /api/issues/report: either the created issue, or a nearby
 /// duplicate to confirm against (when force=false).
+/// What came back from submitting a report.
+///
+/// Always a saved grievance now. Reporting used to answer synchronously with
+/// `{duplicate_exists, existing_issue}` so the app could put a duplicate
+/// dialog in the reporter's way; submission is fire-and-forget and duplicates
+/// are settled by staff, so there is no longer a second outcome to represent.
 class ReportOutcome {
-  const ReportOutcome({this.issue, this.duplicate});
+  const ReportOutcome({this.issue});
 
   final Issue? issue;
-  final Issue? duplicate;
 
-  bool get isDuplicate => duplicate != null;
-
-  factory ReportOutcome.fromJson(Map<String, dynamic> json) {
-    if (json['duplicate_exists'] == true && json['existing_issue'] != null) {
-      return ReportOutcome(
-        duplicate:
-            Issue.fromJson(json['existing_issue'] as Map<String, dynamic>),
-      );
-    }
-    return ReportOutcome(issue: Issue.fromJson(json));
-  }
+  factory ReportOutcome.fromJson(Map<String, dynamic> json) =>
+      ReportOutcome(issue: Issue.fromJson(json));
 }

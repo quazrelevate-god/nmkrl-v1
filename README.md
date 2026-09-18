@@ -2,9 +2,9 @@
 
 A mobile-first proof of concept for reporting and tracking civic street
 grievances. Citizens snap a photo, record a voice note in their native Indian
-language, and submit a geotagged report; the backend de-duplicates nearby
-issues, runs the audio through **Gemini** for transcription + summary, and
-exposes the lifecycle to an authority triage console.
+language, and submit a geotagged report; the backend flags nearby duplicates
+for staff to merge, runs the audio through **Gemini** for transcription +
+summary, and exposes the lifecycle to an authority triage console.
 
 ```
 ┌──────────────────────────┐        multipart / JSON        ┌──────────────────────────┐
@@ -73,7 +73,7 @@ npm run dev
 
 | Route      | Screen            | Highlights                                                                 |
 |------------|-------------------|---------------------------------------------------------------------------|
-| `/`        | Report Issue      | Geolocation, camera/gallery upload, MediaRecorder voice note + visualizer, duplicate modal, AI summary |
+| `/`        | Report Issue      | Geolocation, camera/gallery upload, MediaRecorder voice note + visualizer, AI summary |
 | `/map`     | Explore Map       | Leaflet/OSM, status-colored pins, radius circle, click → bottom-sheet with upvote |
 | `/history` | My History        | Lifecycle timeline, status badges, **verification panel** (Approve/Reject) |
 | `/admin`   | Authority Console | Desktop split view: upvote-priority queue + detail pane (image, audio, transcript, pinpoint map) |
@@ -86,7 +86,7 @@ Each function in `frontend/lib/api.js` maps 1:1 to a route below.
 
 | Method | Path                              | Purpose                                                            |
 |--------|-----------------------------------|-------------------------------------------------------------------|
-| POST   | `/api/issues/report`              | Report issue. 50m Haversine dedupe → `{duplicate_exists, existing_issue}`; else Gemini transcribe + save |
+| POST   | `/api/issues/report`              | Report issue. Saved instantly; Gemini transcribe/route and the 100m duplicate check run in the background |
 | POST   | `/api/issues/{id}/upvote`         | Upvote (one per `user_id`; second returns 409)                    |
 | GET    | `/api/issues/nearby`              | `?lat&lng&radius` (m) — issues inside the circle for the map      |
 | GET    | `/api/issues/history/{user_id}`   | A user's submissions, newest first                                |
