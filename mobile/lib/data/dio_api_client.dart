@@ -366,6 +366,12 @@ class DioApiClient implements ApiClient {
           parse: _issueList);
 
   @override
+  Future<List<Issue>> fetchCoordinatorConstituencyIssues(
+          {required String coordinator, String sort = 'recent'}) =>
+      _get('/api/coordinator/constituency?coordinator=$coordinator&sort=$sort',
+          parse: _issueList);
+
+  @override
   Future<List<Issue>> fetchCoordinatorMine(String coordinator) =>
       _get('/api/coordinator/mine/$coordinator', parse: _issueList);
 

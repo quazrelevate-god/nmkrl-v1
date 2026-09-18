@@ -101,6 +101,15 @@ abstract class ApiClient {
   Future<List<Issue>> fetchCoordinatorWardIssues(int wardNo,
       {required String coordinator, String sort = 'recent'});
 
+  /// Every grievance across the coordinator's whole CONSTITUENCY — the browse
+  /// surface for the coordinator list. Returns unassigned tickets in any of the
+  /// AC's wards plus this coordinator's own assignments (any ward); colleagues'
+  /// tickets and other constituencies are excluded server-side. The app filters
+  /// these by ward client-side (the AC's ward list comes from kChennaiAcMap).
+  /// [sort] is 'recent' (default) or 'priority' (upvotes desc).
+  Future<List<Issue>> fetchCoordinatorConstituencyIssues(
+      {required String coordinator, String sort = 'recent'});
+
   /// Every grievance the coordinator has taken ownership of (any ward, any
   /// status) — used to compute per-ward "assigned by me" counts in the ward
   /// dropdown.

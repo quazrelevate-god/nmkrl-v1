@@ -68,7 +68,10 @@ class CoordinatorHomeScreen extends ConsumerStatefulWidget {
 class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
     with WidgetsBindingObserver {
   BoundaryData? _boundaries;
-  List<Issue> _wardIssues = [];
+  // The whole constituency feed. The visible list is this, filtered to the
+  // selected ward (see the _wardIssues getter). Notifications stay ward-locked
+  // server-side; this screen is the browse/claim surface across the AC.
+  List<Issue> _allIssues = [];
   Issue? _selected;
   final Map<String, GlobalKey> _cardKeys = {};
   LatLng? _center;
@@ -76,10 +79,20 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
   String? _busyId;
   String? _toast;
 
-  late String _ward; // fixed to coord.homeWard — assigned in the admin console
+  // The AC's wards (from kChennaiAcMap) and which one the list is filtered to.
+  // '' means "All wards" (the whole constituency). Defaults to the coordinator's
+  // own home ward — their priority, and the ward their notifications come from.
+  late final List<String> _acWards;
+  late String _ward;
   CoordinatorTab _tab = CoordinatorTab.ward;
   String? _expandedId;
   String _sort = 'recent'; // 'recent' | 'priority'
+
+  /// The visible feed: the constituency feed narrowed to the selected ward, or
+  /// all of it when "All wards" (_ward == '') is selected.
+  List<Issue> get _wardIssues => _ward.isEmpty
+      ? _allIssues
+      : _allIssues.where((i) => '${i.wardNo}' == _ward).toList();
 
   final _sheetCtrl = DraggableScrollableController();
 
@@ -87,14 +100,17 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
   /// listens, so dragging never rebuilds the map underneath.
   final _sheetExtent = ValueNotifier<double>(0);
 
-  /// Bounding box of the selected ward's polygon(s) — drives the map's camera
-  /// lock, exactly as on the citizen home. Null until boundaries load.
+  /// Bounding box the map camera locks to. A single ward's polygon(s) when one
+  /// is selected; the union of every ward in the constituency when "All wards"
+  /// is selected — so the map follows the ward filter. Null until boundaries
+  /// load.
   LatLngBounds? get _wardBounds {
     final b = _boundaries;
     if (b == null) return null;
+    final wanted = _ward.isEmpty ? _acWards.toSet() : {_ward};
     final pts = <LatLng>[];
     for (final f in b.wards) {
-      if (f.ward != _ward) continue;
+      if (!wanted.contains(f.ward)) continue;
       for (final part in f.parts) {
         if (part.isNotEmpty) pts.addAll(part.first); // outer ring only
       }
@@ -138,9 +154,11 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _ward = _me.homeWard;
+    _acWards = kChennaiAcMap[_me.constituency] ??
+        (_me.homeWard.isNotEmpty ? [_me.homeWard] : const <String>[]);
+    _ward = _me.homeWard; // start on the coordinator's own ward (their priority)
     _loadBoundaries();
-    _loadWard();
+    _loadConstituency();
   }
 
   @override
@@ -156,7 +174,7 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
     // Polling stops while the app is backgrounded, so anything that happened
     // in the meantime is invisible on return. Reloading here is what makes
     // reopening the app show the truth without a force-quit.
-    if (state == AppLifecycleState.resumed) _loadWard();
+    if (state == AppLifecycleState.resumed) _loadConstituency();
   }
 
   Future<void> _loadBoundaries() async {
@@ -170,28 +188,44 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
 
   void _recenter() {
     final feats = _boundaries?.wards ?? const <BoundaryFeature>[];
+    // Centre on the selected ward, or the AC's first ward when "All" is chosen.
+    final target = _ward.isEmpty
+        ? (_acWards.isNotEmpty ? _acWards.first : '')
+        : _ward;
     for (final f in feats) {
-      if (f.ward == _ward) {
+      if (f.ward == target) {
         setState(() => _center = f.centroid());
         return;
       }
     }
   }
 
-  Future<void> _loadWard() async {
-    final w = int.tryParse(_ward);
-    if (w == null) return;
+  /// Load the whole constituency once; the ward filter narrows it client-side,
+  /// so switching wards is instant and needs no round trip.
+  Future<void> _loadConstituency() async {
     try {
-      final list = await ref.read(apiClientProvider).fetchCoordinatorWardIssues(
-            w,
-            coordinator: _me.username,
-            sort: _sort,
-          );
+      final list =
+          await ref.read(apiClientProvider).fetchCoordinatorConstituencyIssues(
+                coordinator: _me.username,
+                sort: _sort,
+              );
       if (!mounted) return;
-      setState(() => _wardIssues = list);
+      setState(() => _allIssues = list);
     } catch (e) {
       if (mounted) setState(() => _error = '$e');
     }
+  }
+
+  /// Switch the ward filter and move the map to match.
+  void _selectWard(String ward) {
+    if (ward == _ward) return;
+    HapticFeedback.selectionClick();
+    setState(() {
+      _ward = ward;
+      _expandedId = null;
+      _selected = null;
+    });
+    _recenter();
   }
 
   void _showToast(String t) {
@@ -280,7 +314,7 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
           .coordinatorVerify(issue.id, _me.username);
       _showToast('Assigned · moved to My Reports');
       setState(() => _expandedId = null);
-      await _loadWard();
+      await _loadConstituency();
     } catch (e) {
       setState(() => _error = '$e');
     } finally {
@@ -302,7 +336,7 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
           );
       _showToast('Escalated · moved to Escalated tab');
       setState(() => _expandedId = null);
-      await _loadWard();
+      await _loadConstituency();
     } catch (e) {
       setState(() => _error = '$e');
     } finally {
@@ -325,7 +359,7 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
               voice: voice,
             );
         _showToast('Transferred to $department');
-        await _loadWard();
+        await _loadConstituency();
       },
     );
     setState(() => _expandedId = null);
@@ -347,7 +381,7 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
           );
       _showToast('Closed · awaiting citizen verification');
       setState(() => _expandedId = null);
-      await _loadWard();
+      await _loadConstituency();
     } catch (e) {
       setState(() => _error = '$e');
     } finally {
@@ -370,7 +404,7 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
           );
       _showToast('Flagged as false · moved to Previous Reports');
       setState(() => _expandedId = null);
-      await _loadWard();
+      await _loadConstituency();
     } catch (e) {
       setState(() => _error = '$e');
     } finally {
@@ -462,7 +496,7 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
               left: 14,
               child: _CoordWardPill(
                 constituency: shortAC(_me.constituency),
-                ward: _ward,
+                ward: _ward.isEmpty ? context.tr('All') : _ward,
               ),
             ),
 
@@ -594,7 +628,7 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
                 // action. Reload on all of them — reloading only for arrivals
                 // is what left a closed ticket reading "Pending verification"
                 // until the app was force-quit.
-                onAnyNotification: _loadWard,
+                onAnyNotification: _loadConstituency,
               ),
             ),
 
@@ -684,11 +718,12 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
             mainAxisSize: MainAxisSize.min,
             children: [
               // Replaces the old full-width map search bar — same overlay the
-              // citizen home opens, scoped to this ward's feed.
+              // citizen home opens, over the whole constituency feed (not just
+              // the ward the list is filtered to).
               GestureDetector(
                 onTap: () => SearchOverlay.open(
                   context,
-                  issues: _wardIssues,
+                  issues: _allIssues,
                 ),
                 behavior: HitTestBehavior.opaque,
                 child: const SizedBox(
@@ -864,25 +899,132 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
     );
   }
 
+  /// Horizontal ward filter for the constituency feed. The coordinator's own
+  /// ward is pinned first (their priority); the rest of the AC's wards follow in
+  /// number order, then an "All wards" chip. Each carries a count of everything
+  /// the coordinator can see in that ward.
+  Widget _buildWardFilter() {
+    final home = _me.homeWard;
+    final others = _acWards.where((w) => w != home).toList()
+      ..sort((a, b) => (int.tryParse(a) ?? 0).compareTo(int.tryParse(b) ?? 0));
+    final wards = [if (home.isNotEmpty) home, ...others];
+    int countFor(String w) =>
+        _allIssues.where((i) => '${i.wardNo}' == w).length;
+    return SizedBox(
+      height: 34,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        padding: EdgeInsets.zero,
+        children: [
+          for (final w in wards)
+            _wardChip(
+              label: '${context.tr('Ward')} $w',
+              count: countFor(w),
+              selected: _ward == w,
+              isHome: w == home,
+              onTap: () => _selectWard(w),
+            ),
+          _wardChip(
+            label: context.tr('All wards'),
+            count: _allIssues.length,
+            selected: _ward.isEmpty,
+            isHome: false,
+            onTap: () => _selectWard(''),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _wardChip({
+    required String label,
+    required int count,
+    required bool selected,
+    required bool isHome,
+    required VoidCallback onTap,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+          decoration: BoxDecoration(
+            color: selected ? NkColors.brand : Colors.white,
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(
+                color: selected ? NkColors.brand : NkColors.slate200),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (isHome)
+                Padding(
+                  padding: const EdgeInsets.only(right: 4),
+                  child: Icon(Icons.push_pin,
+                      size: 11,
+                      color: selected ? Colors.white : NkColors.brand),
+                ),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: selected ? Colors.white : NkColors.slate700,
+                ),
+              ),
+              if (count > 0) ...[
+                const SizedBox(width: 6),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                  decoration: BoxDecoration(
+                    color: selected
+                        ? Colors.white.withValues(alpha: 0.22)
+                        : NkColors.slate100,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text('$count',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w800,
+                        color: selected ? Colors.white : NkColors.slate500,
+                      )),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildList(List<Issue> current) {
+    final scope = _ward.isEmpty
+        ? shortAC(_me.constituency)
+        : '${context.tr('Ward')} $_ward';
     final headings = [
-      '${context.tr('Open grievances in Ward')} $_ward',
+      '${context.tr('Open grievances')} · $scope',
       context.tr('Assigned to me'),
       context.tr('Escalated grievances'),
       context.tr('Resolved & closed'),
     ];
     final empties = [
-      'No unverified grievances in Ward $_ward.',
-      'Verify grievances from the ward tab to see them here.',
+      _ward.isEmpty
+          ? 'No unverified grievances in ${shortAC(_me.constituency)}.'
+          : 'No unverified grievances in Ward $_ward.',
+      'Verify grievances from the Open tab to see them here.',
       'Escalated grievances land here until resolved.',
       'Closed grievances and false petitions land here.',
     ];
     final idx = _tab.index;
 
     return Column(
-      key: ValueKey('tab-$idx-sort-$_sort'),
+      key: ValueKey('tab-$idx-sort-$_sort-ward-$_ward'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        _buildWardFilter(),
+        const SizedBox(height: 10),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
@@ -898,7 +1040,7 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
             const SizedBox(width: 8),
             GestureDetector(
               onTap: () {
-                _loadWard();
+                _loadConstituency();
               },
               child: Row(
                 children: [
@@ -1067,7 +1209,7 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
         _showToast('Kept as a separate grievance');
       }
       setState(() => _expandedId = null);
-      await _loadWard();
+      await _loadConstituency();
     } catch (e) {
       if (mounted) setState(() => _error = '$e');
     } finally {
@@ -1102,7 +1244,7 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
           onChanged: (v) {
             if (v == null || v == _sort) return;
             setState(() => _sort = v);
-            _loadWard();
+            _loadConstituency();
           },
         ),
       ),
