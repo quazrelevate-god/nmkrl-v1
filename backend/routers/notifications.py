@@ -71,39 +71,53 @@ def emit_status_change(conn, issue_row, kind: str, message: str) -> None:
     )
 
 
-def emit_possible_duplicate(conn, issue_row, original_row=None) -> None:
-    """Reassure the reporter that a matching grievance already exists nearby.
+def emit_merged_into_parent(conn, issue_row, parent_row=None) -> None:
+    """Tell the reporter their grievance was joined to others like it.
 
-    When the background check decides a fresh report likely duplicates an open
-    one close by, the citizen is told it is already being tracked and that their
-    report counts as added support — rather than being left to wonder whether it
-    was received. This is a gentle, non-blocking message: the app still offers
-    "submit anyway" / "withdraw" off `possible_duplicate_id`; this only makes the
-    outcome visible instead of silent.
+    Fires when STAFF rule on a duplicate, never when the background check
+    merely suspects one. Detection is a guess; being told "this is already
+    reported" on a guess reads as a brush-off, and the reporter could do
+    nothing useful with it anyway. Once admin or the ward coordinator has
+    actually merged it, there is something true to say: more people are behind
+    the same problem, so it is being pushed harder.
+
+    ``issue_id`` deliberately names the PARENT — the surviving ticket is what
+    the reporter follows from now on, and tapping this should open it.
     """
     if issue_row is None:
         return
-    recipient = issue_row["created_by"]
-    original_ticket = ""
-    if original_row is not None:
+    parent_ticket = ""
+    supporters = 0
+    if parent_row is not None:
         try:
-            original_ticket = original_row["ticket_number"] or ""
+            parent_ticket = parent_row["ticket_number"] or ""
+            supporters = parent_row["upvotes"] or 0
         except (KeyError, IndexError, TypeError):
-            original_ticket = ""
+            pass
+    parent_id = (
+        parent_row["id"] if parent_row is not None else issue_row["merged_into_id"]
+    )
+    tail = (
+        f" {supporters} people have now reported it."
+        if supporters > 1
+        else ""
+    )
     _insert(
         conn,
         recipient_type="citizen",
-        recipient_id=str(recipient or ""),
-        kind="possible_duplicate",
-        issue_id=issue_row["id"],
-        title="Already reported nearby",
+        recipient_id=str(issue_row["created_by"] or ""),
+        kind="merged",
+        issue_id=str(parent_id or issue_row["id"]),
+        title="Your grievance was joined with others",
         message=(
-            "A similar grievance is already reported nearby. We've noted your "
-            "report as added support and will work to resolve it soon."
+            "Your grievance was found to be the same problem others reported "
+            "nearby, so they have been combined into one." + tail +
+            " We are raising its priority to resolve it faster."
         ),
         data={
-            "possible_duplicate_id": issue_row["possible_duplicate_id"],
-            "original_ticket": original_ticket,
+            "merged_into_id": str(parent_id or ""),
+            "parent_ticket": parent_ticket,
+            "child_ticket": issue_row["ticket_number"] or "",
             "ward_no": issue_row["ward_no"],
         },
     )

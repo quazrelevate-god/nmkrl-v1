@@ -2,11 +2,17 @@
 routers/issues.py
 -----------------
 Citizen-facing endpoints:
-  * POST /api/issues/report         - report (with 50m duplicate check + Gemini)
+  * POST /api/issues/report         - report (saved instantly; Gemini + the
+                                      100m duplicate check run in background)
   * POST /api/issues/{id}/upvote    - upvote (one per user)
   * GET  /api/issues/nearby         - issues within a radius (map view)
-  * GET  /api/issues/history/{uid}  - a user's submissions
+  * GET  /api/issues/history/{uid}  - a user's submissions, with any merged
+                                      report shown as the grievance it joined
   * POST /api/issues/{id}/verify    - citizen approves/rejects a resolution
+
+Nothing here asks the citizen about duplicates. Detection happens in the
+background half of a report and is silent to them; admin and the ward
+coordinator rule on it (see duplicates.py).
 """
 
 import json
@@ -25,7 +31,6 @@ from utils import (
     new_id,
     now_iso,
     public_issue,
-    remove_upload,
     reverse_geocode,
     save_upload,
     serialize_issue,
@@ -64,19 +69,27 @@ def _nearby_open_issues(conn, lat: float, lng: float, radius_m: float) -> list[d
 
 def _finish_report(
     *, issue_id: str, audio_bytes, audio_mime: str, latitude: float,
-    longitude: float, user_id: str, keep_title: bool, force: bool,
+    longitude: float, user_id: str, keep_title: bool,
 ) -> None:
     """Background half of a submission: transcribe, route, de-duplicate.
 
     Runs after the response is already sent (FastAPI runs a plain ``def`` task
     in a threadpool, so the blocking Gemini calls do not stall the event loop).
     Opens its own connection because the request's connection is long gone.
+
+    None of this is ever reported to the citizen as a problem. A failed
+    transcription and a suspected duplicate are both staff business: the
+    failure is recorded so admin can retry it, and the duplicate flag waits for
+    admin or the ward coordinator to rule on. The reporter just gets their
+    grievance card.
     """
+    problems = []
     try:
         ai = (process_audio(audio_bytes, mime_type=audio_mime)
               if audio_bytes else
               {"title": "", "transcript": "", "transcript_ta": "", "highlights": []})
-    except Exception:
+    except Exception as exc:
+        problems.append(f"Transcription failed: {exc}")
         ai = {"title": "", "transcript": "", "transcript_ta": "", "highlights": []}
 
     with get_connection() as conn:
@@ -94,11 +107,13 @@ def _finish_report(
 
         try:
             area_name = reverse_geocode(latitude, longitude)
-        except Exception:
+        except Exception as exc:
+            problems.append(f"Area lookup failed: {exc}")
             area_name = ""
         try:
             department = classify_department(title, transcript, highlights)
-        except Exception:
+        except Exception as exc:
+            problems.append(f"Department routing failed: {exc}")
             department = ""
 
         # Duplicate detection. With a Gemini key, ask the model whether this
@@ -109,31 +124,32 @@ def _finish_report(
         # the likely original. Proximity alone over-merges, so it is used only
         # when the model cannot be consulted, never to override its judgement.
         dup_id = None
-        if not force:
-            try:
-                nearby = [
-                    i for i in _nearby_open_issues(conn, latitude, longitude, DUPLICATE_RADIUS_M)
-                    if i["id"] != issue_id
-                ]
-                if nearby:
-                    if ai_available():
-                        dup = check_duplicate(title, transcript, highlights, nearby)
-                        dup_id = dup["id"] if dup else None
-                    else:
-                        same_ward = [i for i in nearby if i.get("ward_no") == row["ward_no"]]
-                        if same_ward:
-                            dup_id = min(same_ward, key=lambda i: i["distance_m"])["id"]
-            except Exception:
-                dup_id = None
+        try:
+            nearby = [
+                i for i in _nearby_open_issues(conn, latitude, longitude, DUPLICATE_RADIUS_M)
+                if i["id"] != issue_id
+            ]
+            if nearby:
+                if ai_available():
+                    dup = check_duplicate(title, transcript, highlights, nearby)
+                    dup_id = dup["id"] if dup else None
+                else:
+                    same_ward = [i for i in nearby if i.get("ward_no") == row["ward_no"]]
+                    if same_ward:
+                        dup_id = min(same_ward, key=lambda i: i["distance_m"])["id"]
+        except Exception as exc:
+            problems.append(f"Duplicate check failed: {exc}")
+            dup_id = None
 
         conn.execute(
             """UPDATE issues
                   SET title = ?, transcript = ?, transcript_ta = ?,
                       summary_highlights = ?, area_name = ?, department = ?,
-                      possible_duplicate_id = ?, processing = 0
+                      possible_duplicate_id = ?, processing = 0,
+                      processing_error = ?
                 WHERE id = ?""",
             (title, transcript, transcript_ta, json.dumps(highlights),
-             area_name, department, dup_id, issue_id),
+             area_name, department, dup_id, " · ".join(problems), issue_id),
         )
         conn.commit()
 
@@ -146,25 +162,19 @@ def _finish_report(
             )
         except Exception:
             pass
-        # Notify coordinators once routing + title are known. A likely duplicate
-        # still notifies — the citizen may "submit anyway", and two nearby
-        # reports on a coordinator's queue is not harmful.
+        # Notify coordinators once routing + title are known. A suspected
+        # duplicate still notifies, and deliberately so: the ward coordinator is
+        # one of the two people who can rule on it, and their queue is where
+        # they will see the flag.
         try:
             from routers.notifications import emit_new_grievance
             emit_new_grievance(conn, row)
         except Exception:
             pass
-        # Tell the reporter, gently, when their report looks like a duplicate of
-        # one already open nearby: "already reported — noted as added support".
-        if dup_id:
-            try:
-                from routers.notifications import emit_possible_duplicate
-                original = conn.execute(
-                    "SELECT ticket_number FROM issues WHERE id = ?", (dup_id,)
-                ).fetchone()
-                emit_possible_duplicate(conn, row, original)
-            except Exception:
-                pass
+        # The reporter is told nothing about a suspected duplicate. Detection is
+        # a guess, they cannot act on it, and being told "already reported" on a
+        # guess reads as a brush-off. They hear from us only once staff have
+        # actually merged it — see duplicates.merge().
         conn.commit()
 
 
@@ -175,7 +185,6 @@ async def report_issue(
     longitude: float = Form(...),
     user_id: str = Form(""),
     title: str = Form("Street Issue"),
-    force: bool = Form(False),
     image: UploadFile = File(None),
     audio: UploadFile = File(None),
     # Optional written petition (PDF / doc / scan). The photo and voice note
@@ -246,62 +255,20 @@ async def report_issue(
     background.add_task(
         _finish_report, issue_id=issue_id, audio_bytes=audio_bytes,
         audio_mime=audio_mime, latitude=latitude, longitude=longitude,
-        user_id=user_id, keep_title=user_provided_title, force=force,
+        user_id=user_id, keep_title=user_provided_title,
     )
 
     row = conn.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
     result = serialize_issue(row)
-    result["duplicate_exists"] = False  # decided later, in the background
     return result
 
 
-@router.post("/{issue_id}/keep")
-def keep_issue(
-    issue_id: str,
-    user_id: str = Form(""),
-    session_uid: str = Depends(citizen_session),
-    conn=Depends(get_db),
-):
-    """"Submit anyway": the citizen kept a report the duplicate check flagged."""
-    require_same_citizen(session_uid, user_id)
-    issue = conn.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
-    if issue is None:
-        raise HTTPException(status_code=404, detail="Issue not found")
-    if (issue["created_by"] or "") != session_uid:
-        raise HTTPException(status_code=403, detail="That grievance belongs to another account.")
-    conn.execute("UPDATE issues SET possible_duplicate_id = NULL WHERE id = ?", (issue_id,))
-    row = conn.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
-    return serialize_issue(row)
-
-
-@router.post("/{issue_id}/withdraw")
-def withdraw_issue(
-    issue_id: str,
-    user_id: str = Form(""),
-    session_uid: str = Depends(citizen_session),
-    conn=Depends(get_db),
-):
-    """Citizen withdrew their own freshly-submitted grievance (e.g. a duplicate).
-
-    Allowed only while it is still SUBMITTED — once a coordinator has taken it
-    up, it is part of the record and can no longer be pulled back here.
-    """
-    issue = conn.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
-    if issue is None:
-        return {"ok": True, "deleted": False}
-    if (issue["created_by"] or "") != session_uid:
-        raise HTTPException(status_code=403, detail="That grievance belongs to another account.")
-    if issue["status"] != "SUBMITTED":
-        raise HTTPException(
-            status_code=409,
-            detail="This grievance is already being handled and can no longer be withdrawn.",
-        )
-    for col in ("image_url", "audio_url", "document_url"):
-        remove_upload(issue[col])
-    conn.execute("DELETE FROM notifications WHERE issue_id = ?", (issue_id,))
-    # upvotes / verifications / issue_events cascade via their FKs.
-    conn.execute("DELETE FROM issues WHERE id = ?", (issue_id,))
-    return {"ok": True, "deleted": True}
+# Duplicate handling used to live here as "/keep" (submit anyway) and
+# "/withdraw". Both are gone. /keep erased possible_duplicate_id, so no
+# coordinator or admin ever saw the duplicate it was meant to resolve, and
+# /withdraw hard-deleted a grievance — photo, voice note and notifications —
+# on one tap with no undo. Judging a duplicate is now staff work
+# (duplicates.py), and nothing leaves the accountability record.
 
 
 @router.post("/{issue_id}/upvote")
@@ -382,13 +349,45 @@ def ward_issues(ward_no: int, conn=Depends(get_db)):
 def user_history(user_id: str,
                  session_uid: str = Depends(citizen_session),
                  conn=Depends(get_db)):
-    """Return all issues submitted by ``user_id`` (newest first)."""
+    """Return all issues submitted by ``user_id`` (newest first).
+
+    A report that staff merged into an earlier one is shown as THE EARLIER ONE.
+    The reporter follows a single live ticket from then on — the surviving
+    grievance, with everyone's support on it and every coordinator update
+    flowing to it — instead of a dead-ended row of their own. Their original
+    ticket number travels along as ``merged_from_ticket`` so the app can say
+    which of their reports this replaced.
+    """
     require_same_citizen(session_uid, user_id)
     rows = conn.execute(
         "SELECT * FROM issues WHERE created_by = ? ORDER BY created_at DESC",
         (user_id,),
     ).fetchall()
-    return {"count": len(rows), "issues": [serialize_issue(r) for r in rows]}
+
+    out, seen = [], set()
+    for row in rows:
+        parent_id = row["merged_into_id"]
+        if parent_id:
+            parent = conn.execute(
+                "SELECT * FROM issues WHERE id = ?", (parent_id,)
+            ).fetchone()
+            if parent is not None:
+                # Their own report already stands in for this parent (they
+                # reported it twice, or two of their reports were merged into
+                # the same one) — don't show the same ticket twice.
+                if parent["id"] in seen:
+                    continue
+                seen.add(parent["id"])
+                data = serialize_issue(parent)
+                data["merged_from_ticket"] = row["ticket_number"] or ""
+                data["merged_at"] = row["merged_at"]
+                out.append(data)
+                continue
+        if row["id"] in seen:
+            continue
+        seen.add(row["id"])
+        out.append(serialize_issue(row))
+    return {"count": len(out), "issues": out}
 
 
 @router.get("/supported/{user_id}")

@@ -9,24 +9,33 @@ Authority/triage endpoints:
   * GET  /api/admin/issues/{id}/timeline - append-only action history
   * GET  /api/admin/coordinator-performance - per-coordinator workload + outcomes
   * POST /api/admin/issues/{id}/summarise-document - read the attached petition
+  * GET  /api/admin/issues/{id}/duplicate - the suspected original + merged-in reports
+  * POST /api/admin/issues/{id}/merge    - fold a duplicate into the original
+  * POST /api/admin/issues/{id}/keep-separate - rule that it is its own problem
+  * POST /api/admin/issues/{id}/unmerge  - reverse a merge
+  * POST /api/admin/issues/{id}/reprocess - retry a failed transcription/routing
 """
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import (
+    APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query,
+    UploadFile,
+)
 from pydantic import BaseModel
 
 import json
 import os
 
 import audit
+import duplicates
 from database import get_db
 from routers.notifications import emit_status_change, emit_to_coordinator
-from utils import CHENNAI_AC_MAP, now_iso, serialize_issue
+from utils import CHENNAI_AC_MAP, now_iso, read_upload, serialize_issue
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 VALID_STATUSES = {
     "SUBMITTED", "ACTIVE", "FORWARDED", "IN_PROGRESS",
-    "PENDING_VERIFICATION", "CLOSED", "FALSE",
+    "PENDING_VERIFICATION", "CLOSED", "FALSE", "MERGED",
 }
 
 
@@ -491,6 +500,115 @@ _RESET_TABLES = [
     "otp_codes", "notifications", "device_tokens", "issue_events",
     "location_logs", "content_reports",
 ]
+
+
+# ── Duplicates ───────────────────────────────────────────────────────────────
+# Detection runs in the background half of a submission (routers/issues.py).
+# Ruling on it is staff work, shared with the coordinator app through
+# duplicates.py so the two consoles cannot decide the same case differently.
+
+
+def _issue_or_404(conn, issue_id: str):
+    row = duplicates.load(conn, issue_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Issue not found")
+    return row
+
+
+@router.get("/issues/{issue_id}/duplicate")
+def duplicate_context(issue_id: str, conn=Depends(get_db)):
+    """What an admin needs to rule on a flagged grievance.
+
+    ``parent`` is the suspected original; ``children`` are the reports already
+    folded into THIS one, which is what the "also reported by" list on a
+    surviving grievance is built from.
+    """
+    row = _issue_or_404(conn, issue_id)
+    return {
+        "awaiting_review": duplicates.awaiting_review(row),
+        "decision": row["duplicate_decision"] or "",
+        "decided_by": row["duplicate_decided_by"] or "",
+        "merged_into_id": row["merged_into_id"],
+        "parent": duplicates.parent_preview(conn, row),
+        "children": duplicates.merged_children(conn, issue_id),
+    }
+
+
+@router.post("/issues/{issue_id}/merge")
+def merge_duplicate(
+    issue_id: str, parent_id: str = Form(...), conn=Depends(get_db)
+):
+    """Fold this grievance into the one it duplicates."""
+    child = _issue_or_404(conn, issue_id)
+    parent = _issue_or_404(conn, parent_id)
+    return duplicates.merge(
+        conn, child=child, parent=parent, actor_type="admin", actor_id="admin"
+    )
+
+
+@router.post("/issues/{issue_id}/keep-separate")
+def keep_separate_duplicate(issue_id: str, conn=Depends(get_db)):
+    """Rule that the flagged grievance is a different problem after all."""
+    child = _issue_or_404(conn, issue_id)
+    return duplicates.keep_separate(
+        conn, child=child, actor_type="admin", actor_id="admin"
+    )
+
+
+@router.post("/issues/{issue_id}/unmerge")
+def unmerge_duplicate(issue_id: str, conn=Depends(get_db)):
+    """Reverse a merge — admin only, and the reason coordinators may merge.
+
+    A merge folds away somebody's grievance, so the decision has to be
+    recoverable by someone; otherwise a wrong call leaves the reporter
+    following a stranger's ticket permanently.
+    """
+    child = _issue_or_404(conn, issue_id)
+    return duplicates.unmerge(conn, child=child, actor_id="admin")
+
+
+_AUDIO_MIME = {
+    ".m4a": "audio/mp4", ".mp4": "audio/mp4", ".aac": "audio/aac",
+    ".mp3": "audio/mpeg", ".wav": "audio/wav", ".ogg": "audio/ogg",
+    ".webm": "audio/webm",
+}
+
+
+@router.post("/issues/{issue_id}/reprocess")
+def reprocess_issue(
+    issue_id: str, background: BackgroundTasks, conn=Depends(get_db)
+):
+    """Retry the transcription/routing that failed on this grievance.
+
+    The citizen is never told their submission half-failed — there is nothing
+    they could do about it, and the grievance itself was saved. Instead the
+    failure surfaces here, and this re-runs the same background work against
+    the voice note already on disk.
+    """
+    row = _issue_or_404(conn, issue_id)
+    audio_url = row["audio_url"] or ""
+    audio_bytes = read_upload(audio_url)
+    ext = os.path.splitext(audio_url)[1].lower()
+    conn.execute(
+        "UPDATE issues SET processing = 1, processing_error = '' WHERE id = ?",
+        (issue_id,),
+    )
+    conn.commit()
+
+    # A title somebody has since corrected by hand must survive the retry; the
+    # placeholder the app sends when the citizen typed nothing must not.
+    typed = (row["title"] or "").strip()
+    keep_title = bool(typed) and typed != "Street Issue"
+
+    from routers.issues import _finish_report
+
+    background.add_task(
+        _finish_report, issue_id=issue_id, audio_bytes=audio_bytes,
+        audio_mime=_AUDIO_MIME.get(ext, "audio/mp4"),
+        latitude=row["latitude"], longitude=row["longitude"],
+        user_id=row["created_by"] or "", keep_title=keep_title,
+    )
+    return serialize_issue(duplicates.load(conn, issue_id))
 
 
 @router.post("/reset-all")

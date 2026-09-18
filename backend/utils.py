@@ -76,19 +76,47 @@ def remove_upload(path) -> None:
 
     Best-effort and path-traversal safe: a value that resolves outside the
     uploads root (e.g. a crafted ``/uploads/../../etc/passwd``) is ignored, and
-    a missing file is not an error. Used by report withdrawal and account
-    deletion to clean up media that no longer has an owner.
+    a missing file is not an error. Used by account deletion to clean up media
+    that no longer has an owner.
     """
-    if not path or not str(path).startswith("/uploads/"):
-        return
-    root = os.path.realpath(UPLOAD_DIR)
-    full = os.path.realpath(os.path.join(root, str(path)[len("/uploads/"):]))
-    if not full.startswith(root + os.sep):
+    full = _upload_path(path)
+    if not full:
         return
     try:
         os.remove(full)
     except OSError:
         pass
+
+
+def _upload_path(path) -> str | None:
+    """Resolve a stored ``/uploads/...`` URL to a real file, or None.
+
+    Containment is the whole point: only a path that still sits under
+    UPLOAD_DIR after resolving ``..`` is returned, so a crafted value can
+    neither read nor delete anything outside the uploads root.
+    """
+    if not path or not str(path).startswith("/uploads/"):
+        return None
+    root = os.path.realpath(UPLOAD_DIR)
+    full = os.path.realpath(os.path.join(root, str(path)[len("/uploads/"):]))
+    return full if full.startswith(root + os.sep) else None
+
+
+def read_upload(path) -> bytes | None:
+    """Read one stored upload back off disk, or None if it is gone.
+
+    Lets admin re-run the background half of a submission (transcription,
+    routing) against the voice note that is already saved, instead of asking
+    the citizen to report the problem again.
+    """
+    full = _upload_path(path)
+    if not full:
+        return None
+    try:
+        with open(full, "rb") as fh:
+            return fh.read()
+    except OSError:
+        return None
 
 
 def save_upload(file_bytes: bytes, original_name: str, kind: str) -> str:

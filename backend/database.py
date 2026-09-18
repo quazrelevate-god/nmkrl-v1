@@ -306,15 +306,45 @@ def init_db() -> None:
             # slow work (Gemini transcription, department routing, duplicate
             # check) runs in the background. `processing` is 1 until that
             # finishes; `possible_duplicate_id` names an existing grievance the
-            # background check thinks this duplicates, so the citizen's own
-            # "My Reports" list can offer "submit anyway" or "withdraw".
+            # background check thinks this duplicates.
+            #
+            # Judging that duplicate is STAFF work, not the reporter's: the
+            # citizen used to be shown "submit anyway / withdraw", which either
+            # erased the flag or hard-deleted the report before anyone could
+            # look. The flag now survives for admin and the ward coordinator to
+            # decide on.
             ("processing", "INTEGER NOT NULL DEFAULT 0"),
             ("possible_duplicate_id", "TEXT"),
+            # Why the background half failed (Gemini transcription or routing).
+            # Failures used to vanish silently, leaving a grievance with no
+            # transcript and nobody aware; admin surfaces this with a Retry.
+            ("processing_error", "TEXT DEFAULT ''"),
+            # Merge. A duplicate is folded INTO the grievance reported first:
+            # the child keeps its row (its photo, voice and reporter are
+            # evidence on the parent) and points at the parent here. Cleared
+            # again by an admin unmerge.
+            ("merged_into_id", "TEXT"),
+            ("merged_at", "TEXT"),
+            # '' = not reviewed yet, 'merged' or 'separate' once someone rules.
+            # First ruling wins, so the other console shows the outcome rather
+            # than a second set of buttons.
+            ("duplicate_decision", "TEXT DEFAULT ''"),
+            ("duplicate_decided_by", "TEXT DEFAULT ''"),
         ]:
             try:
                 conn.execute(f"ALTER TABLE issues ADD COLUMN {col} {defn}")
             except Exception:
                 pass
+        # Every admin/coordinator open of a parent grievance lists the reports
+        # merged into it. The column arrives by ALTER above, so the index
+        # cannot live in SCHEMA — it would run before the column exists.
+        try:
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_issues_merged_into "
+                "ON issues (merged_into_id)"
+            )
+        except Exception:
+            pass
         # Account state. Admin's enable/disable was a per-browser flag with no
         # column behind it, so a "disabled" coordinator went on signing into the
         # mobile app and working normally. Revocation needs somewhere to live.

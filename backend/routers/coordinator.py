@@ -29,9 +29,10 @@ partition correctly across accounts and the citizen gets the right push.
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 
 import audit
+import duplicates
 from database import get_db
 from session_auth import coordinator_session, require_same_coordinator
-from utils import now_iso, serialize_issue
+from utils import haversine_m, now_iso, public_issue, serialize_issue
 from routers.notifications import emit_status_change
 
 router = APIRouter(prefix="/api/coordinator", tags=["coordinator"])
@@ -415,3 +416,129 @@ def coord_timeline(
     """
     _load(conn, issue_id)  # 404 for an unknown grievance
     return {"issue_id": issue_id, "events": audit.timeline(conn, issue_id)}
+
+
+# ── Duplicates ───────────────────────────────────────────────────────────────
+# The ward coordinator rules on duplicates alongside admin, through the same
+# shared logic (duplicates.py), so the two cannot decide a case differently.
+#
+# One asymmetry is deliberate. The coordinator must be able to act on the CHILD
+# — it is a grievance in their ward — but the PARENT can be anywhere: detection
+# matches within 100m with no regard for ward boundaries, so the original is
+# often in a neighbouring ward or already owned by someone else. They therefore
+# get the parent PII-stripped: enough to judge whether it is the same problem
+# (ticket, title, photo, distance, support) and nothing about the person who
+# reported it.
+
+#: Manual merges search wider than detection does. Detection is conservative
+#: on purpose; a coordinator reaching for this has already seen with their own
+#: eyes that two reports are the same thing.
+MERGE_SEARCH_RADIUS_M = 300.0
+
+
+def _may_act(conn, row, who: str) -> bool:
+    """Could this coordinator take an action on this grievance?"""
+    try:
+        _authorize(conn, row, who)
+        return True
+    except HTTPException:
+        return False
+
+
+@router.get("/issues/{issue_id}/duplicate")
+def coord_duplicate_context(
+    issue_id: str,
+    coordinator: str = Query(""),
+    session_username: str = Depends(coordinator_session),
+    conn=Depends(get_db),
+):
+    """The suspected original, plus any reports already folded into this one."""
+    coordinator = require_same_coordinator(session_username, coordinator)
+    _reject_if_disabled(conn, coordinator)
+    row = _load(conn, issue_id)
+    mine = _may_act(conn, row, coordinator)
+    return {
+        "awaiting_review": duplicates.awaiting_review(row),
+        "decision": row["duplicate_decision"] or "",
+        "decided_by": row["duplicate_decided_by"] or "",
+        "merged_into_id": row["merged_into_id"],
+        "parent": duplicates.parent_preview(conn, row),
+        "children": duplicates.merged_children(conn, issue_id, redact=not mine),
+    }
+
+
+@router.get("/issues/{issue_id}/merge-candidates")
+def coord_merge_candidates(
+    issue_id: str,
+    coordinator: str = Query(""),
+    session_username: str = Depends(coordinator_session),
+    conn=Depends(get_db),
+):
+    """Open grievances near this one, for a merge the detector did not suggest.
+
+    Detection only flags what it is fairly sure of, so a coordinator standing
+    in front of two reports of the same overflowing bin needs a way to say so
+    by hand. Results are PII-stripped for the same reason the parent preview
+    is: they can legitimately span wards.
+    """
+    coordinator = require_same_coordinator(session_username, coordinator)
+    _reject_if_disabled(conn, coordinator)
+    row = _load(conn, issue_id)
+    rows = conn.execute(
+        """SELECT * FROM issues
+            WHERE status IN ('SUBMITTED', 'ACTIVE', 'IN_PROGRESS', 'FORWARDED')
+              AND id <> ?"""
+        , (issue_id,),
+    ).fetchall()
+    out = []
+    for cand in rows:
+        dist = haversine_m(
+            row["latitude"], row["longitude"],
+            cand["latitude"], cand["longitude"],
+        )
+        if dist > MERGE_SEARCH_RADIUS_M:
+            continue
+        item = public_issue(cand)
+        item["distance_m"] = round(dist, 1)
+        item["same_ward"] = cand["ward_no"] == row["ward_no"]
+        out.append(item)
+    out.sort(key=lambda i: i["distance_m"])
+    return {"count": len(out), "candidates": out}
+
+
+@router.post("/issues/{issue_id}/merge")
+def coord_merge(
+    issue_id: str,
+    parent_id: str = Form(...),
+    coordinator: str = Form(""),
+    session_username: str = Depends(coordinator_session),
+    conn=Depends(get_db),
+):
+    """Fold this grievance into the one it duplicates.
+
+    Authorisation is checked on the child only — see the note above.
+    """
+    coordinator = require_same_coordinator(session_username, coordinator)
+    child = _load(conn, issue_id)
+    _authorize(conn, child, coordinator)
+    parent = _load(conn, parent_id)
+    return duplicates.merge(
+        conn, child=child, parent=parent,
+        actor_type="coordinator", actor_id=coordinator,
+    )
+
+
+@router.post("/issues/{issue_id}/keep-separate")
+def coord_keep_separate(
+    issue_id: str,
+    coordinator: str = Form(""),
+    session_username: str = Depends(coordinator_session),
+    conn=Depends(get_db),
+):
+    """Rule that the flagged grievance is a different problem after all."""
+    coordinator = require_same_coordinator(session_username, coordinator)
+    child = _load(conn, issue_id)
+    _authorize(conn, child, coordinator)
+    return duplicates.keep_separate(
+        conn, child=child, actor_type="coordinator", actor_id=coordinator,
+    )
