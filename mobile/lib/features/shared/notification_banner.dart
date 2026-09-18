@@ -278,6 +278,13 @@ class NotificationBanner extends StatelessWidget {
         return (Icons.block, NkColors.rose600, 'FLAGGED');
       case 'new_grievance':
         return (Icons.report_problem_outlined, NkColors.brand, 'NEW GRIEVANCE');
+      // Staff joined this report to others of the same problem. Not a warning
+      // — more people behind one ticket is the good outcome — so it takes the
+      // brand colour rather than the amber used for escalations.
+      case 'merged':
+        return (Icons.call_merge_rounded, NkColors.brand, 'COMBINED');
+      case 'merge_received':
+        return (Icons.call_merge_rounded, NkColors.brand, 'DUPLICATE MERGED');
       default:
         return (Icons.notifications_none, NkColors.slate600, 'UPDATE');
     }

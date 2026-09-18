@@ -431,8 +431,10 @@ Kindly action this grievance before the SLA deadline.` : "";
 }
 
 /* ── False Petition ── */
+// A duplicate is deliberately not here, and used to be the default. Calling a
+// second honest report of the same problem a false petition tells that citizen
+// their grievance was a fabrication; duplicates are merged instead.
 const FALSE_REASONS = [
-  "Duplicate of an existing grievance",
   "Fabricated / not a real issue",
   "Personal dispute, not a public grievance",
   "Outside constituency jurisdiction",

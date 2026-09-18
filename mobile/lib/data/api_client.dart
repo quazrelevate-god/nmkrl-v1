@@ -4,6 +4,7 @@ import '../domain/coordinator_data.dart';
 import '../domain/models/boundary_data.dart';
 import '../domain/models/citizen_user.dart';
 import '../domain/models/issue.dart';
+import '../domain/models/duplicate_info.dart';
 import '../domain/models/locate_result.dart';
 
 /// Abstract seam over the FastAPI backend (mirrors frontend/lib/api.js
@@ -75,12 +76,6 @@ abstract class ApiClient {
 
   Future<void> verifyIssue(String issueId, String userId, String response);
 
-  /// "Submit anyway" on a report the duplicate check flagged — clears the flag.
-  Future<Issue> keepIssue(String issueId);
-
-  /// Withdraw the citizen's own freshly-submitted report (e.g. a duplicate).
-  Future<void> withdrawIssue(String issueId);
-
   Future<void> confirmIssue(String issueId, String phone, {String name = ''});
 
   /// Reverse geocode via OSM Nominatim (suburb/neighbourhood/city fallback),
@@ -138,6 +133,24 @@ abstract class ApiClient {
   /// closure photo + voice note are the proof of work the admin console shows.
   Future<Issue> coordinatorClose(String issueId,
       {String notes = '', String coordinator = '', File? photo, File? voice});
+
+  /// What the duplicate check makes of this grievance: the suspected
+  /// original (PII-stripped), and any reports already folded into it.
+  Future<DuplicateInfo> coordinatorDuplicateContext(String issueId,
+      {required String coordinator});
+
+  /// Open grievances near this one, for a merge detection did not suggest.
+  Future<List<DuplicateCandidate>> coordinatorMergeCandidates(String issueId,
+      {required String coordinator});
+
+  /// Fold this grievance into [parentId] — one ticket, everyone's support on
+  /// it, and the reporter told it is being prioritised.
+  Future<Issue> coordinatorMerge(String issueId, String parentId,
+      {required String coordinator});
+
+  /// Rule that the flagged grievance is a different problem after all.
+  Future<Issue> coordinatorKeepSeparate(String issueId,
+      {required String coordinator});
 
   /// Mark false: → FALSE with the coordinator's reason.
   Future<Issue> coordinatorMarkFalse(String issueId, String reason,

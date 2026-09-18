@@ -17,6 +17,7 @@ import '../../domain/models/boundary_data.dart';
 import '../../domain/models/issue.dart';
 import '../../state/providers.dart';
 import '../home/widgets/issue_card.dart';
+import '../../domain/models/duplicate_info.dart';
 import '../home/widgets/map_card.dart';
 import '../profile/profile_screen.dart';
 import '../search/search_overlay.dart';
@@ -942,7 +943,14 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
           for (final issue in current)
             Padding(
               padding: const EdgeInsets.only(bottom: 8),
-              child: _selectableCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // Flagged by the duplicate check and not yet ruled on. It
+                  // sits above the card because it is a gate: assigning a
+                  // grievance that is about to be merged wastes the visit.
+                  if (issue.awaitingDuplicateReview) _duplicateRibbon(issue),
+                  _selectableCard(
                 issue,
                 IssueCard(
                   issue: issue,
@@ -963,9 +971,108 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
                   },
                 ),
               ),
+                ],
+              ),
             ),
       ],
     );
+  }
+
+  /// Amber strip over a grievance the duplicate check flagged.
+  Widget _duplicateRibbon(Issue issue) {
+    final busy = _busyId == issue.id;
+    return GestureDetector(
+      onTap: busy ? null : () => _reviewDuplicate(issue),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(12, 8, 10, 8),
+        decoration: BoxDecoration(
+          color: NkColors.amber50,
+          border: Border.all(color: NkColors.amber200),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.call_merge_rounded,
+                size: 15, color: NkColors.amber700),
+            const SizedBox(width: 7),
+            Expanded(
+              child: Text(
+                context.tr('Possible duplicate'),
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                  color: NkColors.amber800,
+                ),
+              ),
+            ),
+            if (busy)
+              const SizedBox(
+                height: 13,
+                width: 13,
+                child: CircularProgressIndicator(
+                    strokeWidth: 2, color: NkColors.amber700),
+              )
+            else ...[
+              Text(
+                context.tr('Review'),
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                  color: NkColors.amber700,
+                ),
+              ),
+              const Icon(Icons.chevron_right_rounded,
+                  size: 17, color: NkColors.amber700),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Compare a flagged grievance with the original, then merge or keep it.
+  ///
+  /// The original is fetched rather than taken from the ward list: detection
+  /// ignores ward boundaries, so it is often one this coordinator's own list
+  /// does not contain.
+  Future<void> _reviewDuplicate(Issue issue) async {
+    setState(() => _busyId = issue.id);
+    final api = ref.read(apiClientProvider);
+    DuplicateInfo info;
+    try {
+      info = await api.coordinatorDuplicateContext(issue.id,
+          coordinator: _me.username);
+    } catch (e) {
+      if (mounted) setState(() => _error = '$e');
+      return;
+    } finally {
+      if (mounted) setState(() => _busyId = null);
+    }
+    if (!mounted) return;
+
+    final choice =
+        await MergeDuplicateSheet.open(context, issue: issue, info: info);
+    if (choice == null) return;
+
+    setState(() => _busyId = issue.id);
+    try {
+      if (choice == 'merge') {
+        final parent = info.parent!.issue;
+        await api.coordinatorMerge(issue.id, parent.id,
+            coordinator: _me.username);
+        _showToast('Merged into ${parent.ticketNo ?? 'the original'}');
+      } else {
+        await api.coordinatorKeepSeparate(issue.id,
+            coordinator: _me.username);
+        _showToast('Kept as a separate grievance');
+      }
+      setState(() => _expandedId = null);
+      await _loadWard();
+    } catch (e) {
+      if (mounted) setState(() => _error = '$e');
+    } finally {
+      if (mounted) setState(() => _busyId = null);
+    }
   }
 
   Widget _buildSortDropdown() {

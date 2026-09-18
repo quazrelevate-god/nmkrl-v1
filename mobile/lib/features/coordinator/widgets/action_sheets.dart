@@ -5,10 +5,12 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../../core/i18n.dart';
 import '../../../core/theme.dart';
 import '../../../domain/dept_routing.dart';
 import '../../../domain/departments.dart';
 import '../../../domain/geo_utils.dart';
+import '../../../domain/models/duplicate_info.dart';
 import '../../../domain/models/issue.dart';
 import '../../../domain/ticket.dart';
 import '../../../state/providers.dart';
@@ -1131,6 +1133,227 @@ class _FalsePetitionSheetState extends State<FalsePetitionSheet> {
           }),
         ),
       ],
+    );
+  }
+}
+
+/* ── Duplicate review ──────────────────────────────────────────────────────
+ * Compare a flagged grievance with the one it is suspected of duplicating,
+ * then merge the two or keep them apart. Returns 'merge', 'separate', or null
+ * when dismissed.
+ *
+ * The original is shown WITHOUT the reporter's name or number. Detection
+ * matches within 100m and ignores ward boundaries, so it is frequently a
+ * grievance in a neighbouring ward, or one another coordinator already owns —
+ * someone this reviewer has no claim over.
+ * ───────────────────────────────────────────────────────────────────────── */
+class MergeDuplicateSheet extends StatelessWidget {
+  const MergeDuplicateSheet._({required this.issue, required this.info});
+
+  final Issue issue;
+  final DuplicateInfo info;
+
+  static Future<String?> open(
+    BuildContext context, {
+    required Issue issue,
+    required DuplicateInfo info,
+  }) =>
+      _openActionSheet<String>(
+        context,
+        MergeDuplicateSheet._(issue: issue, info: info),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    final parent = info.parent;
+
+    // Somebody already ruled on this one — first decision wins, so show the
+    // outcome instead of a second set of buttons.
+    if (parent == null || !info.awaitingReview) {
+      return _SheetShell(
+        icon: Icons.call_merge_rounded,
+        title: context.tr('Already reviewed'),
+        subtitle: info.decision == 'merged'
+            ? context.tr('This grievance was merged into another.')
+            : info.decision == 'separate'
+                ? context.tr('This was confirmed as a separate grievance.')
+                : context.tr('The matching grievance is no longer available.'),
+        children: [
+          _IssuePreview(issue: issue),
+          _submitButton(
+            label: context.tr('Close'),
+            icon: Icons.check_rounded,
+            color: NkColors.brand,
+            enabled: true,
+            onTap: () => Navigator.of(context).pop(),
+          ),
+        ],
+      );
+    }
+
+    return _SheetShell(
+      icon: Icons.call_merge_rounded,
+      title: context.tr('Possible duplicate'),
+      subtitle: context.tr(
+          'A similar grievance was already reported nearby. Compare them, then '
+          'merge into one ticket or keep this as its own.'),
+      children: [
+        _duplicateLabel(context, context.tr('THIS REPORT')),
+        _IssuePreview(issue: issue),
+        _duplicateLabel(
+          context,
+          '${context.tr('ALREADY REPORTED')} · ${parent.distanceLabel}',
+        ),
+        _ParentPreview(candidate: parent),
+        const SizedBox(height: 4),
+        Text(
+          context.tr(
+              'Merging keeps this citizen’s photo and voice note as evidence '
+              'on the original, adds their support to it, and tells them it is '
+              'being prioritised.'),
+          style: const TextStyle(
+              fontSize: 11.5, height: 1.4, color: NkColors.slate500),
+        ),
+        const SizedBox(height: 14),
+        _submitButton(
+          label: context.tr('Merge into one grievance'),
+          icon: Icons.call_merge_rounded,
+          color: NkColors.brand,
+          enabled: true,
+          onTap: () => Navigator.of(context).pop('merge'),
+        ),
+        const SizedBox(height: 8),
+        GestureDetector(
+          onTap: () => Navigator.of(context).pop('separate'),
+          child: Container(
+            height: 48,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: NkColors.slate200),
+            ),
+            child: Text(
+              context.tr('Keep as a separate grievance'),
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w800,
+                color: NkColors.slate700,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+Widget _duplicateLabel(BuildContext context, String text) => Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Text(
+        text,
+        style: const TextStyle(
+          fontSize: 10.5,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 0.6,
+          color: NkColors.slate400,
+        ),
+      ),
+    );
+
+/// The suspected original: enough to judge sameness, nothing about who
+/// reported it. Flags a different ward, because merging then moves this
+/// report onto another coordinator's ticket.
+class _ParentPreview extends StatelessWidget {
+  const _ParentPreview({required this.candidate});
+
+  final DuplicateCandidate candidate;
+
+  @override
+  Widget build(BuildContext context) {
+    final issue = candidate.issue;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: NkColors.amber50,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: NkColors.amber200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (issue.imageUrl != null)
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: Image.network(
+                    issue.imageUrl!,
+                    height: 54,
+                    width: 54,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                  ),
+                ),
+              if (issue.imageUrl != null) const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      issue.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w700,
+                        height: 1.3,
+                        color: NkColors.slate800,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      [
+                        if (issue.ticketNo != null) issue.ticketNo!,
+                        '${issue.upvotes} ${context.tr('supporting')}',
+                      ].join(' · '),
+                      style: const TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w700,
+                        color: NkColors.amber800,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          if (!candidate.sameWard) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                const Icon(Icons.info_outline_rounded,
+                    size: 13, color: NkColors.amber700),
+                const SizedBox(width: 5),
+                Expanded(
+                  child: Text(
+                    '${context.tr('In Ward')} ${issue.wardNo ?? '?'} — '
+                    '${context.tr('merging moves this report to that ward’s ticket.')}',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      height: 1.35,
+                      color: NkColors.amber800,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
     );
   }
 }

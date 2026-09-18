@@ -58,8 +58,13 @@ DateTime slaDeadline(DateTime? createdAt, String? department) {
 }
 
 /// Reasons offered in the "Mark as False Petition" sheet.
+///
+/// A duplicate is deliberately NOT one of them, and used to be the default.
+/// Calling a second honest report of the same pothole a false petition tells
+/// that citizen their grievance was a fabrication, and destroys the fact that
+/// two people reported it. Duplicates are merged instead — see the duplicate
+/// ribbon on the grievance card.
 const kFalseReasons = [
-  'Duplicate of an existing grievance',
   'Fabricated / not a real issue',
   'Personal dispute, not a public grievance',
   'Outside constituency jurisdiction',

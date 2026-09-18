@@ -8,6 +8,7 @@ import '../domain/coordinator_data.dart';
 import '../domain/models/boundary_data.dart';
 import '../domain/models/citizen_user.dart';
 import '../domain/models/issue.dart';
+import '../domain/models/duplicate_info.dart';
 import '../domain/models/locate_result.dart';
 import 'api_client.dart';
 
@@ -316,25 +317,6 @@ class DioApiClient implements ApiClient {
   }
 
   @override
-  Future<Issue> keepIssue(String issueId) async {
-    try {
-      final res = await _dio.post<Map<String, dynamic>>('/api/issues/$issueId/keep');
-      return Issue.fromJson(res.data!);
-    } catch (e) {
-      _friendly(e);
-    }
-  }
-
-  @override
-  Future<void> withdrawIssue(String issueId) async {
-    try {
-      await _dio.post<dynamic>('/api/issues/$issueId/withdraw');
-    } catch (e) {
-      _friendly(e);
-    }
-  }
-
-  @override
   Future<void> confirmIssue(String issueId, String phone,
       {String name = ''}) async {
     try {
@@ -386,6 +368,50 @@ class DioApiClient implements ApiClient {
   @override
   Future<List<Issue>> fetchCoordinatorMine(String coordinator) =>
       _get('/api/coordinator/mine/$coordinator', parse: _issueList);
+
+  @override
+  Future<DuplicateInfo> coordinatorDuplicateContext(String issueId,
+      {required String coordinator}) async {
+    try {
+      final res = await _dio.get<Map<String, dynamic>>(
+        '/api/coordinator/issues/$issueId/duplicate',
+        queryParameters: {'coordinator': coordinator},
+      );
+      return DuplicateInfo.fromJson(res.data!);
+    } catch (e) {
+      _friendly(e);
+    }
+  }
+
+  @override
+  Future<List<DuplicateCandidate>> coordinatorMergeCandidates(String issueId,
+      {required String coordinator}) async {
+    try {
+      final res = await _dio.get<Map<String, dynamic>>(
+        '/api/coordinator/issues/$issueId/merge-candidates',
+        queryParameters: {'coordinator': coordinator},
+      );
+      final list = (res.data!['candidates'] as List?) ?? const [];
+      return list
+          .whereType<Map<String, dynamic>>()
+          .map(DuplicateCandidate.fromJson)
+          .toList();
+    } catch (e) {
+      _friendly(e);
+    }
+  }
+
+  @override
+  Future<Issue> coordinatorMerge(String issueId, String parentId,
+          {required String coordinator}) =>
+      _coordPost('/api/coordinator/issues/$issueId/merge',
+          {'parent_id': parentId, 'coordinator': coordinator});
+
+  @override
+  Future<Issue> coordinatorKeepSeparate(String issueId,
+          {required String coordinator}) =>
+      _coordPost('/api/coordinator/issues/$issueId/keep-separate',
+          {'coordinator': coordinator});
 
   Future<Issue> _coordPost(
     String path, [

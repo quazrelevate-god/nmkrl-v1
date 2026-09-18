@@ -28,6 +28,9 @@ class Issue {
     this.distanceM,
     this.processing = false,
     this.possibleDuplicateId,
+    this.duplicateDecision = '',
+    this.mergedIntoId,
+    this.processingError = '',
   });
 
   final String id;
@@ -78,13 +81,41 @@ class Issue {
   final double? distanceM;
 
   /// True while the backend is still transcribing/routing/de-duplicating a
-  /// freshly-submitted report. The list shows it as "Reviewing…" until done.
+  /// freshly-submitted report.
+  ///
+  /// The citizen is NOT shown this. It used to drive a "Reviewing…" pill on
+  /// their own card, which meant a slow Gemini call looked like their report
+  /// had not gone through; the report is saved either way.
   final bool processing;
 
   /// Set when the background duplicate check thinks this report duplicates an
-  /// existing grievance. The citizen's own list offers "submit anyway" /
-  /// "withdraw" while this is non-null.
+  /// existing grievance.
+  ///
+  /// Staff-facing only. Ruling on it belongs to admin and the ward coordinator
+  /// — the citizen cannot know whether a stranger's grievance is the same as
+  /// theirs, and used to be asked anyway.
   final String? possibleDuplicateId;
+
+  /// '' until someone rules, then 'merged' or 'separate'.
+  final String duplicateDecision;
+
+  /// Set on a report that was folded INTO another grievance.
+  final String? mergedIntoId;
+
+  /// Why the background half failed, for the admin console's retry. Never
+  /// surfaced in the citizen app.
+  final String processingError;
+
+  /// Flagged by detection and nobody has ruled yet.
+  bool get awaitingDuplicateReview =>
+      (possibleDuplicateId ?? '').isNotEmpty && duplicateDecision.isEmpty;
+
+  /// Empty strings and nulls both mean "not set" here — SQLite columns added
+  /// by migration default to '' while fresh rows carry NULL.
+  static String? _blankToNull(Object? v) {
+    final s = (v ?? '').toString().trim();
+    return s.isEmpty ? null : s;
+  }
 
   static double _toDouble(Object? v) =>
       v is num ? v.toDouble() : double.tryParse('$v') ?? 0;
@@ -139,10 +170,10 @@ class Issue {
       distanceM:
           json['distance_m'] == null ? null : _toDouble(json['distance_m']),
       processing: json['processing'] == true,
-      possibleDuplicateId:
-          (json['possible_duplicate_id'] as String?)?.trim().isEmpty ?? true
-              ? null
-              : (json['possible_duplicate_id'] as String).trim(),
+      possibleDuplicateId: _blankToNull(json['possible_duplicate_id']),
+      duplicateDecision: (json['duplicate_decision'] ?? '').toString(),
+      mergedIntoId: _blankToNull(json['merged_into_id']),
+      processingError: (json['processing_error'] ?? '').toString(),
     );
   }
 }
