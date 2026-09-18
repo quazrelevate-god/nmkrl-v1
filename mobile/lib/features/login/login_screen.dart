@@ -290,6 +290,13 @@ class _CitizenLoginFormState extends ConsumerState<_CitizenLoginForm> {
       _otp.text.replaceAll(RegExp(r'\D'), '').length == 6;
 
   Future<void> _sendOtp() async {
+    // Name first: the server checks the name/number pairing before sending, so
+    // require the name here too rather than letting a code go out to a number
+    // that login would then reject.
+    if (_name.text.trim().length < 2) {
+      setState(() => _error = 'Enter your full name first.');
+      return;
+    }
     if (_mobileDigits.length < 10) {
       setState(() => _error = 'Enter a valid 10-digit mobile number first.');
       return;
@@ -302,7 +309,7 @@ class _CitizenLoginFormState extends ConsumerState<_CitizenLoginForm> {
     try {
       final dev = await ref
           .read(apiClientProvider)
-          .requestCitizenOtp(_mobileDigits);
+          .requestCitizenOtp(_mobileDigits, name: _name.text.trim());
       setState(() {
         _otpSent = true;
         _devOtp = dev;
@@ -474,16 +481,23 @@ class _CitizenLoginFormState extends ConsumerState<_CitizenLoginForm> {
                   const SizedBox(width: 8),
                   SizedBox(
                     height: 46,
+                    // Gold, like the Login CTA — a navy button on the navy
+                    // sign-in background read as plain text and was easy to miss.
                     child: FilledButton(
-                      onPressed: (_mobileDigits.length >= 10 && !_sendingOtp)
+                      onPressed: (_name.text.trim().length >= 2 &&
+                              _mobileDigits.length >= 10 &&
+                              !_sendingOtp)
                           ? _sendOtp
                           : null,
                       style: FilledButton.styleFrom(
-                        backgroundColor: NkColors.brand,
+                        backgroundColor: NkColors.gold300,
+                        foregroundColor: NkColors.brandDark,
                         disabledBackgroundColor:
-                            NkColors.brand.withValues(alpha: 0.4),
+                            NkColors.gold300.withValues(alpha: 0.35),
+                        disabledForegroundColor:
+                            NkColors.brandDark.withValues(alpha: 0.5),
                         padding:
-                            const EdgeInsets.symmetric(horizontal: 12),
+                            const EdgeInsets.symmetric(horizontal: 14),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
@@ -493,14 +507,14 @@ class _CitizenLoginFormState extends ConsumerState<_CitizenLoginForm> {
                               height: 16,
                               width: 16,
                               child: CircularProgressIndicator(
-                                  strokeWidth: 2, color: Colors.white),
+                                  strokeWidth: 2, color: NkColors.brandDark),
                             )
                           : Text(
-                              _otpSent ? 'Resend' : 'Send OTP',
+                              context.tr(_otpSent ? 'Resend' : 'Send OTP'),
                               style: const TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
-                                color: Colors.white,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w800,
+                                color: NkColors.brandDark,
                               ),
                             ),
                     ),

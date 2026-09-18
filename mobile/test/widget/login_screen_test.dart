@@ -23,9 +23,20 @@ class _FakeApi implements ApiClient {
   }
 
   @override
-  Future<String?> requestCitizenOtp(String phone) async {
+  Future<String?> requestCitizenOtp(String phone, {String name = ''}) async {
+    // Mirror the backend: a name that does not match an existing registration
+    // is rejected here, before any code is "sent".
+    final clean = _clean(phone);
+    final existing = registered[clean];
+    if (name.isNotEmpty &&
+        existing != null &&
+        existing.toLowerCase() != name.trim().toLowerCase()) {
+      throw const ApiException(
+          'This mobile number is already registered under a different name. '
+          'Enter the name it was registered with.');
+    }
     otpCalls++;
-    otpRequested.add(_clean(phone));
+    otpRequested.add(clean);
     return '111111'; // dummy-mode dev OTP
   }
 
@@ -158,21 +169,22 @@ void main() {
     container.dispose();
   });
 
-  testWidgets('registered phone with a DIFFERENT name is rejected',
+  testWidgets('registered phone with a DIFFERENT name is rejected at Send OTP',
       (tester) async {
-    final (app, container, _) = await harness();
+    final (app, container, api) = await harness();
     await tester.pumpWidget(app);
 
+    // The name/number mismatch is now caught when the code is requested — no
+    // code is sent, the OTP field never appears, and login is never reached.
     await fillAndSendOtp(tester, name: 'Someone Else', phone: '9876543210');
-    await tester.enterText(find.widgetWithText(TextField, '••••••'), '111111');
-    await tester.pump();
-    await tester.tap(find.text('Login'));
     await tester.pumpAndSettle();
 
-    expect(container.read(authProvider), isFalse);
-    expect(find.text('HOME STUB'), findsNothing);
     expect(
         find.textContaining('registered under a different name'), findsOneWidget);
+    expect(find.widgetWithText(TextField, '••••••'), findsNothing);
+    expect(api.loginCalls, 0);
+    expect(container.read(authProvider), isFalse);
+    expect(find.text('HOME STUB'), findsNothing);
 
     container.dispose();
   });

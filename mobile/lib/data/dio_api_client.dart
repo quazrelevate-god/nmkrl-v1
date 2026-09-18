@@ -111,11 +111,14 @@ class DioApiClient implements ApiClient {
           .toList();
 
   @override
-  Future<String?> requestCitizenOtp(String phone) async {
+  Future<String?> requestCitizenOtp(String phone, {String name = ''}) async {
     try {
       final res = await _dio.post<Map<String, dynamic>>(
         '/api/auth/request-otp',
-        data: FormData.fromMap({'phone': phone}),
+        // Sending the name lets the server reject a number already registered
+        // under a different name BEFORE it spends an SMS — the citizen sees the
+        // mismatch here, not after typing a code.
+        data: FormData.fromMap({'phone': phone, if (name.isNotEmpty) 'name': name}),
       );
       final d = res.data ?? const {};
       return d['dev_otp'] as String?; // non-null only in dummy mode
@@ -307,6 +310,25 @@ class DioApiClient implements ApiClient {
         '/api/issues/$issueId/verify',
         data: FormData.fromMap({'user_id': userId, 'response': response}),
       );
+    } catch (e) {
+      _friendly(e);
+    }
+  }
+
+  @override
+  Future<Issue> keepIssue(String issueId) async {
+    try {
+      final res = await _dio.post<Map<String, dynamic>>('/api/issues/$issueId/keep');
+      return Issue.fromJson(res.data!);
+    } catch (e) {
+      _friendly(e);
+    }
+  }
+
+  @override
+  Future<void> withdrawIssue(String issueId) async {
+    try {
+      await _dio.post<dynamic>('/api/issues/$issueId/withdraw');
     } catch (e) {
       _friendly(e);
     }

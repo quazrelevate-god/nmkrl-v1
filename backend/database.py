@@ -300,6 +300,14 @@ def init_db() -> None:
             # Cached result of the manual "AI Summary (Document)" action, so
             # re-opening a grievance does not re-bill the model. JSON blob.
             ("document_summary", "TEXT DEFAULT ''"),
+            # Fire-and-forget submission: the report is saved instantly and the
+            # slow work (Gemini transcription, department routing, duplicate
+            # check) runs in the background. `processing` is 1 until that
+            # finishes; `possible_duplicate_id` names an existing grievance the
+            # background check thinks this duplicates, so the citizen's own
+            # "My Reports" list can offer "submit anyway" or "withdraw".
+            ("processing", "INTEGER NOT NULL DEFAULT 0"),
+            ("possible_duplicate_id", "TEXT"),
         ]:
             try:
                 conn.execute(f"ALTER TABLE issues ADD COLUMN {col} {defn}")

@@ -155,11 +155,32 @@ def _throttle(conn, phone10: str):
 
 
 @router.post("/request-otp")
-def request_otp(phone: str = Form(...), conn=Depends(get_db)):
-    """Generate and send a one-time code for [phone]."""
+def request_otp(phone: str = Form(...), name: str = Form(""), conn=Depends(get_db)):
+    """Generate and send a one-time code for [phone].
+
+    When a name is supplied, the number/name pairing is checked *before* the
+    code is sent: an SMS to a number already registered under a different name
+    would only be wasted, since login would reject it anyway. Catching it here
+    means the citizen sees "that number is under a different name" up front,
+    not after they have typed a code. Name omitted keeps older clients working.
+    """
     clean_phone = _normalise_phone(phone)
     if len(clean_phone) != 10:
         raise HTTPException(status_code=400, detail="Enter a valid 10-digit mobile number.")
+
+    clean_name = " ".join((name or "").split())
+    if clean_name:
+        existing = conn.execute(
+            "SELECT name FROM users WHERE phone = ?", (clean_phone,)
+        ).fetchone()
+        if existing is not None and existing["name"].strip().lower() != clean_name.lower():
+            raise HTTPException(
+                status_code=401,
+                detail=(
+                    "This mobile number is already registered under a different "
+                    "name. Enter the name it was registered with."
+                ),
+            )
 
     window_start, window_count = _throttle(conn, clean_phone)
     review_phone, review_code = _review_login()

@@ -1,7 +1,10 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/theme.dart';
@@ -28,6 +31,8 @@ class ProfileScreen extends ConsumerWidget {
     final coordinator = ref.watch(coordinatorAuthProvider);
     final isCoordinator = coordinator != null;
     final prefs = ref.watch(prefsProvider);
+    // Citizen-only profile picture (local to the device).
+    final avatarPath = isCoordinator ? null : ref.watch(avatarProvider);
 
     final name = isCoordinator ? coordinator.name : prefs.citizenName;
     final initials = isCoordinator
@@ -86,6 +91,7 @@ class ProfileScreen extends ConsumerWidget {
                             height: 84,
                             width: 84,
                             alignment: Alignment.center,
+                            clipBehavior: Clip.antiAlias,
                             decoration: BoxDecoration(
                               color: isCoordinator
                                   ? _kBlue
@@ -94,32 +100,71 @@ class ProfileScreen extends ConsumerWidget {
                               border: Border.all(
                                   color: Colors.white, width: 2.5),
                             ),
-                            child: Text(
-                              initials,
-                              style: TextStyle(
-                                fontSize: 28,
-                                fontWeight: FontWeight.w900,
-                                color: isCoordinator
-                                    ? const Color(0xFFDDC689)
-                                    : NkColors.brand,
+                            child: avatarPath != null
+                                ? Image.file(
+                                    File(avatarPath),
+                                    height: 84,
+                                    width: 84,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (_, __, ___) => Text(
+                                      initials,
+                                      style: const TextStyle(
+                                        fontSize: 28,
+                                        fontWeight: FontWeight.w900,
+                                        color: NkColors.brand,
+                                      ),
+                                    ),
+                                  )
+                                : Text(
+                                    initials,
+                                    style: TextStyle(
+                                      fontSize: 28,
+                                      fontWeight: FontWeight.w900,
+                                      color: isCoordinator
+                                          ? const Color(0xFFDDC689)
+                                          : NkColors.brand,
+                                    ),
+                                  ),
+                          ),
+                        ),
+                        // Citizens can set a profile picture; a camera badge
+                        // opens the picker. Coordinators keep the online dot.
+                        if (!isCoordinator)
+                          Positioned(
+                            bottom: -2,
+                            right: -2,
+                            child: GestureDetector(
+                              onTap: () => _changeAvatar(context, ref, hasAvatar: avatarPath != null),
+                              child: Container(
+                                height: 28,
+                                width: 28,
+                                alignment: Alignment.center,
+                                decoration: BoxDecoration(
+                                  color: _kBlue,
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                      color: Colors.white, width: 2.5),
+                                ),
+                                child: const Icon(Icons.camera_alt,
+                                    size: 13, color: Colors.white),
+                              ),
+                            ),
+                          )
+                        else
+                          Positioned(
+                            bottom: 2,
+                            right: 2,
+                            child: Container(
+                              height: 16,
+                              width: 16,
+                              decoration: BoxDecoration(
+                                color: NkColors.emerald500,
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                    color: Colors.white, width: 2.5),
                               ),
                             ),
                           ),
-                        ),
-                        Positioned(
-                          bottom: 2,
-                          right: 2,
-                          child: Container(
-                            height: 16,
-                            width: 16,
-                            decoration: BoxDecoration(
-                              color: NkColors.emerald500,
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                  color: Colors.white, width: 2.5),
-                            ),
-                          ),
-                        ),
                       ],
                     ),
                   ),
@@ -428,6 +473,66 @@ class ProfileScreen extends ConsumerWidget {
         ),
       ),
     );
+  }
+
+  Future<void> _changeAvatar(BuildContext context, WidgetRef ref,
+      {required bool hasAvatar}) async {
+    HapticFeedback.selectionClick();
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 8),
+            ListTile(
+              leading: const Icon(Icons.photo_camera_outlined, color: _kBlue),
+              title: Text(context.tr('Take a photo')),
+              onTap: () => Navigator.of(ctx).pop('camera'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined, color: _kBlue),
+              title: Text(context.tr('Choose from gallery')),
+              onTap: () => Navigator.of(ctx).pop('gallery'),
+            ),
+            if (hasAvatar)
+              ListTile(
+                leading: const Icon(Icons.delete_outline, color: _kRose),
+                title: Text(context.tr('Remove photo'),
+                    style: const TextStyle(color: _kRose)),
+                onTap: () => Navigator.of(ctx).pop('remove'),
+              ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+    if (choice == null) return;
+    if (choice == 'remove') {
+      await ref.read(avatarProvider.notifier).clear();
+      return;
+    }
+    try {
+      final picker = ImagePicker();
+      final file = await picker.pickImage(
+        source: choice == 'camera' ? ImageSource.camera : ImageSource.gallery,
+        maxWidth: 800,
+        maxHeight: 800,
+        imageQuality: 85,
+      );
+      if (file == null) return;
+      await ref.read(avatarProvider.notifier).setFromFile(file.path);
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(context.tr('Could not set the photo.'))),
+        );
+      }
+    }
   }
 
   Future<void> _openPrivacy(BuildContext context) async {

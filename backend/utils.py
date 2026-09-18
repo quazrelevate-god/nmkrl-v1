@@ -174,6 +174,9 @@ def serialize_issue(row) -> dict:
     except (TypeError, ValueError):
         data["summary_highlights"] = []
     data["notify_reporter"] = bool(data.get("notify_reporter", 0))
+    # 1 while the background task (transcription, routing, duplicate check) is
+    # still running on a freshly-submitted report; the app shows it as pending.
+    data["processing"] = bool(data.get("processing", 0))
     # Always surface a ticket number — use the stored one, else derive (keeps
     # legacy rows consistent with the deterministic FMS-XXXXXXXX scheme).
     if not data.get("ticket_number"):

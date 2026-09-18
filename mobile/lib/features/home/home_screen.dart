@@ -672,6 +672,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   void _openReport() {
+    // Belt-and-suspenders: the "+" is already disabled outside GCC, but never
+    // open the sheet without a ward to file into.
+    if (_currentWard == null) return;
     ReportSheet.open(
       context,
       coords: _coords,
@@ -688,20 +691,32 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         _locateDevice();
       },
       onSubmitted: () {
+        // The report is saved instantly; its AI fields and any duplicate flag
+        // land a few seconds later. Refresh now, then poll briefly so the card
+        // updates from "Reviewing…" to done (or to a duplicate prompt) on its
+        // own without the user pulling to refresh.
         _loadHistory();
+        _pollHistoryWhileProcessing();
         final w = _currentWard;
         if (w != null) _loadWard(w);
       },
-      onUpvoteExisting: (existing) async {
-        await ref.read(apiClientProvider).upvoteIssue(
-              existing.id,
-              ref.read(userIdProvider),
-              name: ref.read(prefsProvider).citizenName,
-            );
-        final w = _currentWard;
-        if (w != null) await _loadWard(w);
-      },
     );
+  }
+
+  /// After a submit, reload My Reports a few times over ~20s so a card started
+  /// as "Reviewing…" flips to its finished state (or a duplicate prompt) live.
+  void _pollHistoryWhileProcessing() {
+    var ticks = 0;
+    void tick() {
+      ticks++;
+      Future.delayed(const Duration(seconds: 3), () async {
+        if (!mounted) return;
+        await _loadHistory();
+        final stillProcessing = _history.any((i) => i.processing);
+        if (stillProcessing && ticks < 7) tick();
+      });
+    }
+    tick();
   }
 
   /// A tapped map pin highlights + brings forward the matching grievance
@@ -1086,6 +1101,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 wardCount: _wardIssues.length,
                 onTab: _selectTab,
                 onSubmit: _openReport,
+                // Outside GCC there is no ward to file into, so the "+" is
+                // disabled; My Reports and In my Ward stay reachable.
+                canSubmit: _currentWard != null,
               ),
             ),
 
@@ -1274,6 +1292,43 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       );
     }
 
+    // Outside GCC: explain in the sheet why the "+" is disabled. Shown once the
+    // location has settled (not while still "locating"). My Reports and In my
+    // Ward remain usable below it.
+    final outsideGcc =
+        _coords != null && _currentWard == null && _geoStatus != 'loading';
+    if (outsideGcc) {
+      out.add(
+        Container(
+          margin: const EdgeInsets.only(bottom: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: NkColors.amber50,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: NkColors.amber200),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.location_off_outlined,
+                  size: 18, color: NkColors.amber700),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  context.tr(
+                    'You are outside the Greater Chennai Corporation area. New '
+                    'grievances can only be filed inside GCC — you can still view '
+                    'your reports and your ward.',
+                  ),
+                  style: const TextStyle(
+                      fontSize: 12.5, height: 1.4, color: NkColors.slate700),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     out.add(const SizedBox(height: 4));
 
     // Cards fade+rise in on their own short stagger, and the whole list
@@ -1403,17 +1458,207 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     }
 
     for (final issue in list) {
+      // A report the background duplicate check flagged: an inline prompt in the
+      // list, not a pop-up, so the citizen decides in place.
+      if (issue.possibleDuplicateId != null) {
+        out.add(_duplicateCard(issue));
+        continue;
+      }
       out.add(
         Padding(
           padding: const EdgeInsets.only(bottom: 8),
           child: _selectableCard(
             issue,
-            GrievanceCard(issue: issue),
+            // While the backend is still transcribing/routing a fresh report,
+            // mark the card so the citizen knows it is landing, not stuck.
+            issue.processing
+                ? _processingWrap(GrievanceCard(issue: issue))
+                : GrievanceCard(issue: issue),
           ),
         ),
       );
     }
     return out;
+  }
+
+  /// Overlays a small "Reviewing…" pill on a freshly-submitted card whose AI
+  /// fields are still being filled in on the server.
+  Widget _processingWrap(Widget card) {
+    return Stack(
+      children: [
+        card,
+        Positioned(
+          top: 10,
+          right: 10,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(
+              color: NkColors.brand.withValues(alpha: 0.9),
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(
+                  height: 9,
+                  width: 9,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 1.6, color: Colors.white),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  context.tr('Reviewing…'),
+                  style: const TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Inline "possible duplicate" prompt shown in My Reports when the background
+  /// check flags a fresh report. Submit anyway keeps it; withdraw deletes it.
+  Widget _duplicateCard(Issue issue) {
+    final busy = _busyId == issue.id;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: NkColors.amber50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: NkColors.amber200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.copy_all_outlined,
+                  size: 14, color: NkColors.amber700),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '${context.tr('Possible duplicate')} — ${issue.title}',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: NkColors.amber800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            context.tr(
+              'This looks like a grievance already reported nearby. Submit it '
+              'anyway if it is a separate problem, or withdraw it.',
+            ),
+            style: const TextStyle(fontSize: 12, color: NkColors.slate600),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: GestureDetector(
+                  onTap: busy ? null : () => _keepIssue(issue),
+                  child: Container(
+                    height: 40,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: NkColors.navyPrimary,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      context.tr('Submit anyway'),
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: GestureDetector(
+                  onTap: busy ? null : () => _withdrawIssue(issue),
+                  child: Container(
+                    height: 40,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: NkColors.slate200),
+                    ),
+                    child: Text(
+                      context.tr('Withdraw'),
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: NkColors.rose600,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _keepIssue(Issue issue) async {
+    setState(() => _busyId = issue.id);
+    try {
+      await ref.read(apiClientProvider).keepIssue(issue.id);
+      await _loadHistory();
+    } catch (e) {
+      if (mounted) setState(() => _error = '$e');
+    } finally {
+      if (mounted) setState(() => _busyId = null);
+    }
+  }
+
+  Future<void> _withdrawIssue(Issue issue) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(context.tr('Withdraw this grievance?')),
+        content: Text(context.tr(
+          'It will be removed permanently. You can submit a fresh report instead.',
+        )),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text(context.tr('Cancel')),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: TextButton.styleFrom(foregroundColor: NkColors.rose600),
+            child: Text(context.tr('Withdraw')),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    setState(() => _busyId = issue.id);
+    try {
+      await ref.read(apiClientProvider).withdrawIssue(issue.id);
+      await _loadHistory();
+    } catch (e) {
+      if (mounted) setState(() => _error = '$e');
+    } finally {
+      if (mounted) setState(() => _busyId = null);
+    }
   }
 
   Widget _verifyCard(Issue issue) {
@@ -1586,6 +1831,7 @@ class _HomeNavBar extends StatelessWidget {
     required this.wardCount,
     required this.onTab,
     required this.onSubmit,
+    this.canSubmit = true,
   });
 
   final _HomeTab tab;
@@ -1593,6 +1839,9 @@ class _HomeNavBar extends StatelessWidget {
   final int wardCount;
   final ValueChanged<_HomeTab> onTab;
   final VoidCallback onSubmit;
+
+  /// False outside GCC — the centre "+" greys out; the two side tabs stay live.
+  final bool canSubmit;
 
   /// Inset from the screen edges.
   static const double _sideMargin = 16;
@@ -1664,7 +1913,7 @@ class _HomeNavBar extends StatelessWidget {
                 SizedBox(
                   width: _plusWidth,
                   height: _innerHeight,
-                  child: _NavPlusButton(onTap: onSubmit),
+                  child: _NavPlusButton(onTap: onSubmit, enabled: canSubmit),
                 ),
                 const SizedBox(width: _plusGap),
                 SizedBox(
@@ -1789,9 +2038,13 @@ class _NavSegment extends StatelessWidget {
 /// The centre navy "+" — the grievance CTA. Sized to the capsule's inner
 /// height so it sits flush inside the track rather than floating over it.
 class _NavPlusButton extends StatefulWidget {
-  const _NavPlusButton({required this.onTap});
+  const _NavPlusButton({required this.onTap, this.enabled = true});
 
   final VoidCallback onTap;
+
+  /// False when the citizen is outside GCC — the button greys out and does
+  /// nothing, since a new grievance cannot be filed there.
+  final bool enabled;
 
   @override
   State<_NavPlusButton> createState() => _NavPlusButtonState();
@@ -1802,14 +2055,17 @@ class _NavPlusButtonState extends State<_NavPlusButton> {
 
   @override
   Widget build(BuildContext context) {
+    final enabled = widget.enabled;
     return GestureDetector(
-      onTapDown: (_) => setState(() => _down = true),
-      onTapCancel: () => setState(() => _down = false),
-      onTapUp: (_) => setState(() => _down = false),
-      onTap: () {
-        HapticFeedback.mediumImpact();
-        widget.onTap();
-      },
+      onTapDown: enabled ? (_) => setState(() => _down = true) : null,
+      onTapCancel: enabled ? () => setState(() => _down = false) : null,
+      onTapUp: enabled ? (_) => setState(() => _down = false) : null,
+      onTap: enabled
+          ? () {
+              HapticFeedback.mediumImpact();
+              widget.onTap();
+            }
+          : null,
       child: AnimatedScale(
         scale: _down ? 0.95 : 1,
         duration: const Duration(milliseconds: 160),
@@ -1821,13 +2077,15 @@ class _NavPlusButtonState extends State<_NavPlusButton> {
           decoration: BoxDecoration(
             // A soft top-left-lit gradient rather than a flat fill: the light
             // has to come from the same direction as the bar's own for the
-            // raised read to hold.
+            // raised read to hold. Greyed flat when disabled (outside GCC).
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              colors: _down
-                  ? const [NkColors.refBlueDeep, NkColors.refBlueInner]
-                  : const [NkColors.refBlueInner, NkColors.refBlueDeep],
+              colors: !enabled
+                  ? const [Color(0xFFCED4DB), Color(0xFFB8C0CA)]
+                  : _down
+                      ? const [NkColors.refBlueDeep, NkColors.refBlueInner]
+                      : const [NkColors.refBlueInner, NkColors.refBlueDeep],
             ),
             borderRadius: BorderRadius.circular(14),
             // Raised at rest; on press the cast shadow collapses and a tight
@@ -1857,11 +2115,12 @@ class _NavPlusButtonState extends State<_NavPlusButton> {
                     ),
                   ],
           ),
-          child: const Icon(
-            Icons.add_rounded,
+          child: Icon(
+            enabled ? Icons.add_rounded : Icons.location_off_rounded,
             size: 22,
-            // Cream-gold, sampled from the wordmark gradient in the logo SVG.
-            color: Color(0xFFFFEEB8),
+            // Cream-gold, sampled from the wordmark gradient in the logo SVG;
+            // muted when disabled outside GCC.
+            color: enabled ? const Color(0xFFFFEEB8) : const Color(0xFFEFF2F6),
           ),
         ),
       ),

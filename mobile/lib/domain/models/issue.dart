@@ -26,6 +26,8 @@ class Issue {
     this.rejectedAt,
     this.summaryHighlights = const [],
     this.distanceM,
+    this.processing = false,
+    this.possibleDuplicateId,
   });
 
   final String id;
@@ -74,6 +76,15 @@ class Issue {
 
   /// Present only on /nearby responses.
   final double? distanceM;
+
+  /// True while the backend is still transcribing/routing/de-duplicating a
+  /// freshly-submitted report. The list shows it as "Reviewing…" until done.
+  final bool processing;
+
+  /// Set when the background duplicate check thinks this report duplicates an
+  /// existing grievance. The citizen's own list offers "submit anyway" /
+  /// "withdraw" while this is non-null.
+  final String? possibleDuplicateId;
 
   static double _toDouble(Object? v) =>
       v is num ? v.toDouble() : double.tryParse('$v') ?? 0;
@@ -127,6 +138,11 @@ class Issue {
           : const [],
       distanceM:
           json['distance_m'] == null ? null : _toDouble(json['distance_m']),
+      processing: json['processing'] == true,
+      possibleDuplicateId:
+          (json['possible_duplicate_id'] as String?)?.trim().isEmpty ?? true
+              ? null
+              : (json['possible_duplicate_id'] as String).trim(),
     );
   }
 }

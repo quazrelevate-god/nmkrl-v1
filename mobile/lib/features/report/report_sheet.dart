@@ -8,12 +8,9 @@ import 'package:latlong2/latlong.dart';
 
 import '../../core/theme.dart';
 import '../../core/i18n.dart';
-import '../../data/media.dart';
 import '../../domain/daily_limit.dart';
-import '../../domain/models/issue.dart';
 import '../../domain/ticket.dart';
 import '../../state/providers.dart';
-import '../shared/status_chip.dart';
 import 'widgets/success_overlay.dart';
 import 'widgets/swipe_to_confirm.dart';
 import 'package:file_picker/file_picker.dart';
@@ -40,7 +37,6 @@ class ReportSheet extends ConsumerStatefulWidget {
     required this.insideGcc,
     required this.onRefreshLocation,
     required this.onSubmitted,
-    required this.onUpvoteExisting,
   });
 
   final LatLng? coords;
@@ -56,7 +52,6 @@ class ReportSheet extends ConsumerStatefulWidget {
   final bool insideGcc;
   final VoidCallback onRefreshLocation;
   final VoidCallback onSubmitted;
-  final Future<void> Function(Issue existing) onUpvoteExisting;
 
   static Future<void> open(
     BuildContext context, {
@@ -67,7 +62,6 @@ class ReportSheet extends ConsumerStatefulWidget {
     required bool insideGcc,
     required VoidCallback onRefreshLocation,
     required VoidCallback onSubmitted,
-    required Future<void> Function(Issue existing) onUpvoteExisting,
   }) {
     HapticFeedback.lightImpact();
     return showModalBottomSheet<void>(
@@ -83,7 +77,6 @@ class ReportSheet extends ConsumerStatefulWidget {
         insideGcc: insideGcc,
         onRefreshLocation: onRefreshLocation,
         onSubmitted: onSubmitted,
-        onUpvoteExisting: onUpvoteExisting,
       ),
     );
   }
@@ -210,20 +203,10 @@ class _ReportSheetState extends ConsumerState<ReportSheet>
         documentName: _document?.name,
       );
 
-      if (outcome.isDuplicate) {
-        setState(() => _submitting = false);
-        _bumpReset();
-        if (!mounted) return;
-        final action = await _DuplicateSheet.ask(context, outcome.duplicate!);
-        if (action == _DuplicateAction.upvote) {
-          await widget.onUpvoteExisting(outcome.duplicate!);
-          if (mounted) Navigator.of(context).pop();
-        } else if (action == _DuplicateAction.submitAnyway) {
-          await _submit(force: true);
-        }
-        return;
-      }
-
+      // Fire-and-forget: the report is saved server-side the instant this
+      // returns. Transcription, routing and the duplicate check run in the
+      // background; if a duplicate turns up it surfaces later, inline in
+      // My Reports — never as a blocking dialog here.
       final issue = outcome.issue!;
       // Attach the authenticated account's contact details (phone was
       // OTP-verified at login) — non-blocking, same as the web flow.
@@ -627,220 +610,6 @@ class _ReportSheetState extends ConsumerState<ReportSheet>
       leading: _iconCircle(Icons.mic_none),
       title: context.tr('Record Voice'),
       subtitle: context.tr('Describe the issue in your voice'),
-    );
-  }
-}
-
-enum _DuplicateAction { upvote, submitAnyway, cancel }
-
-/// "Duplicate Issue Found" confirm sheet (port of DuplicateModal.js).
-class _DuplicateSheet extends StatelessWidget {
-  const _DuplicateSheet({required this.issue});
-
-  final Issue issue;
-
-  static Future<_DuplicateAction> ask(BuildContext context, Issue issue) async {
-    final r = await showModalBottomSheet<_DuplicateAction>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      barrierColor: Colors.black.withValues(alpha: 0.5),
-      builder: (_) => _DuplicateSheet(issue: issue),
-    );
-    return r ?? _DuplicateAction.cancel;
-  }
-
-  static Widget _photoFallback() => Container(
-        height: 64,
-        width: 64,
-        color: NkColors.slate200,
-        alignment: Alignment.center,
-        child: const Text('🛣️', style: TextStyle(fontSize: 24)),
-      );
-
-  @override
-  Widget build(BuildContext context) {
-    final image = mediaImage(issue.imageUrl);
-    return Container(
-      margin: const EdgeInsets.all(12),
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                height: 44,
-                width: 44,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: NkColors.amber50,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Icon(Icons.warning_amber_rounded,
-                    size: 22, color: NkColors.amber600),
-              ),
-              const SizedBox(width: 12),
-              const Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Duplicate Issue Found',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                        color: NkColors.slate900,
-                      ),
-                    ),
-                    Text(
-                      'An issue is already reported here and is under progress. Would you like to upvote it to increase priority instead?',
-                      style: TextStyle(
-                        fontSize: 13,
-                        height: 1.4,
-                        color: NkColors.slate500,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          // Existing issue preview
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: NkColors.slate50,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: NkColors.slate200),
-            ),
-            child: Row(
-              children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: image != null
-                      ? Image(
-                          image: image,
-                          height: 64,
-                          width: 64,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => _photoFallback())
-                      : _photoFallback(),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        issue.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: NkColors.slate800,
-                        ),
-                      ),
-                      if (issue.areaName != null)
-                        Text(
-                          issue.areaName!,
-                          style: const TextStyle(
-                              fontSize: 12, color: NkColors.slate500),
-                        ),
-                      const SizedBox(height: 4),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 4,
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        children: [
-                          StatusChip(status: issue.status, fontSize: 10),
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(Icons.thumb_up_outlined,
-                                  size: 11, color: NkColors.slate500),
-                              const SizedBox(width: 3),
-                              Text(
-                                '${issue.upvotes}',
-                                style: const TextStyle(
-                                    fontSize: 12,
-                                    color: NkColors.slate500),
-                              ),
-                            ],
-                          ),
-                          if (issue.distanceM != null)
-                            Text(
-                              '${issue.distanceM!.round()} m away',
-                              style: const TextStyle(
-                                  fontSize: 12, color: NkColors.slate500),
-                            ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
-          GestureDetector(
-            onTap: () =>
-                Navigator.of(context).pop(_DuplicateAction.upvote),
-            child: Container(
-              height: 48,
-              decoration: BoxDecoration(
-                color: NkColors.brand,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.thumb_up_outlined,
-                      size: 15, color: Colors.white),
-                  SizedBox(width: 8),
-                  Text(
-                    'Upvote & Cancel',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.white,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 8),
-          GestureDetector(
-            onTap: () =>
-                Navigator.of(context).pop(_DuplicateAction.submitAnyway),
-            child: Container(
-              height: 48,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: NkColors.slate300),
-              ),
-              child: const Text(
-                'Submit Anyway',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: NkColors.slate700,
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

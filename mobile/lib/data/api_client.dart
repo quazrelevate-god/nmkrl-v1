@@ -12,7 +12,7 @@ abstract class ApiClient {
   /// Request an SMS OTP for [phone] (POST /api/auth/request-otp). Returns the
   /// dev OTP string when the backend is in dummy mode (no live SMS key), else
   /// null. Throws [ApiException] on a bad number / gateway error.
-  Future<String?> requestCitizenOtp(String phone);
+  Future<String?> requestCitizenOtp(String phone, {String name = ''});
 
   /// Phase-1 citizen login (POST /api/auth/login): verifies [otp], then a
   /// known phone must present its registered name; an unknown phone
@@ -74,6 +74,12 @@ abstract class ApiClient {
   Future<Issue> upvoteIssue(String issueId, String userId, {String name = ''});
 
   Future<void> verifyIssue(String issueId, String userId, String response);
+
+  /// "Submit anyway" on a report the duplicate check flagged — clears the flag.
+  Future<Issue> keepIssue(String issueId);
+
+  /// Withdraw the citizen's own freshly-submitted report (e.g. a duplicate).
+  Future<void> withdrawIssue(String issueId);
 
   Future<void> confirmIssue(String issueId, String phone, {String name = ''});
 

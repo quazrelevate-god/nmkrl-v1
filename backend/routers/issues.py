@@ -11,11 +11,13 @@ Citizen-facing endpoints:
 
 import json
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+import os
+
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
 
 import audit
 import boundaries
-from database import get_db
+from database import get_connection, get_db
 from session_auth import citizen_session, require_same_citizen
 from gemini_service import check_duplicate, classify_department, process_audio
 from utils import (
@@ -27,6 +29,7 @@ from utils import (
     save_upload,
     serialize_issue,
     ticket_number,
+    UPLOAD_DIR,
 )
 
 router = APIRouter(prefix="/api/issues", tags=["issues"])
@@ -58,8 +61,106 @@ def _nearby_open_issues(conn, lat: float, lng: float, radius_m: float) -> list[d
     return results
 
 
+def _remove_upload(path) -> None:
+    """Delete one stored upload if it lives under /uploads/. Best-effort."""
+    if not path or not str(path).startswith("/uploads/"):
+        return
+    root = os.path.realpath(UPLOAD_DIR)
+    full = os.path.realpath(os.path.join(root, str(path)[len("/uploads/"):]))
+    if not full.startswith(root + os.sep):
+        return
+    try:
+        os.remove(full)
+    except OSError:
+        pass
+
+
+def _finish_report(
+    *, issue_id: str, audio_bytes, audio_mime: str, latitude: float,
+    longitude: float, user_id: str, keep_title: bool, force: bool,
+) -> None:
+    """Background half of a submission: transcribe, route, de-duplicate.
+
+    Runs after the response is already sent (FastAPI runs a plain ``def`` task
+    in a threadpool, so the blocking Gemini calls do not stall the event loop).
+    Opens its own connection because the request's connection is long gone.
+    """
+    try:
+        ai = (process_audio(audio_bytes, mime_type=audio_mime)
+              if audio_bytes else
+              {"title": "", "transcript": "", "transcript_ta": "", "highlights": []})
+    except Exception:
+        ai = {"title": "", "transcript": "", "transcript_ta": "", "highlights": []}
+
+    with get_connection() as conn:
+        row = conn.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
+        if row is None:
+            return  # withdrawn before processing finished
+
+        title = row["title"]
+        gemini_title = (ai.get("title") or "").strip()
+        if not keep_title and gemini_title:
+            title = gemini_title
+        transcript = ai.get("transcript", "") or ""
+        transcript_ta = ai.get("transcript_ta", "") or ""
+        highlights = ai.get("highlights", []) or []
+
+        try:
+            area_name = reverse_geocode(latitude, longitude)
+        except Exception:
+            area_name = ""
+        try:
+            department = classify_department(title, transcript, highlights)
+        except Exception:
+            department = ""
+
+        dup_id = None
+        if not force:
+            try:
+                nearby = [
+                    i for i in _nearby_open_issues(conn, latitude, longitude, DUPLICATE_RADIUS_M)
+                    if i["id"] != issue_id
+                ]
+                if nearby:
+                    dup = check_duplicate(title, transcript, highlights, nearby)
+                    dup_id = dup["id"] if dup else None
+            except Exception:
+                dup_id = None
+
+        conn.execute(
+            """UPDATE issues
+                  SET title = ?, transcript = ?, transcript_ta = ?,
+                      summary_highlights = ?, area_name = ?, department = ?,
+                      possible_duplicate_id = ?, processing = 0
+                WHERE id = ?""",
+            (title, transcript, transcript_ta, json.dumps(highlights),
+             area_name, department, dup_id, issue_id),
+        )
+        conn.commit()
+
+        row = conn.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
+        try:
+            audit.record(
+                conn, issue_id, action="report", actor_type="citizen", actor_id=user_id,
+                to_status="SUBMITTED", note=title, department=department,
+                image_url=row["image_url"], audio_url=row["audio_url"],
+            )
+        except Exception:
+            pass
+        # Notify coordinators once routing + title are known. A likely duplicate
+        # still notifies — the citizen may "submit anyway", and two nearby
+        # reports on a coordinator's queue is not harmful.
+        try:
+            from routers.notifications import emit_new_grievance
+            emit_new_grievance(conn, row)
+        except Exception:
+            pass
+        conn.commit()
+
+
 @router.post("/report")
 async def report_issue(
+    background: BackgroundTasks,
     latitude: float = Form(...),
     longitude: float = Form(...),
     user_id: str = Form(""),
@@ -73,85 +174,43 @@ async def report_issue(
     session_uid: str = Depends(citizen_session),
     conn=Depends(get_db),
 ):
-    """Report a new street issue. Transcribe audio via Gemini, then check for
-    semantic duplicates among nearby open issues before persisting."""
-    # The report is filed as the signed-in account, whatever id the body sent.
+    """Save the report instantly; transcribe, route and de-duplicate in the
+    background.
+
+    The slow work used to run inline, so a submit could take many seconds and
+    time out — and a retry then created a second copy of a report that had in
+    fact been saved. Now the row is written and returned immediately; the
+    background task fills in the AI fields and, if it finds a likely duplicate,
+    flags the row so the citizen's own list can offer "submit anyway" or
+    "withdraw".
+    """
     require_same_citizen(session_uid, user_id)
     user_id = session_uid
-    # --- Reject out-of-area reports FIRST ------------------------------------
-    # A point outside every GCC ward polygon has no ward, and BOTH the public
-    # ward feed and every coordinator queue filter on ward_no — so such a row
-    # would be invisible to everyone but its reporter, with no coordinator
-    # notified and nothing to route it. Refusing here (rather than after the
-    # write) also avoids paying for a Gemini transcription and leaving orphaned
-    # upload files behind for a grievance that can never be acted on.
+
+    # Refuse out-of-area reports up front — cheap and in-memory. The app blocks
+    # the "+" outside GCC too; this is the safety net. No ward means no queue.
     loc = boundaries.locate(latitude, longitude)
     ward_no = int(loc["ward"]) if loc["ward"] is not None else None
-    zone = loc["zone"]
-    zone_name = loc["zone_name"]
     if ward_no is None:
         raise HTTPException(status_code=422, detail=OUTSIDE_GCC_MESSAGE)
 
-    # --- Persist uploaded media ---------------------------------------------
-    image_url = None
-    audio_url = None
+    # Persist uploads now so the files exist when the app and the task read them.
+    image_url = save_upload(await image.read(), image.filename, "image") if image is not None else None
+    audio_bytes = await audio.read() if audio is not None else None
+    audio_mime = (audio.content_type or "audio/webm") if audio is not None else "audio/webm"
+    audio_url = save_upload(audio_bytes, audio.filename, "audio") if audio_bytes else None
     document_url = None
     document_name = ""
-    audio_bytes = None
-    audio_mime = "audio/webm"
-
-    if image is not None:
-        image_url = save_upload(await image.read(), image.filename, "image")
-    if audio is not None:
-        audio_bytes = await audio.read()
-        audio_mime = audio.content_type or "audio/webm"
-        audio_url = save_upload(audio_bytes, audio.filename, "audio")
     if document is not None:
         doc_bytes = await document.read()
         if doc_bytes:
             document_name = document.filename or "petition"
             document_url = save_upload(doc_bytes, document_name, "document")
 
-    # --- Gemini transcription -----------------------------------------------
-    if audio_bytes:
-        ai = process_audio(audio_bytes, mime_type=audio_mime)
-    else:
-        ai = {"title": "", "transcript": "", "highlights": []}
-
-    # --- Title resolution ---------------------------------------------------
-    # Prefer a user-typed title; otherwise use Gemini's summarised title; last
-    # resort, keep the sentinel so the issue still has something.
-    user_provided_title = title and title.strip() != _DEFAULT_TITLE_SENTINEL
-    gemini_title = (ai.get("title") or "").strip()
-    if not user_provided_title and gemini_title:
-        title = gemini_title
-
-    # --- Gemini-powered duplicate check within 100m (skip if force=true) ---
-    # Similarity is decided by Gemini over the summary/transcript/highlights;
-    # proximity is only the initial filter.
-    if not force:
-        nearby = _nearby_open_issues(conn, latitude, longitude, DUPLICATE_RADIUS_M)
-        if nearby:
-            dup = check_duplicate(
-                title,
-                ai.get("transcript", ""),
-                ai.get("highlights", []),
-                nearby,
-            )
-            if dup is not None:
-                # Public shape: this is someone else's grievance, shown to a
-                # stranger who happened to report nearby.
-                payload = public_issue(
-                    conn.execute("SELECT * FROM issues WHERE id = ?", (dup["id"],)).fetchone()
-                )
-                payload["distance_m"] = dup.get("distance_m", 0)
-                return {"duplicate_exists": True, "existing_issue": payload}
-
-    # --- Persist the new issue ----------------------------------------------
-    area_name = reverse_geocode(latitude, longitude)
-    department = classify_department(
-        title, ai.get("transcript", ""), ai.get("highlights", [])
+    user_provided_title = bool(
+        title and title.strip() and title.strip() != _DEFAULT_TITLE_SENTINEL
     )
+    initial_title = title.strip() if user_provided_title else _DEFAULT_TITLE_SENTINEL
 
     issue_id = new_id()
     created_at = now_iso()
@@ -161,51 +220,78 @@ async def report_issue(
             id, title, image_url, audio_url, transcript, transcript_ta,
             summary_highlights, latitude, longitude, area_name, ward_no, zone,
             zone_name, department, ticket_number, document_url, document_name,
-            status, upvotes, notify_reporter, created_at, created_by
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SUBMITTED', 0, 0, ?, ?)
+            status, upvotes, notify_reporter, processing, created_at, created_by
+        ) VALUES (?, ?, ?, ?, '', '', '[]', ?, ?, '', ?, ?, ?, '', ?, ?, ?,
+                  'SUBMITTED', 0, 0, 1, ?, ?)
         """,
         (
-            issue_id,
-            title,
-            image_url,
-            audio_url,
-            ai.get("transcript", ""),
-            ai.get("transcript_ta", ""),
-            json.dumps(ai.get("highlights", [])),
-            latitude,
-            longitude,
-            area_name,
-            ward_no,
-            zone,
-            zone_name,
-            department,
-            ticket_number(issue_id),
-            document_url,
-            document_name,
-            created_at,
-            user_id,
+            issue_id, initial_title, image_url, audio_url, latitude, longitude,
+            ward_no, loc["zone"], loc["zone_name"], ticket_number(issue_id),
+            document_url, document_name, created_at, user_id,
         ),
     )
+    conn.commit()
 
-    audit.record(
-        conn, issue_id, action="report", actor_type="citizen", actor_id=user_id,
-        to_status="SUBMITTED", note=title, department=department,
-        image_url=image_url, audio_url=audio_url,
+    # Everything slow runs after this response is sent.
+    background.add_task(
+        _finish_report, issue_id=issue_id, audio_bytes=audio_bytes,
+        audio_mime=audio_mime, latitude=latitude, longitude=longitude,
+        user_id=user_id, keep_title=user_provided_title, force=force,
     )
 
     row = conn.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
-    # Push a floating banner to every coordinator whose home_ward matches
-    # this grievance — the mobile coordinator app polls /api/notifications
-    # every ~15s and pops a banner for each new entry.
-    try:
-        from routers.notifications import emit_new_grievance
-        emit_new_grievance(conn, row)
-    except Exception:
-        pass  # notifications are best-effort; never block the report
     result = serialize_issue(row)
-    result["duplicate_exists"] = False
-    result["ai_meta"] = {"mock": ai.get("mock", False), "reason": ai.get("reason")}
+    result["duplicate_exists"] = False  # decided later, in the background
     return result
+
+
+@router.post("/{issue_id}/keep")
+def keep_issue(
+    issue_id: str,
+    user_id: str = Form(""),
+    session_uid: str = Depends(citizen_session),
+    conn=Depends(get_db),
+):
+    """"Submit anyway": the citizen kept a report the duplicate check flagged."""
+    require_same_citizen(session_uid, user_id)
+    issue = conn.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
+    if issue is None:
+        raise HTTPException(status_code=404, detail="Issue not found")
+    if (issue["created_by"] or "") != session_uid:
+        raise HTTPException(status_code=403, detail="That grievance belongs to another account.")
+    conn.execute("UPDATE issues SET possible_duplicate_id = NULL WHERE id = ?", (issue_id,))
+    row = conn.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
+    return serialize_issue(row)
+
+
+@router.post("/{issue_id}/withdraw")
+def withdraw_issue(
+    issue_id: str,
+    user_id: str = Form(""),
+    session_uid: str = Depends(citizen_session),
+    conn=Depends(get_db),
+):
+    """Citizen withdrew their own freshly-submitted grievance (e.g. a duplicate).
+
+    Allowed only while it is still SUBMITTED — once a coordinator has taken it
+    up, it is part of the record and can no longer be pulled back here.
+    """
+    issue = conn.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
+    if issue is None:
+        return {"ok": True, "deleted": False}
+    if (issue["created_by"] or "") != session_uid:
+        raise HTTPException(status_code=403, detail="That grievance belongs to another account.")
+    if issue["status"] != "SUBMITTED":
+        raise HTTPException(
+            status_code=409,
+            detail="This grievance is already being handled and can no longer be withdrawn.",
+        )
+    for col in ("image_url", "audio_url", "document_url"):
+        _remove_upload(issue[col])
+    conn.execute("DELETE FROM notifications WHERE issue_id = ?", (issue_id,))
+    # upvotes / verifications / issue_events cascade via their FKs.
+    conn.execute("DELETE FROM issues WHERE id = ?", (issue_id,))
+    return {"ok": True, "deleted": True}
 
 
 @router.post("/{issue_id}/upvote")

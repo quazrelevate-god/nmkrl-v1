@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/api_client.dart';
@@ -42,6 +45,48 @@ final apiClientProvider = Provider<ApiClient>(
 );
 
 final userIdProvider = Provider<String>((ref) => ref.watch(prefsProvider).userId);
+
+/// The citizen's local profile picture (a file path), or null. Reactive so the
+/// avatar in the app bar and the profile screen update the moment it is set.
+/// Local only — the image is copied into app storage and never uploaded.
+class AvatarNotifier extends Notifier<String?> {
+  @override
+  String? build() {
+    final p = ref.read(prefsProvider).avatarPath;
+    return (p != null && p.isNotEmpty && File(p).existsSync()) ? p : null;
+  }
+
+  /// Copy [sourcePath] into the app's own storage and remember it.
+  Future<void> setFromFile(String sourcePath) async {
+    final dir = await getApplicationDocumentsDirectory();
+    final dest =
+        '${dir.path}/nk_avatar_${DateTime.now().millisecondsSinceEpoch}.jpg';
+    await File(sourcePath).copy(dest);
+    // Drop any previous avatar file so they don't pile up.
+    final old = state;
+    await ref.read(prefsProvider).setAvatarPath(dest);
+    state = dest;
+    if (old != null && old != dest) {
+      try {
+        await File(old).delete();
+      } catch (_) {}
+    }
+  }
+
+  Future<void> clear() async {
+    final old = state;
+    await ref.read(prefsProvider).clearAvatar();
+    state = null;
+    if (old != null) {
+      try {
+        await File(old).delete();
+      } catch (_) {}
+    }
+  }
+}
+
+final avatarProvider =
+    NotifierProvider<AvatarNotifier, String?>(AvatarNotifier.new);
 
 /// Citizen auth as reactive state so router redirects respond to sign-in/out.
 /// A session only counts when a server-issued account id is present, so
@@ -95,6 +140,7 @@ class AuthNotifier extends Notifier<bool> {
     // this token is bound to, and the next account here would inherit alerts.
     await PushService.instance.unbind(ref.read(apiClientProvider));
     await ref.read(prefsProvider).clearSession();
+    ref.invalidate(avatarProvider); // clearSession removed the stored path
     ref.read(pinLockProvider.notifier).lock();
     state = false;
   }
@@ -211,6 +257,8 @@ class CoordinatorAuthNotifier extends Notifier<Coordinator?> {
     await PushService.instance.unbind(ref.read(apiClientProvider));
     await ref.read(coordinatorStoreProvider).clearSession();
     await ref.read(prefsProvider).clearSessionToken();
+    await ref.read(prefsProvider).clearAvatar();
+    ref.invalidate(avatarProvider);
     state = null;
   }
 }

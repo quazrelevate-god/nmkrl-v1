@@ -23,6 +23,16 @@ class Prefs {
   static const _citizenNotifCursorKey = 'nk_citizen_notif_cursor';
   static const _pinHashKey = 'nk_citizen_pin_hash';
   static const _sessionTokenKey = 'nk_session_token';
+  static const _avatarPathKey = 'nk_avatar_path';
+
+  /// Absolute path to the citizen's chosen profile picture, copied into the
+  /// app's own storage. Local only — it never leaves the device.
+  String? get avatarPath => _prefs.getString(_avatarPathKey);
+
+  Future<void> setAvatarPath(String path) =>
+      _prefs.setString(_avatarPathKey, path);
+
+  Future<void> clearAvatar() => _prefs.remove(_avatarPathKey);
 
   /// The signed session token returned at login. Sent on every request so the
   /// server takes the caller's identity from the token, not from an id in the
@@ -80,6 +90,7 @@ class Prefs {
   Future<void> clearSession() async {
     await _prefs.remove(_pinHashKey);
     await _prefs.remove(_sessionTokenKey);
+    await _prefs.remove(_avatarPathKey);
     await _prefs.setBool(_authedKey, false);
   }
 

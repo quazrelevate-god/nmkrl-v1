@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -61,7 +63,10 @@ class ProfileHeader extends ConsumerWidget {
             // Dark glyph — the bar is white now.
             dark: false,
           ),
-          _ProfileAvatar(initials: ProfileData.initialsOf(accountName)),
+          _ProfileAvatar(
+            initials: ProfileData.initialsOf(accountName),
+            avatarPath: ref.watch(avatarProvider),
+          ),
         ],
       ),
     );
@@ -150,9 +155,12 @@ class _SearchField extends StatelessWidget {
 
 /// Gold-ringed avatar circle. Tapping navigates to [ProfileScreen].
 class _ProfileAvatar extends StatelessWidget {
-  const _ProfileAvatar({required this.initials});
+  const _ProfileAvatar({required this.initials, this.avatarPath});
 
   final String initials;
+
+  /// Local profile-picture path, or null to fall back to initials.
+  final String? avatarPath;
 
   @override
   Widget build(BuildContext context) {
@@ -173,21 +181,32 @@ class _ProfileAvatar extends StatelessWidget {
           height: 31,
           width: 31,
           alignment: Alignment.center,
+          clipBehavior: Clip.antiAlias,
           decoration: const BoxDecoration(
             // Brand blue from the logo SVG, not an approximated navy.
             color: NkColors.refBlue,
             shape: BoxShape.circle,
           ),
-          child: Text(
-            initials,
-            style: const TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w900,
-              color: NkColors.gold300,
-            ),
-          ),
+          child: avatarPath != null
+              ? Image.file(
+                  File(avatarPath!),
+                  height: 31,
+                  width: 31,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => _initialsText(),
+                )
+              : _initialsText(),
         ),
       ),
     );
   }
+
+  Widget _initialsText() => Text(
+        initials,
+        style: const TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w900,
+          color: NkColors.gold300,
+        ),
+      );
 }
