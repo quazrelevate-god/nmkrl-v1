@@ -100,8 +100,10 @@ CREATE TABLE IF NOT EXISTS verifications (
     FOREIGN KEY (issue_id) REFERENCES issues (id) ON DELETE CASCADE
 );
 
--- Constituency-staff accounts, created from the admin console. Auth is
--- POC-grade plain-text (documented). One coordinator per (username).
+-- Constituency-staff accounts, created from the admin console. Coordinators
+-- sign in with name + mobile + OTP (see routers/auth.py); the legacy `password`
+-- and `must_change_password` columns are retained only for backward
+-- compatibility and are always empty/0 for accounts created now.
 -- constituency is a fixed assignment; home_ward is the default ward that
 -- opens on sign-in (the coordinator can switch wards WITHIN their AC).
 CREATE TABLE IF NOT EXISTS coordinators (

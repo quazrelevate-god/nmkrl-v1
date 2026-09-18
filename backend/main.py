@@ -1,10 +1,10 @@
 """
 main.py
 -------
-FastAPI entrypoint for FixMyStreet India.
+FastAPI entrypoint for the Nam Kural Connect backend.
 
 Responsibilities:
-  * Configure CORS so the Next.js dev server (localhost:3000) can call the API.
+  * Configure CORS so the web clients can call the API.
   * Mount the /uploads static directory for serving stored images/audio.
   * Initialize the SQLite schema on startup.
   * Wire up the issues and admin routers.
@@ -195,13 +195,14 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="FixMyStreet India API",
+    title="Nam Kural Connect API",
     version="1.0.0",
-    description="Civic grievance reporting backend (PoC).",
+    description="Civic grievance reporting and resolution backend.",
     lifespan=lifespan,
 )
 
-# CORS: allow the local Next.js front-end (and any origin during the PoC).
+# CORS. Lock allow_origins to the known web + app origins before a public
+# deploy; the wildcard is a development convenience, not a production setting.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -253,7 +254,7 @@ app.include_router(servicehub.router)
 def root():
     """Health/info endpoint."""
     return {
-        "name": "FixMyStreet India API",
+        "name": "Nam Kural Connect API",
         "status": "ok",
         "gemini_configured": bool(
             os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")

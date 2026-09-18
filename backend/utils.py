@@ -71,6 +71,26 @@ def ensure_upload_dirs() -> None:
     os.makedirs(DOC_DIR, exist_ok=True)
 
 
+def remove_upload(path) -> None:
+    """Delete one stored upload, but only if it lives under UPLOAD_DIR.
+
+    Best-effort and path-traversal safe: a value that resolves outside the
+    uploads root (e.g. a crafted ``/uploads/../../etc/passwd``) is ignored, and
+    a missing file is not an error. Used by report withdrawal and account
+    deletion to clean up media that no longer has an owner.
+    """
+    if not path or not str(path).startswith("/uploads/"):
+        return
+    root = os.path.realpath(UPLOAD_DIR)
+    full = os.path.realpath(os.path.join(root, str(path)[len("/uploads/"):]))
+    if not full.startswith(root + os.sep):
+        return
+    try:
+        os.remove(full)
+    except OSError:
+        pass
+
+
 def save_upload(file_bytes: bytes, original_name: str, kind: str) -> str:
     """
     Persist an uploaded blob to disk and return its public URL path
@@ -90,7 +110,7 @@ def save_upload(file_bytes: bytes, original_name: str, kind: str) -> str:
     return f"/uploads/{_subdirs.get(kind, 'images')}/{fname}"
 
 
-_NOMINATIM_UA = "FixMyStreetIndia/1.0 (civic grievance PoC; contact: admin@fixmystreet.in)"
+_NOMINATIM_UA = "NamKuralConnect/1.0 (civic grievance platform; contact: support@namkural.in)"
 
 
 def reverse_geocode(lat: float, lng: float) -> str:

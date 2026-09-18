@@ -45,7 +45,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException
 import session_auth
 from database import get_db
 from session_auth import citizen_session, require_same_citizen
-from utils import UPLOAD_DIR, new_id, now_iso
+from utils import new_id, now_iso, remove_upload
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -479,20 +479,6 @@ def verify_pin(
 # account is removed outright.
 
 
-def _remove_upload(path) -> None:
-    """Delete one stored upload. Only paths under /uploads/ are touched."""
-    if not path or not str(path).startswith("/uploads/"):
-        return
-    root = os.path.realpath(UPLOAD_DIR)
-    full = os.path.realpath(os.path.join(root, str(path)[len("/uploads/"):]))
-    if not full.startswith(root + os.sep):
-        return
-    try:
-        os.remove(full)
-    except OSError:
-        pass
-
-
 def erase_citizen(conn, user_id: str) -> dict:
     user = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
     if user is None:
@@ -503,8 +489,8 @@ def erase_citizen(conn, user_id: str) -> dict:
         (user_id,),
     ).fetchall()
     for r in reports:
-        _remove_upload(r["audio_url"])
-        _remove_upload(r["document_url"])
+        remove_upload(r["audio_url"])
+        remove_upload(r["document_url"])
     conn.execute(
         """UPDATE issues
               SET created_by = '', name = '', phone = '',

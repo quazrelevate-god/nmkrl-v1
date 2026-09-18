@@ -25,6 +25,7 @@ from utils import (
     new_id,
     now_iso,
     public_issue,
+    remove_upload,
     reverse_geocode,
     save_upload,
     serialize_issue,
@@ -59,20 +60,6 @@ def _nearby_open_issues(conn, lat: float, lng: float, radius_m: float) -> list[d
             item["distance_m"] = round(dist, 1)
             results.append(item)
     return results
-
-
-def _remove_upload(path) -> None:
-    """Delete one stored upload if it lives under /uploads/. Best-effort."""
-    if not path or not str(path).startswith("/uploads/"):
-        return
-    root = os.path.realpath(UPLOAD_DIR)
-    full = os.path.realpath(os.path.join(root, str(path)[len("/uploads/"):]))
-    if not full.startswith(root + os.sep):
-        return
-    try:
-        os.remove(full)
-    except OSError:
-        pass
 
 
 def _finish_report(
@@ -287,7 +274,7 @@ def withdraw_issue(
             detail="This grievance is already being handled and can no longer be withdrawn.",
         )
     for col in ("image_url", "audio_url", "document_url"):
-        _remove_upload(issue[col])
+        remove_upload(issue[col])
     conn.execute("DELETE FROM notifications WHERE issue_id = ?", (issue_id,))
     # upvotes / verifications / issue_events cascade via their FKs.
     conn.execute("DELETE FROM issues WHERE id = ?", (issue_id,))
