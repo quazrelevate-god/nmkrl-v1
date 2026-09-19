@@ -208,13 +208,13 @@ def merge(conn, *, child, parent, actor_type: str, actor_id: str) -> dict:
         (parent["id"], child["id"]),
     )
 
-    # The reporter's support moves to the parent. INSERT OR IGNORE because
+    # The reporter's support moves to the parent. ON CONFLICT DO NOTHING because
     # they may already have upvoted it — UNIQUE(user_id, issue_id) — and one
     # person must never count twice.
     if child["created_by"]:
         conn.execute(
-            """INSERT OR IGNORE INTO upvotes (id, user_id, issue_id, name)
-               VALUES (?, ?, ?, ?)""",
+            """INSERT INTO upvotes (id, user_id, issue_id, name)
+               VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING""",
             (new_id(), child["created_by"], parent["id"], child["name"] or ""),
         )
     _sync_support(conn, parent["id"])

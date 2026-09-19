@@ -577,7 +577,7 @@ def coordinator_performance(conn=Depends(get_db)):
     """
     coords = conn.execute(
         """SELECT username, name, role, constituency, home_ward
-             FROM coordinators ORDER BY name COLLATE NOCASE"""
+             FROM coordinators ORDER BY LOWER(name)"""
     ).fetchall()
 
     stats = []

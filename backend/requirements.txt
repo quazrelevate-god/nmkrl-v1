@@ -10,3 +10,7 @@ httpx==0.28.1
 # Mints the OAuth2 bearer for the FCM HTTP v1 API (push.py). The legacy
 # server-key API was retired in 2024, so a service account is required.
 google-auth==2.55.2
+# PostgreSQL driver + pool, used when DATABASE_URL points at Postgres
+# (database.py). Unused on SQLite, which stays the local-dev default.
+psycopg[binary]==3.2.3
+psycopg-pool==3.2.4

@@ -28,7 +28,7 @@ from pydantic import BaseModel
 
 import boundaries
 from admin_auth import issue_token, require_admin, verify_credentials
-from database import DB_PATH, get_connection, init_db
+from database import DB_PATH, IS_POSTGRES, get_connection, init_db
 from gemini_service import keyword_department
 from routers import (
     admin, auth, coordinator, coordinators_admin, departments, issues,
@@ -129,6 +129,13 @@ def _seed_if_needed() -> None:
     """
     print(f"[seed] DB_PATH={DB_PATH} UPLOAD_DIR={UPLOAD_DIR} /data mounted={os.path.isdir('/data')}")
     seed_db = os.path.join(SEED_DIR, "fixmystreet.db")
+    # The bundled seed is a SQLite file copied into place. On Postgres there is
+    # no file to copy it over, and a database is loaded with
+    # scripts/migrate_sqlite_to_postgres.py, deliberately, rather than on boot.
+    # Uploaded media below still lives on the volume either way.
+    if IS_POSTGRES:
+        print("[seed] DATABASE_URL is Postgres — skipping the SQLite seed.")
+        seed_db = None
     # FORCE_RESEED=1 resets the demo data on the next boot, on purpose.
     #
     # The volume at /data persists across redeploys — that is what it is for —
@@ -140,7 +147,7 @@ def _seed_if_needed() -> None:
     forced = os.environ.get("FORCE_RESEED", "").strip().lower() in ("1", "true", "yes")
     if forced:
         print("[seed] FORCE_RESEED set — resetting to the bundled demo data.")
-    if os.path.exists(seed_db) and (forced or _db_is_empty()):
+    if seed_db and os.path.exists(seed_db) and (forced or _db_is_empty()):
         os.makedirs(os.path.dirname(DB_PATH) or ".", exist_ok=True)
         # _db_is_empty() should already have ruled this out, but seeding is
         # destructive and unrecoverable — keep a copy of anything non-trivial

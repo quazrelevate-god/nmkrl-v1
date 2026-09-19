@@ -519,9 +519,11 @@ def erase_citizen(conn, user_id: str) -> dict:
             WHERE actor_type = 'citizen' AND actor_id = ?""",
         (user_id,),
     )
-    # Their support is withdrawn, so the public counts drop with it.
+    # Their support is withdrawn, so the public counts drop with it. A CASE,
+    # not two-argument MAX(): that is SQLite-only (Postgres spells it GREATEST,
+    # which SQLite lacks).
     conn.execute(
-        """UPDATE issues SET upvotes = MAX(upvotes - 1, 0)
+        """UPDATE issues SET upvotes = CASE WHEN upvotes > 0 THEN upvotes - 1 ELSE 0 END
             WHERE id IN (SELECT issue_id FROM upvotes WHERE user_id = ?)""",
         (user_id,),
     )

@@ -54,7 +54,8 @@ def _secret() -> bytes:
         # Insert-if-absent, then read back: two workers starting together
         # settle on whichever key landed first.
         conn.execute(
-            "INSERT OR IGNORE INTO app_secrets (key, value) VALUES ('session', ?)",
+            "INSERT INTO app_secrets (key, value) VALUES ('session', ?) "
+            "ON CONFLICT DO NOTHING",
             (secrets.token_hex(32),),
         )
         row = conn.execute(

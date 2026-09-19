@@ -1,5 +1,9 @@
+import atexit
+import functools
 import os
+import re
 import sqlite3
+import threading
 from contextlib import contextmanager
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -14,8 +18,156 @@ DB_PATH = (
     or os.path.join(BASE_DIR, "fixmystreet.db")
 )
 
+# PostgreSQL, when DATABASE_URL names one (Railway's Postgres service sets it as
+# postgresql://…). Unset, the app runs on the SQLite file above exactly as
+# before, which is what local development and the existing volume use.
+#
+# SQLite serialises every write behind one file lock and cannot be shared
+# between machines, so it caps the app at one process on one box. Postgres is
+# the path to more than that. The routers are written once, in the SQLite
+# dialect; the adapter below gives a Postgres connection the same surface
+# (`?` placeholders, `row["col"]`, `row[0]`, `dict(row)`), so a query only
+# needs changing where the two databases genuinely disagree.
+DATABASE_URL = (os.environ.get("DATABASE_URL") or "").strip()
+IS_POSTGRES = DATABASE_URL.startswith(("postgres://", "postgresql://"))
 
-def _connect() -> sqlite3.Connection:
+
+class Row(dict):
+    """A result row readable by column name or by position, like sqlite3.Row."""
+
+    __slots__ = ("_values",)
+
+    def __getitem__(self, key):
+        if isinstance(key, int):
+            return self._values[key]
+        return dict.__getitem__(self, key)
+
+
+def _pg_row_factory(cursor):
+    names = [d.name for d in cursor.description] if cursor.description else []
+
+    def make(values):
+        row = Row(zip(names, values))
+        row._values = values
+        return row
+
+    return make
+
+
+@functools.lru_cache(maxsize=1024)
+def _pg_sql(sql: str) -> str:
+    """Rewrite a SQLite-dialect statement for psycopg.
+
+    `?` becomes `%s`, and every literal `%` is doubled because psycopg reads
+    `%` as a placeholder anywhere in a parameterised query — inside quotes too.
+    `?` inside a string literal or a `--` comment is left alone.
+    """
+    out, i, n, quoted = [], 0, len(sql), False
+    while i < n:
+        ch = sql[i]
+        if ch == "'":
+            quoted = not quoted  # '' inside a literal toggles twice: no-op
+            out.append(ch)
+        elif not quoted and sql.startswith("--", i):
+            end = sql.find("\n", i)
+            end = n if end == -1 else end
+            out.append(sql[i:end].replace("%", "%%"))
+            i = end
+            continue
+        elif ch == "%":
+            out.append("%%")
+        elif ch == "?" and not quoted:
+            out.append("%s")
+        else:
+            out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def _pg_ddl(sql: str) -> str:
+    """SQLite column types → Postgres. REAL is a 4-byte float in Postgres, which
+    would round every stored latitude/longitude to roughly a metre, so map it to
+    the 8-byte DOUBLE PRECISION SQLite's REAL actually is."""
+    return re.sub(r"\bREAL\b", "DOUBLE PRECISION", sql)
+
+
+class _PgConn:
+    """A pooled psycopg connection wearing the sqlite3.Connection surface the
+    routers use. Closing hands the connection back to the pool and drops this
+    wrapper's hold on it, so a caller that keeps a reference past its request
+    (push.py hands one to a thread) gets an error instead of silently writing
+    inside whichever request the pool gives the connection to next."""
+
+    def __init__(self, raw):
+        self._raw = raw
+
+    def _conn(self):
+        if self._raw is None:
+            raise RuntimeError("Cannot operate on a closed database connection.")
+        return self._raw
+
+    def execute(self, sql, params=()):
+        if params:
+            return self._conn().execute(_pg_sql(sql), params)
+        return self._conn().execute(sql)
+
+    def executemany(self, sql, seq):
+        cur = self._conn().cursor()
+        cur.executemany(_pg_sql(sql), seq)
+        return cur
+
+    def executescript(self, sql):
+        # Several statements in one call is fine without parameters.
+        self._conn().execute(_pg_ddl(sql))
+
+    def commit(self):
+        self._conn().commit()
+
+    def rollback(self):
+        self._conn().rollback()
+
+    def close(self):
+        raw, self._raw = self._raw, None
+        if raw is not None:
+            _pool().putconn(raw)
+
+
+_pg_pool = None
+_pg_pool_lock = threading.Lock()
+
+
+def _pool():
+    """The process-wide connection pool, opened on first use.
+
+    DB_POOL_MAX sizes it per process. Keep workers x DB_POOL_MAX under the
+    server's max_connections (Railway Postgres defaults to 100), or put
+    PgBouncer in front before raising either.
+    """
+    global _pg_pool
+    if _pg_pool is None:
+        with _pg_pool_lock:
+            if _pg_pool is None:
+                from psycopg_pool import ConnectionPool
+
+                def configure(conn):
+                    conn.row_factory = _pg_row_factory
+
+                _pg_pool = ConnectionPool(
+                    DATABASE_URL,
+                    min_size=1,
+                    max_size=int(os.environ.get("DB_POOL_MAX", "10")),
+                    configure=configure,
+                    open=True,
+                )
+                # Close on exit so shutdown does not stall on the pool's
+                # worker threads, and the server is told the sessions ended.
+                atexit.register(_pg_pool.close)
+    return _pg_pool
+
+
+def _connect():
+    if IS_POSTGRES:
+        return _PgConn(_pool().getconn())
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON;")
@@ -247,8 +399,32 @@ CREATE TABLE IF NOT EXISTS location_logs (
 """
 
 
+def _add_column(conn, table: str, col: str, defn: str) -> None:
+    """Add a column if the table does not have it yet.
+
+    SQLite has no ADD COLUMN IF NOT EXISTS, so there the ALTER is attempted and
+    "duplicate column" swallowed. That trick cannot be used on Postgres: a
+    failed statement aborts the whole transaction, and every statement after it
+    in init_db would fail too. Postgres has the IF NOT EXISTS form instead.
+    """
+    if IS_POSTGRES:
+        conn.execute(
+            f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {_pg_ddl(defn)}"
+        )
+        return
+    try:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {defn}")
+    except Exception:
+        pass
+
+
 def init_db() -> None:
     with get_connection() as conn:
+        if IS_POSTGRES:
+            # Several workers booting at once would otherwise race each other's
+            # CREATE TABLE IF NOT EXISTS, which Postgres does not make atomic.
+            # Held until this transaction commits.
+            conn.execute("SELECT pg_advisory_xact_lock(4221977)")
         conn.executescript(SCHEMA)
         for col, defn in [
             ("area_name", "TEXT DEFAULT ''"),
@@ -331,109 +507,66 @@ def init_db() -> None:
             ("duplicate_decision", "TEXT DEFAULT ''"),
             ("duplicate_decided_by", "TEXT DEFAULT ''"),
         ]:
-            try:
-                conn.execute(f"ALTER TABLE issues ADD COLUMN {col} {defn}")
-            except Exception:
-                pass
+            _add_column(conn, "issues", col, defn)
         # Every admin/coordinator open of a parent grievance lists the reports
         # merged into it. The column arrives by ALTER above, so the index
         # cannot live in SCHEMA — it would run before the column exists.
-        try:
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_issues_merged_into "
-                "ON issues (merged_into_id)"
-            )
-        except Exception:
-            pass
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_issues_merged_into "
+            "ON issues (merged_into_id)"
+        )
         # Spatial pre-filter for the duplicate scan and the public "/nearby"
         # map. Both bound a lat/lng box in SQL before Haversining the survivors
         # (see utils.bbox_for); this composite index backs that BETWEEN so the
         # box lookup stays sub-linear as the table grows to city scale.
-        try:
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_issues_lat_lng "
-                "ON issues (latitude, longitude)"
-            )
-        except Exception:
-            pass
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_issues_lat_lng "
+            "ON issues (latitude, longitude)"
+        )
         # Admin console filters and the ward feeds all narrow by status, and the
         # dashboard counts per status — an index keeps those off a full scan.
-        try:
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_issues_status ON issues (status)"
-            )
-        except Exception:
-            pass
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_issues_status ON issues (status)"
+        )
         # Ward feeds (citizen + coordinator) filter by ward_no on every load.
-        try:
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_issues_ward ON issues (ward_no)"
-            )
-        except Exception:
-            pass
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_issues_ward ON issues (ward_no)"
+        )
         # Account state. Admin's enable/disable was a per-browser flag with no
         # column behind it, so a "disabled" coordinator went on signing into the
         # mobile app and working normally. Revocation needs somewhere to live.
-        try:
-            conn.execute(
-                "ALTER TABLE coordinators ADD COLUMN status TEXT NOT NULL DEFAULT 'active'"
-            )
-        except Exception:
-            pass
+        _add_column(conn, "coordinators", "status", "TEXT NOT NULL DEFAULT 'active'")
         # Coordinators now sign in with name + mobile + OTP, like citizens —
         # no password. The mobile number is their credential; username stays as
         # an internal, admin-invisible key so existing assignments/history keep
         # linking. Empty until the admin sets it (existing accounts migrate by
         # the admin adding a number).
-        try:
-            conn.execute("ALTER TABLE coordinators ADD COLUMN phone TEXT DEFAULT ''")
-        except Exception:
-            pass
+        _add_column(conn, "coordinators", "phone", "TEXT DEFAULT ''")
         # Optional profile photo, uploaded by the admin (no random avatars).
-        try:
-            conn.execute("ALTER TABLE coordinators ADD COLUMN photo_url TEXT DEFAULT ''")
-        except Exception:
-            pass
+        _add_column(conn, "coordinators", "photo_url", "TEXT DEFAULT ''")
         # Newest sign-in stamp. Sessions are self-contained signed tokens with
         # no server-side session table, so before this there was nothing to
         # compare a token against: every token stayed valid until it expired,
         # and signing in on a new device could not end the old one. The token
         # carries the stamp it was minted with; only the newest verifies.
         for table in ("users", "coordinators"):
-            try:
-                conn.execute(
-                    f"ALTER TABLE {table} ADD COLUMN session_epoch TEXT DEFAULT ''"
-                )
-            except Exception:
-                pass
+            _add_column(conn, table, "session_epoch", "TEXT DEFAULT ''")
         # App-open PIN. Stores a HASH the client computes as
         # sha256("<user_id>:<pin>") — the server never receives the four
         # digits themselves, and the user id is the per-account salt, so the
         # same PIN on two accounts stores two different hashes.
-        try:
-            conn.execute("ALTER TABLE users ADD COLUMN pin_hash TEXT DEFAULT ''")
-        except Exception:
-            pass
+        _add_column(conn, "users", "pin_hash", "TEXT DEFAULT ''")
         # upvotes.name carries the verified upvoter name (OTP-gated public upvotes).
-        try:
-            conn.execute("ALTER TABLE upvotes ADD COLUMN name TEXT DEFAULT ''")
-        except Exception:
-            pass
+        _add_column(conn, "upvotes", "name", "TEXT DEFAULT ''")
         # otp_codes gains the per-hour request throttle window. An existing
         # production table predates these, so add them where missing.
         for col, defn in [
             ("window_start", "TEXT"),
             ("window_count", "INTEGER NOT NULL DEFAULT 0"),
         ]:
-            try:
-                conn.execute(f"ALTER TABLE otp_codes ADD COLUMN {col} {defn}")
-            except Exception:
-                pass
+            _add_column(conn, "otp_codes", col, defn)
         # location_logs gains the primary Assembly Constituency for the lookup.
-        try:
-            conn.execute("ALTER TABLE location_logs ADD COLUMN assembly_constituency TEXT")
-        except Exception:
-            pass
+        _add_column(conn, "location_logs", "assembly_constituency", "TEXT")
         # Indexes for the hot issue lookups. The only index issues had was its
         # primary key, so every ward feed, history and coordinator queue was a
         # full table scan — ~840 ms each at 1M rows, 0.1–90 ms with these.
@@ -516,8 +649,8 @@ def _reconcile_upvotes(conn) -> None:
         short = row["id"].replace("-", "")[:8]
         for n in range(gap):
             conn.execute(
-                """INSERT OR IGNORE INTO upvotes (id, user_id, issue_id, name)
-                   VALUES (?, ?, ?, ?)""",
+                """INSERT INTO upvotes (id, user_id, issue_id, name)
+                   VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING""",
                 (
                     str(uuid.uuid4()),
                     f"seed:{short}:{n}",

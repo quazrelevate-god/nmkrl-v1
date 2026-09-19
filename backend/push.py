@@ -33,6 +33,8 @@ import threading
 
 import httpx
 
+from database import get_connection
+
 _SCOPE = "https://www.googleapis.com/auth/firebase.messaging"
 _ENDPOINT = "https://fcm.googleapis.com/v1/projects/{project}/messages:send"
 
@@ -85,10 +87,17 @@ def _tokens_for(conn, recipient_type: str, recipient_id: str) -> list[str]:
 
 
 def _drop_token(conn, token: str) -> None:
-    """Forget a token FCM has told us is dead (app uninstalled / reinstalled)."""
+    """Forget a token FCM has told us is dead (app uninstalled / reinstalled).
+
+    Runs on the send thread, so it opens its own connection. The `conn` it is
+    handed belongs to the request that triggered the push: once that request
+    ends it is closed (so this delete never happened, and dead tokens piled up),
+    and while the request is still running a commit() here would commit the
+    request's own half-finished transaction.
+    """
     try:
-        conn.execute("DELETE FROM device_tokens WHERE token = ?", (token,))
-        conn.commit()
+        with get_connection() as own:
+            own.execute("DELETE FROM device_tokens WHERE token = ?", (token,))
     except Exception:
         pass
 
