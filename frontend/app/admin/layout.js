@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Admin layout — shared shell for the Nam Kural Connect staff portal.
+ * Admin layout — shared shell for the Namkural GMS Portal staff console.
  * Renders the dark sidebar rail + the active page inside a light workspace.
  * Data is loaded once by AdminDataProvider and shared across all admin pages.
  *

@@ -20,7 +20,7 @@ class NammaKuralApp extends ConsumerWidget {
     final router = ref.watch(_routerProvider);
     final lang = ref.watch(langProvider);
     return MaterialApp.router(
-      title: 'நம் குரல்',
+      title: 'Namkural Connect',
       debugShowCheckedModeBanner: false,
       theme: buildNkTheme(),
       routerConfig: router,
