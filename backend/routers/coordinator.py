@@ -214,15 +214,29 @@ def coordinator_constituency_issues(
                 "constituency": constituency}
 
     order = "upvotes DESC, created_at DESC" if sort == "priority" else "created_at DESC"
-    placeholders = ",".join("?" for _ in wards)
-    # ward_no is stored INTEGER; the AC map holds ward strings — compare as TEXT.
+    # Both conditions are written so the planner narrows by ward first. That is
+    # the selective one: an AC is a few wards out of 200, while "unassigned"
+    # is most of the city.
+    #   * ward_no is stored INTEGER and the AC map holds ward strings, so the
+    #     parameters are converted, not the column — CAST(ward_no AS TEXT) hid
+    #     ward_no from every ward index.
+    #   * The ownership test goes through COALESCE so it cannot be answered from
+    #     idx_issues_assigned. Written as a bare OR, SQLite chose that index, looked
+    #     up every unassigned grievance city-wide and threw away the other ACs'
+    #     (~4 s at 500k rows vs ~270 ms this way, identical rows; ANALYZE does
+    #     not change its mind).
+    # `wards` stays as strings in the response for the app's ward filter.
+    ward_nos = [int(w) for w in wards if str(w).strip().isdigit()]
+    if not ward_nos:
+        return {"count": 0, "issues": [], "wards": wards, "home_ward": home_ward,
+                "constituency": constituency}
+    placeholders = ",".join("?" for _ in ward_nos)
     rows = conn.execute(
         f"""SELECT * FROM issues
-             WHERE CAST(ward_no AS TEXT) IN ({placeholders})
-               AND (assigned_coordinator = '' OR assigned_coordinator IS NULL
-                    OR assigned_coordinator = ?)
+             WHERE ward_no IN ({placeholders})
+               AND COALESCE(assigned_coordinator, '') IN ('', ?)
              ORDER BY {order}""",
-        [*wards, coordinator.strip().lower()],
+        [*ward_nos, coordinator.strip().lower()],
     ).fetchall()
     return {
         "count": len(rows),
