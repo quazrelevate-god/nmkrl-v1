@@ -26,10 +26,16 @@ import json
 import os
 
 import audit
+import boundaries
 import duplicates
 from database import get_db
-from routers.notifications import emit_status_change, emit_to_coordinator
-from utils import CHENNAI_AC_MAP, now_iso, read_upload, serialize_issue
+from routers.notifications import (
+    emit_status_change, emit_to_coordinator, emit_new_grievance,
+)
+from utils import (
+    CHENNAI_AC_MAP, new_id, now_iso, read_upload, save_upload,
+    serialize_issue, ticket_number,
+)
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -146,6 +152,104 @@ def list_admin_issues(
     rows = conn.execute(sql, params).fetchall()
     issues = [serialize_issue(r) for r in rows]
     return {"count": len(issues), "issues": issues}
+
+
+@router.post("/issues")
+async def create_grievance(
+    title: str = Form(...),
+    description: str = Form(""),
+    name: str = Form(""),
+    phone: str = Form(""),
+    ward: str = Form(...),
+    department: str = Form(""),
+    coordinator: str = Form(""),
+    latitude: float = Form(None),
+    longitude: float = Form(None),
+    photo: UploadFile = File(None),
+    conn=Depends(get_db),
+):
+    """Log a grievance at the MLA office — a walk-in / phoned-in report.
+
+    Not everyone uses the app; people bring grievances to the office in person.
+    This records one straight into the same workflow. It is created ACTIVE — the
+    office logging it IS the verification, so it skips the citizen SUBMITTED →
+    verify gate — and is either handed to a coordinator or left in the ward pool
+    (the ward's coordinator is notified either way). Location comes from an exact
+    lat/lng when given, otherwise the ward's centroid.
+    """
+    if not title.strip():
+        raise HTTPException(status_code=400, detail="A headline is required.")
+    if latitude is not None and longitude is not None:
+        loc = boundaries.locate(latitude, longitude)
+        lat, lng = latitude, longitude
+        zone, zone_name = loc["zone"], loc["zone_name"]
+        ward_no = int(loc["ward"]) if loc["ward"] else (int(ward) if str(ward).isdigit() else None)
+    else:
+        info = boundaries.ward_centroid(ward)
+        if info is None:
+            raise HTTPException(status_code=400, detail=f"Unknown ward '{ward}'.")
+        lat, lng, zone, zone_name = info["lat"], info["lng"], info["zone"], info["zone_name"]
+        ward_no = int(ward) if str(ward).isdigit() else None
+    if ward_no is None:
+        raise HTTPException(status_code=400, detail="A valid ward is required.")
+
+    who = (coordinator or "").strip().lower()
+    if who:
+        crow = conn.execute(
+            "SELECT status FROM coordinators WHERE LOWER(username) = ?", (who,)
+        ).fetchone()
+        if crow is None:
+            raise HTTPException(status_code=400, detail=f"Unknown coordinator '{who}'.")
+        if (crow["status"] or "active").lower() != "active":
+            raise HTTPException(
+                status_code=400, detail="That coordinator account is disabled."
+            )
+
+    image_url = None
+    if photo is not None:
+        data = await photo.read()
+        if data:
+            image_url = save_upload(data, photo.filename or "grievance.jpg", "image")
+
+    issue_id = new_id()
+    now = now_iso()
+    conn.execute(
+        """INSERT INTO issues (
+               id, title, image_url, transcript, summary_highlights,
+               latitude, longitude, area_name, ward_no, zone, zone_name,
+               department, ticket_number, status, upvotes, notify_reporter,
+               processing, created_at, created_by, name, phone,
+               assigned_coordinator, assigned_at
+           ) VALUES (?, ?, ?, ?, '[]', ?, ?, '', ?, ?, ?, ?, ?, 'ACTIVE',
+                     0, 0, 0, ?, 'admin', ?, ?, ?, ?)""",
+        (
+            issue_id, title.strip(), image_url, description.strip(),
+            lat, lng, ward_no, zone, zone_name, department.strip(),
+            ticket_number(issue_id), now, name.strip(), phone.strip(),
+            who or "", (now if who else None),
+        ),
+    )
+    row = conn.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
+
+    # Notify the assignee if one was chosen, otherwise the ward's coordinator
+    # that a new grievance landed in their pool. Best-effort.
+    try:
+        if who:
+            emit_to_coordinator(
+                conn, row, "assigned",
+                "The MLA office logged and assigned a grievance to you.",
+            )
+        else:
+            emit_new_grievance(conn, row)
+    except Exception:
+        pass
+    audit.record(
+        conn, issue_id, action="admin_create", actor_type="admin", actor_id="admin",
+        to_status="ACTIVE",
+        note=f"Logged at the MLA office{f' and assigned to @{who}' if who else ''}.",
+        image_url=image_url,
+    )
+    return serialize_issue(row)
 
 
 @router.get("/issues/stats")

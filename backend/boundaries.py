@@ -337,6 +337,27 @@ def locate(lat: float, lng: float) -> dict:
     }
 
 
+def ward_centroid(ward) -> dict | None:
+    """A representative interior point + parent zone for a ward number.
+
+    For grievances the MLA office logs by hand, where only the ward is known and
+    there is no GPS fix: gives the new report a location on the map and its zone,
+    the same way ``locate()`` would for a real coordinate.
+    """
+    if not _loaded:
+        load_boundaries()
+    target = str(ward).strip()
+    for w in _WARDS:
+        if str(w["ward"]).strip() == target:
+            pt = w["geometry"].representative_point()
+            return {
+                "lat": pt.y, "lng": pt.x,
+                "zone": w.get("zone"), "zone_name": w.get("zone_name"),
+                "ward": w["ward"],
+            }
+    return None
+
+
 def summary() -> dict:
     """Lightweight status for health/info endpoints."""
     return {"loaded": _loaded, "zones": len(_ZONES), "wards": len(_WARDS)}
