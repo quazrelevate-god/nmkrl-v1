@@ -34,7 +34,10 @@ function tint(seed) {
 export default function TicketsPage() {
   // boundaries + reload come from the shared provider; the ticket rows and
   // counts are now fetched server-side by this page (see below).
-  const { boundaries, reload } = useAdminData();
+  // `issues` is the provider's FULL set (it is not paginated), so the drawer
+  // can open a duplicate's original even when that ticket is not on the
+  // page of rows currently loaded here.
+  const { boundaries, reload, issues: allIssues } = useAdminData();
   const [tab, setTab] = useState("");
   const [query, setQuery] = useState("");
   const [quick, setQuick] = useState(null);           // today | week | sla | unassigned
@@ -43,6 +46,8 @@ export default function TicketsPage() {
   const [ward, setWard] = useState("");
   const [ac, setAc] = useState("");
   const [selected, setSelected] = useState(null);
+  // Comparing a duplicate with its original and coming back.
+  const [trail, setTrail] = useState([]);
 
   // Server-paged queue. The old page pulled every ticket and filtered / sorted /
   // counted it in the browser; now each filter change is a bounded query, the
@@ -292,8 +297,22 @@ export default function TicketsPage() {
       {selected && (
         <TicketDrawer
           issue={selected}
-          onClose={() => setSelected(null)}
-          onChanged={refresh}
+          onClose={() => { setSelected(null); setTrail([]); }}
+          // A duplicate ruling reports `null`, meaning "stay on this grievance
+          // so the admin sees the outcome" — refresh() alone would read that
+          // as "close the drawer". Every other action passes the updated row.
+          onChanged={(updated) => refresh(updated === null ? selected : updated)}
+          onOpenIssue={(id) => {
+            const next = rows.find((i) => i.id === id)
+              || (allIssues || []).find((i) => i.id === id);
+            if (!next) return;
+            setTrail((t) => [...t, selected]);
+            setSelected(next);
+          }}
+          onBack={trail.length ? () => {
+            setSelected(trail[trail.length - 1]);
+            setTrail((t) => t.slice(0, -1));
+          } : null}
         />
       )}
     </>
