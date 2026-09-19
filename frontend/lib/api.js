@@ -237,6 +237,22 @@ export async function fetchCoordinators() {
   return handle(res);
 }
 
+/** Admin: log a walk-in grievance directly into the workflow (created ACTIVE).
+ *  `fields` may include title, description, name, phone, ward, department,
+ *  coordinator and a photo File. */
+export async function adminCreateGrievance(fields = {}) {
+  const fd = new FormData();
+  Object.entries(fields).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && v !== "") fd.append(k, v);
+  });
+  const res = await fetch(`${API_BASE}/api/admin/issues`, {
+    method: "POST",
+    headers: adminHeaders(),
+    body: fd,
+  });
+  return handle(res);
+}
+
 /** Admin: assign (or reassign) a grievance to a coordinator; empty un-assigns. */
 export async function adminAssignCoordinator(issueId, coordinator) {
   const fd = new FormData();

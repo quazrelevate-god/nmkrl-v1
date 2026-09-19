@@ -10,10 +10,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Ticket as TicketIcon, Search, CalendarDays, CalendarRange, TimerOff,
-  UserX, SlidersHorizontal, ChevronRight, X, Loader2,
+  UserX, SlidersHorizontal, ChevronRight, X, Loader2, Plus,
 } from "lucide-react";
 import { useAdminData } from "@/components/admin/AdminDataProvider";
 import TicketDrawer from "@/components/admin/TicketDrawer";
+import CreateGrievanceModal from "@/components/admin/CreateGrievanceModal";
 import { fetchAdminIssues, fetchAdminIssueStats } from "@/lib/api";
 import { departmentMeta } from "@/lib/departments";
 import {
@@ -48,6 +49,7 @@ export default function TicketsPage() {
   const [selected, setSelected] = useState(null);
   // Comparing a duplicate with its original and coming back.
   const [trail, setTrail] = useState([]);
+  const [showCreate, setShowCreate] = useState(false);
 
   // Server-paged queue. The old page pulled every ticket and filtered / sorted /
   // counted it in the browser; now each filter change is a bounded query, the
@@ -177,7 +179,15 @@ export default function TicketsPage() {
             <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Manage and track citizen grievances</p>
           </div>
         </div>
-        <span className="rounded-full bg-gradient-to-r from-brand to-brand-dark px-3 py-1 text-xs font-bold text-white">EN</span>
+        <div className="flex items-center gap-2.5">
+          <button
+            onClick={() => setShowCreate(true)}
+            className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-brand to-brand-dark px-3.5 py-2 text-xs font-bold text-white shadow-lg shadow-brand/25 transition hover:brightness-95"
+          >
+            <Plus size={15} /> New grievance
+          </button>
+          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-500">EN</span>
+        </div>
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden px-7 py-5">
@@ -313,6 +323,14 @@ export default function TicketsPage() {
             setSelected(trail[trail.length - 1]);
             setTrail((t) => t.slice(0, -1));
           } : null}
+        />
+      )}
+
+      {showCreate && (
+        <CreateGrievanceModal
+          wardOptions={wardOptions}
+          onClose={() => setShowCreate(false)}
+          onCreated={async () => { setShowCreate(false); await refresh(null); }}
         />
       )}
     </>
