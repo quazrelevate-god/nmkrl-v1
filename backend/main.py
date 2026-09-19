@@ -28,7 +28,8 @@ from pydantic import BaseModel
 
 import boundaries
 from admin_auth import issue_token, require_admin, verify_credentials
-from database import DB_PATH, IS_POSTGRES, get_connection, init_db
+from database import DB_PATH, IS_POSTGRES, get_connection, get_db, init_db
+from tenancy import current_tenant, decorate as decorate_tenant
 from gemini_service import keyword_department
 from routers import (
     admin, auth, coordinator, coordinators_admin, departments, issues,
@@ -233,23 +234,57 @@ app.include_router(issues.router)
 # The admin surface is the only place accounts are created and passwords are
 # reset, so it is gated as a whole rather than endpoint by endpoint — a route
 # added later is protected by default instead of by remembering to say so.
-app.include_router(admin.router, dependencies=[Depends(require_admin)])
+# Every admin route also requires the session to be bound to a tenant (MLA
+# office), so the constituency scoping cannot be skipped by a route that forgets
+# to ask for it: the request is refused before the handler runs.
+app.include_router(admin.router, dependencies=[Depends(current_tenant)])
 app.include_router(coordinator.router)
-app.include_router(coordinators_admin.router, dependencies=[Depends(require_admin)])
+app.include_router(coordinators_admin.router, dependencies=[Depends(current_tenant)])
+
+
+def _home_tenant(conn):
+    """The tenant the env-configured operator account belongs to.
+
+    Until per-office staff accounts exist (the super-admin console), there is one
+    operator login; it is bound to the tenant for TENANT_CONSTITUENCY, falling
+    back to the first tenant created.
+    """
+    ac = (os.getenv("TENANT_CONSTITUENCY") or "").strip()
+    row = None
+    if ac:
+        row = conn.execute("SELECT * FROM tenants WHERE constituency = ?", (ac,)).fetchone()
+    if row is None:
+        row = conn.execute("SELECT * FROM tenants ORDER BY created_at LIMIT 1").fetchone()
+    return row
 
 
 @app.post("/api/admin/auth/login", tags=["admin"])
-def admin_login(username: str = Form(...), password: str = Form(...)):
-    """Sign in to the admin console. Deliberately NOT behind require_admin."""
+def admin_login(
+    username: str = Form(...), password: str = Form(...), conn=Depends(get_db)
+):
+    """Sign in to the admin console. Deliberately NOT behind require_admin.
+
+    The token is bound to the operator's tenant (MLA office), which scopes every
+    later admin request to that office's constituency.
+    """
     if not verify_credentials(username, password):
         raise HTTPException(status_code=401, detail="Invalid username or password.")
-    return issue_token(username.strip().lower())
+    tenant = _home_tenant(conn)
+    if tenant is None:
+        raise HTTPException(status_code=503, detail="No MLA office is configured yet.")
+    if (tenant["status"] or "active").lower() != "active":
+        raise HTTPException(status_code=403, detail="This MLA office account is suspended.")
+    out = issue_token(username.strip().lower(), tenant["id"])
+    out["tenant"] = decorate_tenant(tenant)
+    return out
 
 
 @app.get("/api/admin/auth/me", tags=["admin"])
-def admin_me(who: str = Depends(require_admin)):
+def admin_me(
+    who: str = Depends(require_admin), tenant: dict = Depends(current_tenant)
+):
     """Cheap token check so the console can validate a stored token on load."""
-    return {"username": who}
+    return {"username": who, "tenant": tenant}
 
 
 app.include_router(departments.router)

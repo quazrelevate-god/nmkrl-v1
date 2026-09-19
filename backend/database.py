@@ -293,6 +293,25 @@ CREATE TABLE IF NOT EXISTS app_secrets (
     value  TEXT NOT NULL
 );
 
+-- Tenants: one per MLA office. The console is handed to each office as its own
+-- tenant, bound to ONE Assembly Constituency, and its staff see only that
+-- constituency — its wards, the grievances in them, and its coordinators.
+-- Tenancy is derived from geography rather than stamped on every row: a
+-- grievance belongs to a tenant because its ward is in the tenant's
+-- constituency (utils.CHENNAI_AC_MAP). So onboarding a new office needs no data
+-- migration, and grievances reported before its MLA signed up are waiting.
+--   status: 'active' | 'suspended'
+CREATE TABLE IF NOT EXISTS tenants (
+    id            TEXT PRIMARY KEY,
+    name          TEXT NOT NULL,
+    constituency  TEXT NOT NULL,
+    status        TEXT NOT NULL DEFAULT 'active',
+    created_at    TEXT NOT NULL
+);
+-- One MLA per constituency: two offices must never share a territory.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tenants_constituency
+    ON tenants (constituency);
+
 -- Abuse reports on user-generated content. Google Play requires a way to flag
 -- content in any app that shows other people's; a flag lands here for a
 -- moderator to act on, and a citizen's own flags are removed with their account.
@@ -597,7 +616,37 @@ def init_db() -> None:
                 ON issues (assigned_coordinator, created_at);
             """
         )
+        _ensure_default_tenant(conn)
         _reconcile_upvotes(conn)
+
+
+# The pilot constituency. Used only to seed the first tenant on a database that
+# has none, so an existing single-office deployment keeps working unchanged.
+DEFAULT_TENANT_CONSTITUENCY = "16 - Egmore"
+
+
+def _ensure_default_tenant(conn) -> None:
+    """Seed the first tenant when there are none.
+
+    Before tenancy there was one console for everything; the env-configured
+    admin is now bound to this tenant (see main.admin_login). Its constituency
+    comes from TENANT_CONSTITUENCY. Idempotent: once any tenant exists — seeded
+    here or created from the super-admin console — this does nothing.
+    """
+    if conn.execute("SELECT 1 FROM tenants LIMIT 1").fetchone():
+        return
+    import uuid
+    from datetime import datetime, timezone
+
+    ac = (os.getenv("TENANT_CONSTITUENCY") or DEFAULT_TENANT_CONSTITUENCY).strip()
+    short = re.sub(r"^\d+\s*-\s*", "", ac) or ac
+    name = (os.getenv("TENANT_NAME") or f"{short} MLA Office").strip()
+    conn.execute(
+        """INSERT INTO tenants (id, name, constituency, status, created_at)
+           VALUES (?, ?, ?, 'active', ?) ON CONFLICT DO NOTHING""",
+        (str(uuid.uuid4()), name, ac, datetime.now(timezone.utc).isoformat()),
+    )
+    print(f"[tenancy] seeded default tenant: {name} ({ac})")
 
 
 # Names used for the backfilled seed supporters (see _reconcile_upvotes).

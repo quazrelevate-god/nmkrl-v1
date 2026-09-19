@@ -53,10 +53,19 @@ def _sign(payload: bytes) -> str:
     return _b64(hmac.new(_SECRET, payload, hashlib.sha256).digest())
 
 
-def issue_token(username: str) -> dict:
-    """Mint a signed token for a verified operator."""
+def issue_token(username: str, tenant_id: str | None = None) -> dict:
+    """Mint a signed token for a verified operator.
+
+    The token names the tenant (MLA office) the operator works for, so every
+    admin request is scoped to that office's constituency without a lookup of
+    who the operator is. Being inside the signed payload, it cannot be edited to
+    reach another office's data.
+    """
     expires = int(time.time()) + TOKEN_HOURS * 3600
-    payload = json.dumps({"u": username, "exp": expires}, separators=(",", ":")).encode()
+    body = {"u": username, "exp": expires}
+    if tenant_id:
+        body["t"] = tenant_id
+    payload = json.dumps(body, separators=(",", ":")).encode()
     token = f"{_b64(payload)}.{_sign(payload)}"
     return {"token": token, "username": username, "expires_at": expires}
 
@@ -83,18 +92,15 @@ def _decode(token: str) -> dict | None:
     return data
 
 
-async def require_admin(
-    x_admin_token: str = Header(default=""),
-    authorization: str = Header(default=""),
-) -> str:
-    """FastAPI dependency guarding the admin surface.
+def decode_request(x_admin_token: str = "", authorization: str = "") -> dict:
+    """Read and verify the admin token from either header, or answer 401.
 
     Accepts the token in `X-Admin-Token` or as a bearer token, and answers 401
     so the console can send the operator back to the sign-in page rather than
     showing an empty dashboard.
     """
-    token = x_admin_token.strip()
-    if not token and authorization.lower().startswith("bearer "):
+    token = (x_admin_token or "").strip()
+    if not token and (authorization or "").lower().startswith("bearer "):
         token = authorization[7:].strip()
     data = _decode(token) if token else None
     if data is None:
@@ -103,4 +109,12 @@ async def require_admin(
             detail="Admin sign-in required.",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    return data["u"]
+    return data
+
+
+async def require_admin(
+    x_admin_token: str = Header(default=""),
+    authorization: str = Header(default=""),
+) -> str:
+    """FastAPI dependency guarding the admin surface (see decode_request)."""
+    return decode_request(x_admin_token, authorization)["u"]

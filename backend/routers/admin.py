@@ -36,6 +36,7 @@ from utils import (
     CHENNAI_AC_MAP, new_id, now_iso, read_upload, save_upload,
     serialize_issue, ticket_number,
 )
+from tenancy import current_tenant, load_coordinator, load_issue, owns_ward, ward_clause
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -60,6 +61,7 @@ def list_admin_issues(
     board: bool = Query(False),
     limit: int = Query(None),
     offset: int = Query(0),
+    tenant: dict = Depends(current_tenant),
     conn=Depends(get_db),
 ):
     """
@@ -80,7 +82,9 @@ def list_admin_issues(
       Pass a `limit` to page the tickets/users surfaces — the response then also
       carries `total`, `limit`, `offset` and `has_more`.
     """
-    clauses, params = [], []
+    # Tenant scope first: an office only ever sees its own constituency.
+    tsql, tparams = ward_clause(tenant)
+    clauses, params = [tsql], list(tparams)
     if status and status.upper() in VALID_STATUSES:
         clauses.append("status = ?")
         params.append(status.upper())
@@ -166,6 +170,7 @@ async def create_grievance(
     latitude: float = Form(None),
     longitude: float = Form(None),
     photo: UploadFile = File(None),
+    tenant: dict = Depends(current_tenant),
     conn=Depends(get_db),
 ):
     """Log a grievance at the MLA office — a walk-in / phoned-in report.
@@ -192,14 +197,20 @@ async def create_grievance(
         ward_no = int(ward) if str(ward).isdigit() else None
     if ward_no is None:
         raise HTTPException(status_code=400, detail="A valid ward is required.")
+    if not owns_ward(tenant, ward_no):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Ward {ward_no} is outside {tenant['constituency']}.",
+        )
 
     who = (coordinator or "").strip().lower()
     if who:
-        crow = conn.execute(
-            "SELECT status FROM coordinators WHERE LOWER(username) = ?", (who,)
-        ).fetchone()
+        crow = load_coordinator(conn, who, tenant)
         if crow is None:
-            raise HTTPException(status_code=400, detail=f"Unknown coordinator '{who}'.")
+            raise HTTPException(
+                status_code=400,
+                detail=f"'{who}' is not a coordinator of {tenant['constituency']}.",
+            )
         if (crow["status"] or "active").lower() != "active":
             raise HTTPException(
                 status_code=400, detail="That coordinator account is disabled."
@@ -262,6 +273,7 @@ def admin_issue_stats(
     q: str = Query(None),
     unassigned: bool = Query(False),
     since: str = Query(None),
+    tenant: dict = Depends(current_tenant),
     conn=Depends(get_db),
 ):
     """Per-status counts for the ticket queue, so the console's tab badges stay
@@ -270,7 +282,8 @@ def admin_issue_stats(
     GROUPs BY status in SQL. One cheap aggregate instead of shipping every row to
     the browser to be counted there.
     """
-    clauses, params = [], []
+    tsql, tparams = ward_clause(tenant)
+    clauses, params = [tsql], list(tparams)
     if zone:
         clauses.append("zone = ?"); params.append(zone)
     if ward is not None:
@@ -311,6 +324,7 @@ def list_users(
     q: str = Query(None),
     limit: int = Query(None),
     offset: int = Query(0),
+    tenant: dict = Depends(current_tenant),
     conn=Depends(get_db),
 ):
     """
@@ -324,7 +338,11 @@ def list_users(
     Optional q filters by name or phone. limit/offset are opt-in pagination, as
     on /issues — omit `limit` for the full list, unchanged.
     """
-    clauses, params = [], []
+    # Citizen accounts are city-wide; an office sees only those who have reported
+    # in its constituency, and their counters cover only its grievances.
+    tsql, tparams = ward_clause(tenant)
+    clauses = [f"id IN (SELECT created_by FROM issues WHERE {tsql})"]
+    params = list(tparams)
     if q:
         needle = f"%{q.strip().lower()}%"
         clauses.append("(LOWER(name) LIKE ? OR phone LIKE ?)")
@@ -361,19 +379,20 @@ def list_users(
                            SUM(CASE WHEN status = 'CLOSED' THEN 1 ELSE 0 END) AS resolved,
                            SUM(CASE WHEN status NOT IN ('CLOSED','FALSE') THEN 1 ELSE 0 END) AS open
                       FROM issues
-                     WHERE created_by IN ({ph})
+                     WHERE created_by IN ({ph}) AND {tsql}
                   GROUP BY created_by""",
-                ids,
+                [*ids, *tparams],
             ).fetchall()
     else:
         agg_rows = conn.execute(
-            """SELECT created_by,
+            f"""SELECT created_by,
                       COUNT(*) AS reports,
                       SUM(CASE WHEN status = 'CLOSED' THEN 1 ELSE 0 END) AS resolved,
                       SUM(CASE WHEN status NOT IN ('CLOSED','FALSE') THEN 1 ELSE 0 END) AS open
                  FROM issues
-                WHERE created_by IS NOT NULL AND created_by != ''
-             GROUP BY created_by"""
+                WHERE created_by IS NOT NULL AND created_by != '' AND {tsql}
+             GROUP BY created_by""",
+            tparams,
         ).fetchall()
     for row in agg_rows:
         agg[row["created_by"]] = {
@@ -421,15 +440,15 @@ def _announce(conn, row, kind: str, citizen_msg: str, coord_msg: str,
 
 
 @router.post("/issues/{issue_id}/verify")
-def verify_grievance(issue_id: str, conn=Depends(get_db)):
+def verify_grievance(
+    issue_id: str, tenant: dict = Depends(current_tenant), conn=Depends(get_db)
+):
     """Authority approves a freshly submitted grievance: SUBMITTED -> ACTIVE.
 
     This is the gate that makes the issue public — only now does its pin
     appear on the citizen map and the status tracker advance to 'Assigned'.
     """
-    issue = conn.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
-    if issue is None:
-        raise HTTPException(status_code=404, detail="Issue not found")
+    issue = load_issue(conn, issue_id, tenant)
     if issue["status"] != "SUBMITTED":
         raise HTTPException(
             status_code=409,
@@ -445,15 +464,15 @@ def verify_grievance(issue_id: str, conn=Depends(get_db)):
 
 
 @router.post("/issues/{issue_id}/forward")
-def forward_issue(issue_id: str, conn=Depends(get_db)):
+def forward_issue(
+    issue_id: str, tenant: dict = Depends(current_tenant), conn=Depends(get_db)
+):
     """Forward a verified grievance to its routed department: ACTIVE -> FORWARDED.
 
     This is the hand-off step (the WhatsApp/department dispatch) — it marks the
     ticket as forwarded so it shows under the 'Forwarded' queue.
     """
-    issue = conn.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
-    if issue is None:
-        raise HTTPException(status_code=404, detail="Issue not found")
+    issue = load_issue(conn, issue_id, tenant)
     if issue["status"] not in ("ACTIVE", "IN_PROGRESS"):
         raise HTTPException(
             status_code=409,
@@ -478,6 +497,7 @@ def forward_issue(issue_id: str, conn=Depends(get_db)):
 def assign_coordinator(
     issue_id: str,
     coordinator: str = Form(""),
+    tenant: dict = Depends(current_tenant),
     conn=Depends(get_db),
 ):
     """MLA office assigns (or reassigns) a grievance to a coordinator.
@@ -492,9 +512,7 @@ def assign_coordinator(
     Assignment is orthogonal to the lifecycle — it never changes the status — and
     terminal grievances (closed / false / merged) cannot be reassigned.
     """
-    issue = conn.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
-    if issue is None:
-        raise HTTPException(status_code=404, detail="Issue not found")
+    issue = load_issue(conn, issue_id, tenant)
     if issue["status"] in ("CLOSED", "FALSE", "MERGED"):
         raise HTTPException(
             status_code=409,
@@ -502,11 +520,12 @@ def assign_coordinator(
         )
     who = (coordinator or "").strip().lower()
     if who:
-        crow = conn.execute(
-            "SELECT username, status FROM coordinators WHERE LOWER(username) = ?", (who,)
-        ).fetchone()
+        crow = load_coordinator(conn, who, tenant)
         if crow is None:
-            raise HTTPException(status_code=400, detail=f"Unknown coordinator '{who}'.")
+            raise HTTPException(
+                status_code=400,
+                detail=f"'{who}' is not a coordinator of {tenant['constituency']}.",
+            )
         if (crow["status"] or "active").lower() != "active":
             raise HTTPException(
                 status_code=400, detail="That coordinator account is disabled."
@@ -546,6 +565,7 @@ async def close_issue(
     note: str = Form(""),
     photo: UploadFile = File(None),
     voice: UploadFile = File(None),
+    tenant: dict = Depends(current_tenant),
     conn=Depends(get_db),
 ):
     """Mark resolved, with proof of work.
@@ -556,9 +576,7 @@ async def close_issue(
     the same proof, and it is stored in the same columns so the citizen and the
     timeline see one kind of closure however it was reached.
     """
-    issue = conn.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
-    if issue is None:
-        raise HTTPException(status_code=404, detail="Issue not found")
+    issue = load_issue(conn, issue_id, tenant)
     if issue["status"] not in ("ACTIVE", "FORWARDED", "IN_PROGRESS"):
         raise HTTPException(
             status_code=409,
@@ -586,10 +604,10 @@ async def close_issue(
 
 
 @router.post("/issues/{issue_id}/progress")
-def mark_in_progress(issue_id: str, conn=Depends(get_db)):
-    issue = conn.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
-    if issue is None:
-        raise HTTPException(status_code=404, detail="Issue not found")
+def mark_in_progress(
+    issue_id: str, tenant: dict = Depends(current_tenant), conn=Depends(get_db)
+):
+    issue = load_issue(conn, issue_id, tenant)
     if issue["status"] not in ("ACTIVE", "FORWARDED"):
         raise HTTPException(
             status_code=409,
@@ -638,15 +656,16 @@ def upsert_officer(body: OfficerContact, conn=Depends(get_db)):
 
 
 @router.get("/issues/{issue_id}/timeline")
-def issue_timeline(issue_id: str, conn=Depends(get_db)):
+def issue_timeline(
+    issue_id: str, tenant: dict = Depends(current_tenant), conn=Depends(get_db)
+):
     """Full action history for one grievance, oldest first.
 
     The issues row only keeps the LATEST coordinator_message, so this is the
     only surface that can show what a coordinator wrote at transfer time after
     a later escalate overwrote it, together with the closure photo/voice.
     """
-    if conn.execute("SELECT 1 FROM issues WHERE id = ?", (issue_id,)).fetchone() is None:
-        raise HTTPException(status_code=404, detail="Issue not found")
+    load_issue(conn, issue_id, tenant)
     return {"issue_id": issue_id, "events": audit.timeline(conn, issue_id)}
 
 
@@ -668,7 +687,9 @@ def _avg_hours(rows, start_col: str, end_col: str):
 
 
 @router.get("/coordinator-performance")
-def coordinator_performance(conn=Depends(get_db)):
+def coordinator_performance(
+    tenant: dict = Depends(current_tenant), conn=Depends(get_db)
+):
     """Per-coordinator workload and outcomes.
 
     Admin could see WHO a grievance was assigned to but never how any one
@@ -679,16 +700,19 @@ def coordinator_performance(conn=Depends(get_db)):
     Every coordinator account appears, including those with nothing assigned
     yet — an empty row is a real answer, not a missing one.
     """
+    tsql, tparams = ward_clause(tenant)
     coords = conn.execute(
         """SELECT username, name, role, constituency, home_ward
-             FROM coordinators ORDER BY LOWER(name)"""
+             FROM coordinators WHERE constituency = ? ORDER BY LOWER(name)""",
+        (tenant["constituency"],),
     ).fetchall()
 
     stats = []
     for c in coords:
         uname = (c["username"] or "").strip().lower()
         rows = conn.execute(
-            "SELECT * FROM issues WHERE LOWER(assigned_coordinator) = ?", (uname,)
+            f"SELECT * FROM issues WHERE LOWER(assigned_coordinator) = ? AND {tsql}",
+            (uname, *tparams),
         ).fetchall()
         by_status = {}
         for r in rows:
@@ -729,9 +753,10 @@ def coordinator_performance(conn=Depends(get_db)):
         })
 
     unassigned = conn.execute(
-        """SELECT COUNT(*) AS n FROM issues
+        f"""SELECT COUNT(*) AS n FROM issues
             WHERE (assigned_coordinator IS NULL OR assigned_coordinator = '')
-              AND status NOT IN ('CLOSED', 'FALSE')"""
+              AND status NOT IN ('CLOSED', 'FALSE') AND {tsql}""",
+        tparams,
     ).fetchone()["n"]
     return {"count": len(stats), "unassigned": unassigned, "coordinators": stats}
 
@@ -740,6 +765,7 @@ def coordinator_performance(conn=Depends(get_db)):
 def summarise_attached_document(
     issue_id: str,
     refresh: bool = Query(False),
+    tenant: dict = Depends(current_tenant),
     conn=Depends(get_db),
 ):
     """Read the citizen's attached petition and return a point-wise summary.
@@ -749,12 +775,7 @@ def summarise_attached_document(
     opening a ticket to glance at it should not trigger one. The result is
     cached on the row so the button is paid for once; `refresh=true` re-reads.
     """
-    row = conn.execute(
-        "SELECT document_url, document_name, document_summary FROM issues WHERE id = ?",
-        (issue_id,),
-    ).fetchone()
-    if row is None:
-        raise HTTPException(status_code=404, detail="Issue not found")
+    row = load_issue(conn, issue_id, tenant)
     if not (row["document_url"] or "").strip():
         raise HTTPException(
             status_code=400, detail="This grievance has no attached document."
@@ -809,62 +830,90 @@ _RESET_TABLES = [
 # duplicates.py so the two consoles cannot decide the same case differently.
 
 
-def _issue_or_404(conn, issue_id: str):
-    row = duplicates.load(conn, issue_id)
-    if row is None:
-        raise HTTPException(status_code=404, detail="Issue not found")
-    return row
+def _issue_or_404(conn, issue_id: str, tenant: dict):
+    """Tenant-scoped load (see tenancy.load_issue)."""
+    return load_issue(conn, issue_id, tenant)
 
 
 @router.get("/issues/{issue_id}/duplicate")
-def duplicate_context(issue_id: str, conn=Depends(get_db)):
+def duplicate_context(
+    issue_id: str, tenant: dict = Depends(current_tenant), conn=Depends(get_db)
+):
     """What an admin needs to rule on a flagged grievance.
 
     ``parent`` is the suspected original; ``children`` are the reports already
     folded into THIS one, which is what the "also reported by" list on a
     surviving grievance is built from.
     """
-    row = _issue_or_404(conn, issue_id)
+    row = _issue_or_404(conn, issue_id, tenant)
+    # The 100 m duplicate radius can cross a constituency boundary, so the
+    # suspected original — or a report merged in from the field — may belong to
+    # another office. Show it, flagged, but never with that office's citizen
+    # details; merging across offices is refused below.
+    parent = duplicates.parent_preview(conn, row)
+    if parent is not None:
+        parent["other_office"] = not owns_ward(tenant, parent.get("ward_no"))
+    full = duplicates.merged_children(conn, issue_id)
+    redacted = {c["id"]: c for c in duplicates.merged_children(conn, issue_id, redact=True)}
+    children = [
+        c if owns_ward(tenant, c.get("ward_no")) else redacted.get(c["id"], c)
+        for c in full
+    ]
     return {
         "awaiting_review": duplicates.awaiting_review(row),
         "decision": row["duplicate_decision"] or "",
         "decided_by": row["duplicate_decided_by"] or "",
         "merged_into_id": row["merged_into_id"],
-        "parent": duplicates.parent_preview(conn, row),
-        "children": duplicates.merged_children(conn, issue_id),
+        "parent": parent,
+        "children": children,
     }
 
 
 @router.post("/issues/{issue_id}/merge")
 def merge_duplicate(
-    issue_id: str, parent_id: str = Form(...), conn=Depends(get_db)
+    issue_id: str, parent_id: str = Form(...), tenant: dict = Depends(current_tenant), conn=Depends(get_db)
 ):
-    """Fold this grievance into the one it duplicates."""
-    child = _issue_or_404(conn, issue_id)
-    parent = _issue_or_404(conn, parent_id)
+    """Fold this grievance into the one it duplicates.
+
+    Both must be in this office's constituency: folding a report into another
+    office's ticket would hand the citizen to an office that never saw it.
+    """
+    child = _issue_or_404(conn, issue_id, tenant)
+    parent = conn.execute("SELECT * FROM issues WHERE id = ?", (parent_id,)).fetchone()
+    if parent is None:
+        raise HTTPException(status_code=404, detail="Issue not found")
+    if not owns_ward(tenant, parent["ward_no"]):
+        raise HTTPException(
+            status_code=409,
+            detail="The original is in another constituency; it cannot be merged from here.",
+        )
     return duplicates.merge(
         conn, child=child, parent=parent, actor_type="admin", actor_id="admin"
     )
 
 
 @router.post("/issues/{issue_id}/keep-separate")
-def keep_separate_duplicate(issue_id: str, conn=Depends(get_db)):
+def keep_separate_duplicate(
+    issue_id: str, tenant: dict = Depends(current_tenant), conn=Depends(get_db)
+):
     """Rule that the flagged grievance is a different problem after all."""
-    child = _issue_or_404(conn, issue_id)
+    child = _issue_or_404(conn, issue_id, tenant)
     return duplicates.keep_separate(
         conn, child=child, actor_type="admin", actor_id="admin"
     )
 
 
 @router.post("/issues/{issue_id}/unmerge")
-def unmerge_duplicate(issue_id: str, conn=Depends(get_db)):
+def unmerge_duplicate(
+    issue_id: str, tenant: dict = Depends(current_tenant), conn=Depends(get_db)
+):
     """Reverse a merge — admin only, and the reason coordinators may merge.
 
     A merge folds away somebody's grievance, so the decision has to be
     recoverable by someone; otherwise a wrong call leaves the reporter
     following a stranger's ticket permanently.
     """
-    child = _issue_or_404(conn, issue_id)
+    child = _issue_or_404(conn, issue_id, tenant)
     return duplicates.unmerge(conn, child=child, actor_id="admin")
 
 
@@ -877,7 +926,7 @@ _AUDIO_MIME = {
 
 @router.post("/issues/{issue_id}/reprocess")
 def reprocess_issue(
-    issue_id: str, background: BackgroundTasks, conn=Depends(get_db)
+    issue_id: str, background: BackgroundTasks, tenant: dict = Depends(current_tenant), conn=Depends(get_db)
 ):
     """Retry the transcription/routing that failed on this grievance.
 
@@ -886,7 +935,7 @@ def reprocess_issue(
     failure surfaces here, and this re-runs the same background work against
     the voice note already on disk.
     """
-    row = _issue_or_404(conn, issue_id)
+    row = _issue_or_404(conn, issue_id, tenant)
     audio_url = row["audio_url"] or ""
     audio_bytes = read_upload(audio_url)
     ext = os.path.splitext(audio_url)[1].lower()
@@ -943,3 +992,20 @@ def reset_all_data(conn=Depends(get_db)):
                     pass
     ensure_upload_dirs()
     return {"ok": True, "wiped": wiped, "files_removed": files_removed}
+
+
+@router.get("/tenant")
+def my_tenant(tenant: dict = Depends(current_tenant)):
+    """The signed-in office: its constituency, wards and zones.
+
+    The console narrows every map, ward picker and zone picker to this, so staff
+    are never offered a place outside their constituency.
+    """
+    wards = set(tenant["wards"])
+    zones = {}
+    for f in ((boundaries.geojson() or {}).get("wards") or {}).get("features", []):
+        props = f.get("properties") or {}
+        if str(props.get("ward")) in wards and props.get("zone"):
+            zones[str(props["zone"])] = props.get("zone_name")
+    ordered = sorted(zones.items(), key=lambda kv: int(kv[0]) if kv[0].isdigit() else 0)
+    return {**tenant, "zones": [{"zone": z, "zone_name": n} for z, n in ordered]}
