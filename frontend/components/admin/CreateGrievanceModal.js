@@ -18,7 +18,17 @@ import { constituenciesForWard } from "@/lib/constituencies";
 
 const DEPARTMENT_NAMES = Object.keys(DEPARTMENTS);
 
-export default function CreateGrievanceModal({ wardOptions = [], onClose, onCreated }) {
+export default function CreateGrievanceModal({ boundaries, onClose, onCreated }) {
+  // The complete ward list, built here from boundaries so it is never narrowed
+  // by whatever zone filter happens to be active on the Tickets page behind it.
+  const wardOptions = useMemo(() => {
+    const feats = boundaries?.wards?.features || [];
+    return feats
+      .map((f) => f.properties.ward)
+      .filter(Boolean)
+      .sort((a, b) => Number(a) - Number(b));
+  }, [boundaries]);
+
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [ward, setWard] = useState("");
@@ -100,12 +110,12 @@ export default function CreateGrievanceModal({ wardOptions = [], onClose, onCrea
             <Field label="Ward" required>
               <select value={ward} onChange={(e) => { setWard(e.target.value); setCoordinator(""); }} className={inputCls}>
                 <option value="">Select ward…</option>
-                {wardOptions.map((w) => <option key={w.ward} value={w.ward}>Ward {w.ward}</option>)}
+                {wardOptions.map((w) => <option key={w} value={w}>Ward {w}</option>)}
               </select>
             </Field>
             <Field label="Department">
               <select value={department} onChange={(e) => setDepartment(e.target.value)} className={inputCls}>
-                <option value="">Auto / decide later</option>
+                <option value="">Not set — route later</option>
                 {DEPARTMENT_NAMES.map((d) => <option key={d} value={d}>{d}</option>)}
               </select>
             </Field>

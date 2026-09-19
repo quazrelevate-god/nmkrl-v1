@@ -328,7 +328,7 @@ export default function TicketsPage() {
 
       {showCreate && (
         <CreateGrievanceModal
-          wardOptions={wardOptions}
+          boundaries={boundaries}
           onClose={() => setShowCreate(false)}
           onCreated={async () => { setShowCreate(false); await refresh(null); }}
         />
