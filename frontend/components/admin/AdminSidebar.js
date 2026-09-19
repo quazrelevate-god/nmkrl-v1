@@ -30,7 +30,7 @@ const NAV = [
 export default function AdminSidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  const { tickets, pending } = useAdminData();
+  const { tickets, pending, tenant } = useAdminData();
 
   // Live coordinator count, refreshes when the admin creates/disables users
   // (both this sidebar and the /admin/coordinators page listen for the event).
@@ -87,7 +87,7 @@ export default function AdminSidebar() {
         </div>
         <div>
           <p className="text-[15px] font-extrabold leading-tight text-slate-800">Namkural GMS Portal</p>
-          <p className="text-[11px] font-medium text-slate-500">Staff Portal</p>
+          <p className="truncate text-[11px] font-medium text-slate-500" title={tenant?.constituency || ""}>{tenant?.name || "Staff Portal"}</p>
         </div>
       </div>
 

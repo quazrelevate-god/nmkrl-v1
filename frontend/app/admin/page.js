@@ -3,7 +3,8 @@
 /**
  * Tickets — the staff portal's grievance queue.
  * Verified grievances (ACTIVE → CLOSED) shown in a reference-styled table with
- * status tabs, search, quick filters and ward / zone / constituency filtering.
+ * status tabs, search, quick filters and ward / zone filtering — all within the
+ * signed-in office's constituency (the server scopes every row to it).
  * Clicking a row opens the 70%-width TicketDrawer on the right.
  */
 
@@ -21,7 +22,7 @@ import {
   TICKET_TABS, TICKET_STATUSES, portalStatus, derivePriority, PRIORITY_META,
   ticketNo, tokenNo, daysOpen, slaWeeksLabel, slaBreached, citizenName, initials,
 } from "@/lib/adminModel";
-import { CONSTITUENCIES, shortAC } from "@/lib/constituencies";
+import { shortAC } from "@/lib/constituencies";
 
 const PAGE_SIZE = 50; // server page size; "Load more" fetches the next page
 
@@ -38,14 +39,13 @@ export default function TicketsPage() {
   // `issues` is the provider's FULL set (it is not paginated), so the drawer
   // can open a duplicate's original even when that ticket is not on the
   // page of rows currently loaded here.
-  const { boundaries, reload, issues: allIssues } = useAdminData();
+  const { boundaries, reload, issues: allIssues, tenant } = useAdminData();
   const [tab, setTab] = useState("");
   const [query, setQuery] = useState("");
   const [quick, setQuick] = useState(null);           // today | week | sla | unassigned
   const [showFilters, setShowFilters] = useState(false);
   const [zone, setZone] = useState("");
   const [ward, setWard] = useState("");
-  const [ac, setAc] = useState("");
   const [selected, setSelected] = useState(null);
   // Comparing a duplicate with its original and coming back.
   const [trail, setTrail] = useState([]);
@@ -92,11 +92,10 @@ export default function TicketsPage() {
   const filterParams = useMemo(() => ({
     zone: zone || undefined,
     ward: ward || undefined,
-    constituency: ac || undefined,
     q: debouncedQ || undefined,
     unassigned: quick === "unassigned" || undefined,
     since,
-  }), [zone, ward, ac, debouncedQ, quick, since]);
+  }), [zone, ward, debouncedQ, quick, since]);
 
   const fetchPage = useCallback((offset) => fetchAdminIssues({
     ...filterParams,
@@ -164,7 +163,7 @@ export default function TicketsPage() {
     [rows, quick]
   );
 
-  const activeFilters = [zone && `Zone ${zone}`, ward && `Ward ${ward}`, ac && shortAC(ac)].filter(Boolean);
+  const activeFilters = [zone && `Zone ${zone}`, ward && `Ward ${ward}`].filter(Boolean);
 
   return (
     <>
@@ -176,7 +175,9 @@ export default function TicketsPage() {
           </div>
           <div>
             <h1 className="text-xl font-extrabold tracking-tight">Tickets</h1>
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Manage and track citizen grievances</p>
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+              {tenant ? `${shortAC(tenant.constituency)} constituency · ` : ""}Manage and track citizen grievances
+            </p>
           </div>
         </div>
         <div className="flex items-center gap-2.5">
@@ -243,12 +244,8 @@ export default function TicketsPage() {
                 <option value="">All Wards</option>
                 {wardOptions.map((w) => <option key={w.ward} value={w.ward}>Ward {w.ward}</option>)}
               </select>
-              <select value={ac} onChange={(e) => setAc(e.target.value)} className={selectCls}>
-                <option value="">All Constituencies</option>
-                {CONSTITUENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
-              </select>
               {activeFilters.length > 0 && (
-                <button onClick={() => { setZone(""); setWard(""); setAc(""); }} className="rounded-lg px-2.5 py-1.5 text-xs font-semibold text-blue-600 hover:bg-blue-50">
+                <button onClick={() => { setZone(""); setWard(""); }} className="rounded-lg px-2.5 py-1.5 text-xs font-semibold text-blue-600 hover:bg-blue-50">
                   Clear geo filters
                 </button>
               )}

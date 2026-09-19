@@ -4,8 +4,12 @@
  * /admin/coordinators — Coordinator user management.
  *
  * Admin can:
- *   • Create a new coordinator (name, mobile number, role, constituency, ward)
- *   • Edit an assignment (name / mobile / role / constituency / ward)
+ *   • Create a new coordinator (name, mobile number, role, ward)
+ *   • Edit an assignment (name / mobile / role / ward)
+ *
+ * Tenant-scoped: the office manages only its own constituency's coordinators,
+ * and a coordinator is always placed in that constituency — the server enforces
+ * it, and the form shows the constituency as fixed rather than offering a choice.
  *   • Disable / re-enable an account (soft, preserves history)
  *
  * Coordinators sign in with name + mobile + OTP — there are no passwords.
@@ -27,13 +31,11 @@ import {
   createCoordinatorRemote, updateCoordinatorRemote, deleteCoordinatorRemote,
   uploadCoordinatorPhotoRemote, initialsFrom,
 } from "@/lib/coordinators";
-import { CONSTITUENCIES, CHENNAI_AC_MAP } from "@/lib/constituencies";
+import { CHENNAI_AC_MAP } from "@/lib/constituencies";
+import { useAdminData } from "@/components/admin/AdminDataProvider";
 
 const ROLES = ["Ward Coordinator", "Constituency PA", "Constituency Lead", "Field Officer"];
 
-// This admin console is scoped to the MLA's home constituency by default —
-// Egmore. Admin can still switch via the toolbar dropdown when needed.
-const DEFAULT_CONSTITUENCY = "16 - Egmore";
 
 
 /** Render an overlay at <body>, outside every glass panel. backdrop-filter
@@ -46,7 +48,6 @@ const portal = (node) =>
 export default function CoordinatorsPage() {
   const [rows, setRows] = useState([]);
   const [query, setQuery] = useState("");
-  const [filterConst, setFilterConst] = useState(DEFAULT_CONSTITUENCY);
   const [filterStatus, setFilterStatus] = useState("");
 
   // One drawer for both "Add" and "Edit", and one dialog for disable/enable
@@ -117,7 +118,6 @@ export default function CoordinatorsPage() {
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return rows.filter((c) => {
-      if (filterConst && c.constituency !== filterConst) return false;
       if (filterStatus && c.status !== filterStatus) return false;
       if (!q) return true;
       return (
@@ -128,7 +128,7 @@ export default function CoordinatorsPage() {
         String(c.homeWard || "").includes(q)
       );
     });
-  }, [rows, query, filterConst, filterStatus]);
+  }, [rows, query, filterStatus]);
 
   const activeCount = rows.filter((c) => c.status !== "disabled").length;
   const disabledCount = rows.length - activeCount;
@@ -190,14 +190,6 @@ export default function CoordinatorsPage() {
             )}
           </div>
 
-          <select
-            value={filterConst}
-            onChange={(e) => setFilterConst(e.target.value)}
-            className="glass-panel h-10 min-w-[180px] rounded-xl bg-white/60 px-3 text-sm font-semibold text-slate-700 outline-none"
-          >
-            <option value="">All constituencies</option>
-            {CONSTITUENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
-          </select>
 
           <div className="glass-panel flex items-center gap-1 rounded-xl p-1">
             {[
@@ -472,7 +464,9 @@ function CoordinatorFormDrawer({ mode, username, existingRow, onClose, onSaved, 
   const [name, setName] = useState(existing?.name || "");
   const [phone, setPhone] = useState(existing?.phone || "");
   const [role, setRole] = useState(existing?.role || ROLES[0]);
-  const [constituency, setConstituency] = useState(existing?.constituency || DEFAULT_CONSTITUENCY);
+  // Fixed to the signed-in office's constituency; the server refuses any other.
+  const { tenant } = useAdminData();
+  const constituency = tenant?.constituency || existing?.constituency || "";
   const [homeWard, setHomeWard] = useState(existing?.homeWard || "");
   // Manually-uploaded profile photo. `touched` marks that the admin changed it,
   // so an edit only re-uploads (or clears) when they actually picked/removed one.
@@ -493,7 +487,7 @@ function CoordinatorFormDrawer({ mode, username, existingRow, onClose, onSaved, 
     setPhotoTouched(true);
   }
 
-  // When constituency changes, reset ward to the first one that AC covers.
+  // Once the office's constituency is known, keep the ward inside it.
   const wardOptions = useMemo(
     () => CHENNAI_AC_MAP[constituency] || [],
     [constituency]
@@ -619,14 +613,10 @@ function CoordinatorFormDrawer({ mode, username, existingRow, onClose, onSaved, 
             </select>
           </Field>
 
-          <Field label="Constituency">
-            <select
-              value={constituency}
-              onChange={(e) => setConstituency(e.target.value)}
-              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-brand"
-            >
-              {CONSTITUENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
-            </select>
+          <Field label="Constituency" hint="Fixed to this MLA office">
+            <div className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-600">
+              {constituency || "—"}
+            </div>
           </Field>
 
           <Field label="Home ward" hint="Coordinator's default ward within their constituency">

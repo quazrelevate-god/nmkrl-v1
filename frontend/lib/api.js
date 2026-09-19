@@ -231,6 +231,13 @@ export async function fetchAdminIssueStats({
   return handle(res);
 }
 
+/** Admin: the signed-in MLA office (tenant) — its constituency, wards and zones.
+ *  The console narrows every picker and map to this. */
+export async function fetchAdminTenant() {
+  const res = await fetch(`${API_BASE}/api/admin/tenant`, { headers: adminHeaders() });
+  return handle(res);
+}
+
 /** Admin: list all coordinator accounts (used for the assign picker). */
 export async function fetchCoordinators() {
   const res = await fetch(`${API_BASE}/api/admin/coordinators`, { headers: adminHeaders() });

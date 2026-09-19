@@ -20,7 +20,7 @@ import {
 import { useAdminData } from "@/components/admin/AdminDataProvider";
 import { departmentMeta } from "@/lib/departments";
 import { derivePriority, slaBreached, daysOpen } from "@/lib/adminModel";
-import { CONSTITUENCIES, issueInConstituency, shortAC, constituenciesForWard } from "@/lib/constituencies";
+import { issueInConstituency, shortAC } from "@/lib/constituencies";
 import CommunityPulse from "@/components/admin/CommunityPulse";
 import {
   VIZ, ChartCard, TrendChart, Funnel, Donut, StackedShare, RankedBars,
@@ -35,11 +35,12 @@ const AdminHeatMap = dynamic(() => import("@/components/AdminHeatMap"), {
 const DEFAULT_AC = "20 - Anna Nagar";
 
 export default function PerformancePage() {
-  const { issues, boundaries, loading } = useAdminData();
+  const { issues, boundaries, loading, tenant } = useAdminData();
   const [mode, setMode] = useState("complaints");
   const [zone, setZone] = useState("");
   const [ward, setWard] = useState("");
-  const [ac, setAc] = useState("");
+  // The office IS one constituency; everything here is already scoped to it.
+  const ac = tenant?.constituency || "";
   const [kpiFilter, setKpiFilter] = useState(null); // click a KPI card to plot it on the map
 
   const zoneOptions = useMemo(() => {
@@ -109,10 +110,6 @@ export default function PerformancePage() {
           <select value={ward} onChange={(e) => setWard(e.target.value)} className={selectCls}>
             <option value="">All Wards</option>
             {wardOptions.map((w) => <option key={w.ward} value={w.ward}>Ward {w.ward}</option>)}
-          </select>
-          <select value={ac} onChange={(e) => setAc(e.target.value)} className={selectCls}>
-            <option value="">All Constituencies</option>
-            {CONSTITUENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
           <div className="ml-auto flex items-center gap-1 rounded-lg bg-white/50 p-1 ring-1 ring-white/60">
             <ModeBtn active={mode === "complaints"} onClick={() => setMode("complaints")} icon={Flame}>Complaint density</ModeBtn>
@@ -220,8 +217,8 @@ export default function PerformancePage() {
           <ChartCard title="Hotspot zones" subtitle="Where the volume is concentrated">
             <RankedTable rows={kpi.zoneBars} headers={["Zone", "Count", "Share"]} empty="No zoned grievances" />
           </ChartCard>
-          <ChartCard title="Hotspot constituencies" subtitle="Grievances by assembly constituency">
-            <RankedTable rows={kpi.acBars} headers={["Constituency", "Count", "Share"]} empty="No mapped constituencies" />
+          <ChartCard title="Hotspot wards" subtitle="Grievances by ward in this constituency">
+            <RankedTable rows={kpi.wardBars} headers={["Ward", "Count", "Share"]} empty="No grievances yet" />
           </ChartCard>
         </div>
 
@@ -319,13 +316,13 @@ function computeKpis(issues) {
   const zoneCount = {};
   for (const i of issues) if (i.zone) { const k = `Zone ${i.zone}`; zoneCount[k] = (zoneCount[k] || 0) + 1; }
   const zoneBars = topBars(zoneCount, 6);
-  const acCount = {};
-  for (const i of issues) for (const a of constituenciesForWard(i.ward_no)) { const k = shortAC(a); acCount[k] = (acCount[k] || 0) + 1; }
-  const acBars = topBars(acCount, 6);
+  const wardCount = {};
+  for (const i of issues) if (i.ward_no != null) { const k = `Ward ${i.ward_no}`; wardCount[k] = (wardCount[k] || 0) + 1; }
+  const wardBars = topBars(wardCount, 6);
 
   return { total, pending, open, inProgress, resolved, breached, resolutionRate,
     avgOpen, oldest, avgUpvotes, onTrackRate, funnel, ageing, trend,
-    priorityDonut, deptBars, zoneBars, acBars };
+    priorityDonut, deptBars, zoneBars, wardBars };
 }
 function topBars(countMap, n = 5) {
   return Object.entries(countMap).map(([label, value]) => ({ label, value }))

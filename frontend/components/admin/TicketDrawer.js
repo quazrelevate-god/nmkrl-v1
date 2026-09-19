@@ -1022,15 +1022,25 @@ function DuplicateReview({ issue, dup, busy, onOpenParent, onMerge, onSeparate, 
             </div>
           </div>
 
-          <button
-            onClick={onOpenParent}
-            className="mt-2 flex items-center gap-1.5 text-[12px] font-bold text-brand hover:underline"
-          >
-            <ExternalLink size={12} /> Open the original to compare
-          </button>
+          {parent.other_office ? (
+            // The 100 m duplicate radius crossed a constituency boundary: the
+            // original belongs to another MLA office, which this office cannot
+            // open or merge into (the server refuses both).
+            <p className="mt-2 rounded-lg bg-white/70 px-3 py-2 text-[12px] font-semibold text-amber-800 ring-1 ring-amber-200">
+              The original is in another constituency (Ward {parent.ward_no ?? "?"}), so it
+              can&apos;t be merged from here. Keep this report as its own grievance.
+            </p>
+          ) : (
+            <button
+              onClick={onOpenParent}
+              className="mt-2 flex items-center gap-1.5 text-[12px] font-bold text-brand hover:underline"
+            >
+              <ExternalLink size={12} /> Open the original to compare
+            </button>
+          )}
 
           <div className="mt-3 flex flex-wrap gap-2">
-            <button
+            {!parent.other_office && <button
               onClick={onMerge}
               disabled={!!busy}
               className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-brand to-brand-dark px-3.5 py-2 text-xs font-bold text-white shadow-lg shadow-brand/25 disabled:opacity-60"
@@ -1038,7 +1048,7 @@ function DuplicateReview({ issue, dup, busy, onOpenParent, onMerge, onSeparate, 
               {busy === "merge"
                 ? <><Loader2 size={13} className="animate-spin" /> Merging…</>
                 : <><GitMerge size={13} className="text-amber-300" /> Merge into {parent.ticket_number}</>}
-            </button>
+            </button>}
             <button
               onClick={onSeparate}
               disabled={!!busy}
