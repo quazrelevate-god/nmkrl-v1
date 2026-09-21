@@ -293,6 +293,8 @@ const Map<String, String> _ta = {
   // Duplicate review — the coordinator decides whether two reports describe
   // the same problem, and merges them into one ticket if they do.
   'Possible duplicate': 'நகல் இருக்கலாம்',
+  // Test-location picker: wards not yet mapped to any constituency.
+  'No constituency yet': 'இன்னும் தொகுதி இல்லை',
   'Review': 'பரிசீலி',
   'Already reviewed': 'ஏற்கனவே பரிசீலிக்கப்பட்டது',
   'This grievance was merged into another.':

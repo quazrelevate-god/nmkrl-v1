@@ -2137,6 +2137,30 @@ class _TestLocationPicker extends StatelessWidget {
   final bool active;
   final void Function(String ward, int spot) onPick;
 
+  /// The dropdown value for the chosen ward — its first listing, when a ward
+  /// sits under two constituencies. Both listings pick the same ward.
+  String? _selectedKey(List<_WardGroup> groups) {
+    if (ward == null) return null;
+    for (final g in groups) {
+      if (g.wards.contains(ward)) return '${g.key}|$ward';
+    }
+    return null;
+  }
+
+  Widget _groupHeading(BuildContext context, _WardGroup g) => Padding(
+        padding: const EdgeInsets.only(top: 6),
+        child: Text(
+          g.key == 'none' ? context.tr(g.label) : g.label,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0.3,
+            color: g.key == 'none' ? NkColors.rose600 : NkColors.refBlue,
+          ),
+        ),
+      );
+
   @override
   Widget build(BuildContext context) {
     Widget spotDot(int s) {
@@ -2170,6 +2194,8 @@ class _TestLocationPicker extends StatelessWidget {
       );
     }
 
+    final groups = _groupByConstituency(wards);
+
     return SolidCapsule(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       child: Row(
@@ -2182,9 +2208,16 @@ class _TestLocationPicker extends StatelessWidget {
             width: 96,
             child: DropdownButtonHideUnderline(
               child: DropdownButton<String>(
-                value: ward,
+                // Values are "<constituency>|<ward>", not the bare ward: 27
+                // wards straddle two constituencies and are listed under both,
+                // and a dropdown crashes outright if two items share a value.
+                value: _selectedKey(groups),
                 isDense: true,
                 isExpanded: true,
+                // Wide enough for "18 · Chepauk-Thiruvallikeni"; the closed
+                // button itself stays compact.
+                menuWidth: 250,
+                menuMaxHeight: 420,
                 hint: Text(context.tr('Ward'),
                     style: const TextStyle(
                         fontSize: 12, color: NkColors.slate500)),
@@ -2195,16 +2228,37 @@ class _TestLocationPicker extends StatelessWidget {
                     fontWeight: FontWeight.w700,
                     color: NkColors.slate700),
                 borderRadius: BorderRadius.circular(12),
-                items: [
-                  for (final w in wards)
-                    DropdownMenuItem(
-                      value: w,
-                      child: Text('${context.tr('Ward')} $w',
+                // The closed button shows only "Ward 108" — the constituency
+                // headings belong to the open list, not the 96px button.
+                selectedItemBuilder: (context) => [
+                  for (final g in groups) ...[
+                    const SizedBox.shrink(),
+                    for (final w in g.wards)
+                      Text('${context.tr('Ward')} $w',
                           overflow: TextOverflow.ellipsis),
-                    ),
+                  ],
                 ],
-                onChanged: (w) {
-                  if (w != null) onPick(w, spot);
+                items: [
+                  for (final g in groups) ...[
+                    DropdownMenuItem<String>(
+                      value: '#${g.key}',
+                      enabled: false,
+                      child: _groupHeading(context, g),
+                    ),
+                    for (final w in g.wards)
+                      DropdownMenuItem<String>(
+                        value: '${g.key}|$w',
+                        child: Padding(
+                          padding: const EdgeInsets.only(left: 10),
+                          child: Text('${context.tr('Ward')} $w',
+                              overflow: TextOverflow.ellipsis),
+                        ),
+                      ),
+                  ],
+                ],
+                onChanged: (key) {
+                  if (key == null || !key.contains('|')) return;
+                  onPick(key.split('|').last, spot);
                 },
               ),
             ),
@@ -2216,6 +2270,47 @@ class _TestLocationPicker extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Wards grouped the way the admin dashboard groups them: by Assembly
+/// Constituency, in constituency-number order.
+class _WardGroup {
+  const _WardGroup(this.key, this.label, this.wards);
+
+  /// Stable id used inside the dropdown values ("16", or "none").
+  final String key;
+  final String label;
+  final List<String> wards;
+}
+
+List<_WardGroup> _groupByConstituency(List<String> wards) {
+  final available = wards.toSet();
+  int byNumber(String a, String b) =>
+      (int.tryParse(a) ?? 0).compareTo(int.tryParse(b) ?? 0);
+
+  final acs = [...kConstituencies]..sort((a, b) =>
+      byNumber(a.split(' - ').first, b.split(' - ').first));
+  final out = <_WardGroup>[];
+  final placed = <String>{};
+  for (final ac in acs) {
+    final inAc = (kChennaiAcMap[ac] ?? const <String>[])
+        .where(available.contains)
+        .toList()
+      ..sort(byNumber);
+    if (inAc.isEmpty) continue;
+    placed.addAll(inAc);
+    final number = ac.split(' - ').first.trim();
+    out.add(_WardGroup(number, '$number · ${shortAC(ac)}', inAc));
+  }
+  // Wards the constituency table does not cover yet. Listed, not hidden, and
+  // labelled plainly: a grievance filed in one reaches no coordinator and no
+  // MLA office, which is exactly what a tester needs to know before using it.
+  final unmapped = available.where((w) => !placed.contains(w)).toList()
+    ..sort(byNumber);
+  if (unmapped.isNotEmpty) {
+    out.add(_WardGroup('none', 'No constituency yet', unmapped));
+  }
+  return out;
 }
 
 /// One option in the ward feed's filter row. Compact pill: navy fill when
