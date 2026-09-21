@@ -68,18 +68,21 @@ void main() {
     test('created issue passes through', () {
       final o = ReportOutcome.fromJson(
           <String, dynamic>{'id': 'new-1', 'status': 'SUBMITTED'});
-      expect(o.isDuplicate, isFalse);
       expect(o.issue!.id, 'new-1');
     });
 
-    test('duplicate_exists yields the existing issue', () {
+    // Reporting no longer answers with a duplicate: the grievance is saved
+    // first and staff rule on duplicates later. So even the old synchronous
+    // shape must read as the citizen's own saved report, never as a prompt
+    // to judge someone else's.
+    test('a report response is always the saved grievance', () {
       final o = ReportOutcome.fromJson(<String, dynamic>{
+        'id': 'new-2',
+        'status': 'SUBMITTED',
         'duplicate_exists': true,
-        'existing_issue': {'id': 'dup-1', 'upvotes': 3, 'distance_m': 12.0},
+        'existing_issue': {'id': 'dup-1'},
       });
-      expect(o.isDuplicate, isTrue);
-      expect(o.duplicate!.id, 'dup-1');
-      expect(o.duplicate!.distanceM, 12.0);
+      expect(o.issue!.id, 'new-2');
     });
   });
 

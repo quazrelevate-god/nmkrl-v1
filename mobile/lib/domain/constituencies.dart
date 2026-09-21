@@ -43,3 +43,56 @@ String shortAC(String? ac) =>
 String titleCase(String s) => s
     .toLowerCase()
     .replaceAllMapped(RegExp(r'\b\w'), (m) => m.group(0)!.toUpperCase());
+
+/// One Assembly Constituency and the wards under it, for grouped pickers.
+class WardGroup {
+  const WardGroup(this.key, this.label, this.wards);
+
+  /// Stable id, unique across groups: the constituency number ("16"), or
+  /// [WardGroup.unmappedKey] for wards no constituency covers.
+  final String key;
+
+  /// "16 · Egmore", or "No constituency yet".
+  final String label;
+  final List<String> wards;
+
+  static const unmappedKey = 'none';
+
+  bool get isUnmapped => key == unmappedKey;
+}
+
+/// [wards] grouped the way the admin dashboard groups them: by Assembly
+/// Constituency, in constituency-number order, wards ascending within each.
+///
+/// A ward on a constituency boundary is listed under every constituency it
+/// belongs to. Wards the constituency table does not cover come last, in their
+/// own group, rather than being dropped: a grievance filed in one reaches no
+/// coordinator and no MLA office, and a person choosing a ward needs to see
+/// that before they choose it.
+List<WardGroup> groupWardsByConstituency(Iterable<String> wards) {
+  final available = wards.toSet();
+  int byNumber(String a, String b) =>
+      (int.tryParse(a) ?? 0).compareTo(int.tryParse(b) ?? 0);
+  String numberOf(String ac) => ac.split(' - ').first.trim();
+
+  final acs = [...kConstituencies]
+    ..sort((a, b) => byNumber(numberOf(a), numberOf(b)));
+  final out = <WardGroup>[];
+  final placed = <String>{};
+  for (final ac in acs) {
+    final inAc = (kChennaiAcMap[ac] ?? const <String>[])
+        .where(available.contains)
+        .toList()
+      ..sort(byNumber);
+    if (inAc.isEmpty) continue;
+    placed.addAll(inAc);
+    final number = numberOf(ac);
+    out.add(WardGroup(number, '$number · ${shortAC(ac)}', inAc));
+  }
+  final unmapped = available.where((w) => !placed.contains(w)).toList()
+    ..sort(byNumber);
+  if (unmapped.isNotEmpty) {
+    out.add(WardGroup(WardGroup.unmappedKey, 'No constituency yet', unmapped));
+  }
+  return out;
+}
