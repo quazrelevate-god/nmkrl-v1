@@ -319,6 +319,12 @@ def citizen_login(
     }
 
 
+def _corporation_of(constituency) -> str | None:
+    import corporations
+
+    return corporations.corporation_of_constituency(constituency)
+
+
 def coordinator_profile(row) -> dict:
     """The signed-in coordinator's own profile, as the app displays it.
 
@@ -333,6 +339,7 @@ def coordinator_profile(row) -> dict:
         "name": row["name"],
         "role": row["role"],
         "constituency": row["constituency"],
+        "corporation": _corporation_of(row["constituency"]),
         "home_ward": row["home_ward"],
         "photo_url": row["photo_url"] or "",
         "must_change_password": False,
@@ -373,7 +380,9 @@ def coordinator_request_otp(
     clean_phone = _normalise_phone(phone)
     if len(clean_phone) != 10:
         raise HTTPException(status_code=400, detail="Enter a valid 10-digit mobile number.")
-    _match_coordinator(conn, name, clean_phone)  # 401/403 before a code is sent
+    row = _match_coordinator(conn, name, clean_phone)  # 401/403 before a code is sent
+    # Nor for an account whose corporation the console has switched away from.
+    session_auth.corporation_switched_off(conn, row["constituency"], status_code=403)
 
     window_start, window_count = _throttle(conn, clean_phone)
     dev_mode = _flag("ALLOW_DEV_OTP")
@@ -431,6 +440,7 @@ def coordinator_login(
         raise HTTPException(status_code=400, detail="Enter a valid 10-digit mobile number.")
     _verify_otp(conn, clean_phone, otp)
     row = _match_coordinator(conn, name, clean_phone)
+    session_auth.corporation_switched_off(conn, row["constituency"], status_code=403)
     stamp = session_auth.new_stamp()
     conn.execute(
         "UPDATE coordinators SET session_epoch = ? WHERE id = ?", (stamp, row["id"])

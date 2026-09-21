@@ -38,13 +38,19 @@ String _ticketOf(Issue i) => i.ticketNo ?? ticketNumber(i.id);
 /// "Ward 108 · Egmore". A ward on a constituency boundary names both; a ward
 /// not yet mapped to any constituency shows the ward alone.
 class _WardPill extends StatelessWidget {
-  const _WardPill({required this.ward});
+  const _WardPill({required this.ward, this.constituencies});
 
   final int ward;
 
+  /// The grievance's own constituencies from the server (see
+  /// Issue.constituencies); the live table is only a fallback.
+  final List<String>? constituencies;
+
   @override
   Widget build(BuildContext context) {
-    final acs = constituenciesForWard(ward).map(shortAC).join(' / ');
+    final acs = (constituencies ?? constituenciesForWard(ward))
+        .map(compactAC)
+        .join(' / ');
     final label = acs.isEmpty
         ? '${context.tr('Ward')} $ward'
         : '${context.tr('Ward')} $ward · $acs';
@@ -423,7 +429,9 @@ class GrievanceDialog extends ConsumerWidget {
                         children: [
                           _SupportPill(count: issue.upvotes),
                           if (issue.wardNo != null)
-                            _WardPill(ward: issue.wardNo!),
+                            _WardPill(
+                                ward: issue.wardNo!,
+                                constituencies: issue.constituencies),
                         ],
                       ),
                     ),

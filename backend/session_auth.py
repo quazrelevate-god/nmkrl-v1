@@ -138,6 +138,27 @@ def _sign_in_again() -> None:
     )
 
 
+def corporation_switched_off(conn, constituency: str, status_code: int = 401) -> None:
+    """Refuse a coordinator whose corporation is not the live one.
+
+    401 mid-session so the app clears the session and returns to sign-in,
+    where the login refuses them (403) with the same explanation
+    (routers/auth.coordinator_login).
+    """
+    import corporations
+
+    mine = corporations.corporation_of_constituency(constituency)
+    active = corporations.active_id(conn)
+    if mine is not None and mine != active:
+        raise HTTPException(
+            status_code=status_code,
+            detail=(f"The app is serving {corporations.get(active)['short_name']} now, "
+                    f"so {corporations.get(mine)['short_name']} coordinator accounts "
+                    "are paused. Contact the MLA office."),
+            headers={"WWW-Authenticate": "Bearer"} if status_code == 401 else None,
+        )
+
+
 def _signed_in_elsewhere() -> None:
     """This account signed in on another device; this token is the older one.
 
@@ -179,13 +200,16 @@ def _citizen(conn, user_id: str, stamp: str = "") -> str:
 def _coordinator(conn, username: str, stamp: str = "") -> str:
     who = (username or "").strip().lower()
     row = conn.execute(
-        "SELECT status, session_epoch FROM coordinators WHERE LOWER(username) = ?",
+        "SELECT status, session_epoch, constituency FROM coordinators WHERE LOWER(username) = ?",
         (who,),
     ).fetchone() if who else None
     if row is None:
         _sign_in_again()
     if not _stamp_matches(row["session_epoch"], stamp):
         _signed_in_elsewhere()
+    # A coordinator works only while their corporation is the live one; the
+    # MLA office switching corporations signs the other one's staff out.
+    corporation_switched_off(conn, row["constituency"])
     # Checked on every request, so disabling an account in the admin console
     # takes effect on the coordinator's next tap.
     if (row[0] or "active").lower() != "active":

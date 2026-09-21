@@ -9,6 +9,7 @@ import '../../../core/theme.dart';
 import '../../../core/i18n.dart';
 import '../../../domain/constituencies.dart';
 import '../../../domain/models/boundary_data.dart';
+import '../../../domain/models/corporation.dart';
 import '../../../domain/models/issue.dart';
 import '../../../domain/models/locate_result.dart';
 import '../../../domain/status_meta.dart';
@@ -28,7 +29,7 @@ const List<double> _kPaleTileMatrix = <double>[
   0, 0, 0, 1, 0, //
 ];
 
-/// The grievance map card — OSM tiles + real GCC boundaries + status pins,
+/// The grievance map card — OSM tiles + the live corporation's boundaries + status pins,
 /// with the search bar, zone/ward chip, legend, Egmore demo jump and the
 /// selected-issue bottom sheet floating inside the rounded card
 /// (port of the map section of the web home + BoundaryLayer + MapView).
@@ -236,7 +237,7 @@ class _MapCardState extends State<MapCard> {
 
   @override
   Widget build(BuildContext context) {
-    final center = widget.center ?? const LatLng(13.0827, 80.2081);
+    final center = widget.center ?? kDefaultCorporationCenter;
     final filtered = _filtered;
     final hasQuery = _query.text.trim().isNotEmpty;
 
@@ -678,7 +679,7 @@ class _LocateChip extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(
-            context.tr('Outside GCC limits'),
+            context.tr('Outside corporation limits'),
             style: TextStyle(
                 fontSize: 10,
                 fontWeight: FontWeight.w700,
@@ -733,7 +734,7 @@ class _LocateChip extends StatelessWidget {
                     size: 9, color: NkColors.slate500),
                 const SizedBox(width: 3),
                 Text(
-                  shortAC(ac),
+                  compactAC(ac),
                   style: const TextStyle(
                       fontSize: 9,
                       fontWeight: FontWeight.w600,

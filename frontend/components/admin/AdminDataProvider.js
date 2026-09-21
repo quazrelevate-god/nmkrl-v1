@@ -9,8 +9,9 @@
  * refreshes after any status mutation (verify / forward / resolve …).
  *
  * Tenant scoping: the console belongs to ONE MLA office (tenant), bound to one
- * constituency. The server already limits every grievance to that
- * constituency; here the GCC boundaries are narrowed to the office's own wards
+ * constituency in one corporation. The server already limits every grievance
+ * to that constituency; here the corporation's boundaries are narrowed to the
+ * office's own wards
  * and zones too, so no ward picker, zone picker or map ever offers a place
  * outside it. `boundaries` stays null until the tenant is known, so a picker
  * never flashes the whole city first.
@@ -42,8 +43,14 @@ export function AdminDataProvider({ children }) {
   }, []);
 
   useEffect(() => { reload(); }, [reload]);
-  useEffect(() => { fetchBoundaries().then(setRawBoundaries).catch(() => {}); }, []);
   useEffect(() => { fetchAdminTenant().then(setTenant).catch(() => {}); }, []);
+  // The office's own corporation's map (Tambaram or Chennai — see the sidebar
+  // toggle), fetched once the office is known.
+  const corporation = tenant?.corporation;
+  useEffect(() => {
+    if (!corporation) return;
+    fetchBoundaries(corporation).then(setRawBoundaries).catch(() => {});
+  }, [corporation]);
 
   // Boundaries narrowed to this office's constituency.
   const boundaries = useMemo(() => {

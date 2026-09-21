@@ -31,7 +31,6 @@ import {
   createCoordinatorRemote, updateCoordinatorRemote, deleteCoordinatorRemote,
   uploadCoordinatorPhotoRemote, initialsFrom,
 } from "@/lib/coordinators";
-import { CHENNAI_AC_MAP } from "@/lib/constituencies";
 import { useAdminData } from "@/components/admin/AdminDataProvider";
 
 const ROLES = ["Ward Coordinator", "Constituency PA", "Constituency Lead", "Field Officer"];
@@ -489,8 +488,8 @@ function CoordinatorFormDrawer({ mode, username, existingRow, onClose, onSaved, 
 
   // Once the office's constituency is known, keep the ward inside it.
   const wardOptions = useMemo(
-    () => CHENNAI_AC_MAP[constituency] || [],
-    [constituency]
+    () => tenant?.constituencies?.[constituency] || tenant?.wards || [],
+    [tenant, constituency]
   );
   useEffect(() => {
     if (!homeWard || !wardOptions.includes(homeWard)) {

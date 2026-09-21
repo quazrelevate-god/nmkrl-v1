@@ -220,16 +220,17 @@ CHENNAI_AC_MAP = {
 }
 
 
-def get_constituency_by_ward(ward_no) -> list:
+def get_constituency_by_ward(ward_no, corporation: str | None = None) -> list:
     """Return the list of Assembly Constituencies a ward falls in.
 
+    Ward numbers repeat across corporations, so the lookup is made within one:
+    ``corporation`` (e.g. a grievance's own), else the active corporation.
     Wards can clip/overlap across AC lines, so this returns every matching AC
     name (empty list if the ward maps to none).
     """
-    if ward_no is None:
-        return []
-    key = str(ward_no).strip()
-    return [ac for ac, wards in CHENNAI_AC_MAP.items() if key in wards]
+    import corporations  # imports utils itself, so not at module level
+
+    return corporations.constituencies_for_ward(ward_no, corporation)
 
 
 def serialize_issue(row) -> dict:
@@ -256,7 +257,7 @@ def serialize_issue(row) -> dict:
     # Derive the Assembly Constituency (MLA) from the ward so admin AC views
     # can group/filter grievances. Wards can span ACs, so expose both the full
     # list and a single primary value for convenience.
-    acs = get_constituency_by_ward(data.get("ward_no"))
+    acs = get_constituency_by_ward(data.get("ward_no"), data.get("corporation") or "chennai")
     data["constituencies"] = acs
     data["constituency"] = acs[0] if acs else None
     return data

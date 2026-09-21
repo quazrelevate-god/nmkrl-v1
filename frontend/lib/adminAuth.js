@@ -60,6 +60,29 @@ export async function adminLogin(username, password) {
   return data;
 }
 
+/** Switch the live corporation (the sidebar's Tambaram/Chennai toggle).
+ *  The console moves to that corporation's MLA office, so the server answers
+ *  with a fresh token, stored here before the caller reloads the console. */
+export async function switchCorporation(corporation) {
+  const res = await fetch(`${API_BASE}/api/admin/corporation`, {
+    method: "PUT",
+    headers: adminHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ corporation }),
+  });
+  if (!res.ok) {
+    const b = await res.json().catch(() => ({}));
+    throw new Error(b.detail || "Could not switch. Please try again.");
+  }
+  const data = await res.json();
+  try {
+    localStorage.setItem(TOKEN_KEY, data.token);
+    localStorage.setItem(USER_KEY, data.username);
+  } catch {
+    /* private mode — the session lasts this page only */
+  }
+  return data;
+}
+
 export function adminLogout() {
   try {
     localStorage.removeItem(TOKEN_KEY);

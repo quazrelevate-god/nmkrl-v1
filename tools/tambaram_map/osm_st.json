@@ -1,0 +1,274 @@
+{
+  "version": 0.6,
+  "generator": "Overpass API 0.7.62.4 2390de5a",
+  "osm3s": {
+    "timestamp_osm_base": "2026-09-21T16:49:01Z",
+    "copyright": "The data included in this document is from www.openstreetmap.org. The data is made available under ODbL."
+  },
+  "elements": [
+
+{
+  "type": "node",
+  "id": 3187977875,
+  "lat": 12.9906385,
+  "lon": 80.1879401,
+  "tags": {
+    "name": "Palavanthangal",
+    "name:en": "Palavanthangal",
+    "name:ml": "പഴവന്താങ്കൽ",
+    "name:ta": "பழவந்தாங்கல்",
+    "network": "IR",
+    "operator": "SR",
+    "public_transport": "station",
+    "railway": "station",
+    "ref": "PZA",
+    "wikidata": "Q7156987",
+    "wikipedia": "en:Pazhavanthangal railway station"
+  }
+},
+{
+  "type": "node",
+  "id": 4435694788,
+  "lat": 12.9675742,
+  "lon": 80.1520504,
+  "tags": {
+    "internet_access": "no",
+    "name": "Pallavaram",
+    "name:hi": "पल्लावरम",
+    "name:ml": "പല്ലാവരം",
+    "name:pa": "ਪੱਲਾਵਰਮ",
+    "name:ta": "பல்லாவரம்",
+    "operator": "SR",
+    "public_transport": "station",
+    "railway": "station",
+    "ref": "PV",
+    "wikidata": "Q7127768",
+    "wikipedia": "en:Pallavaram railway station"
+  }
+},
+{
+  "type": "node",
+  "id": 4767159308,
+  "lat": 12.9052432,
+  "lon": 80.0950460,
+  "tags": {
+    "addr:postcode": "600063",
+    "internet_access": "no",
+    "name": "Perungalattur",
+    "name:ml": "പെരുങ്കളത്തൂർ",
+    "name:ta": "பெருங்களத்தூர்",
+    "network": "IR",
+    "operator": "SR",
+    "public_transport": "station",
+    "railway": "station",
+    "ref": "PRGL",
+    "wikidata": "Q7171096",
+    "wikipedia": "en:Perungalathur railway station"
+  }
+},
+{
+  "type": "node",
+  "id": 4885083053,
+  "lat": 12.9804609,
+  "lon": 80.1657933,
+  "tags": {
+    "internet_access": "no",
+    "name": "Tirusulam",
+    "name:ml": "തിരുശൂലം",
+    "name:ta": "திருசூலம்",
+    "network": "IR",
+    "operator": "SR",
+    "public_transport": "station",
+    "railway": "station",
+    "ref": "TLM",
+    "wikidata": "Q7809428",
+    "wikipedia": "en:Tirusulam railway station"
+  }
+},
+{
+  "type": "node",
+  "id": 4885094689,
+  "lat": 12.9846976,
+  "lon": 80.1750925,
+  "tags": {
+    "internet_access": "no",
+    "internet_access:fee": "no",
+    "name": "Meenambakkam",
+    "name:en": "Meenambakkam",
+    "name:ml": "മീനമ്പാക്കം",
+    "name:ta": "மீனம்பாக்கம்",
+    "network": "IR",
+    "operator": "SR",
+    "public_transport": "station",
+    "railway": "station",
+    "ref": "MN",
+    "wikidata": "Q6807623",
+    "wikipedia": "en:Meenambakkam railway station"
+  }
+},
+{
+  "type": "node",
+  "id": 5273733276,
+  "lat": 12.9521897,
+  "lon": 80.1411677,
+  "tags": {
+    "internet_access": "no",
+    "name": "Chromepet",
+    "name:ml": "ക്രോംപേട്ട",
+    "name:ta": "குரோம்பேட்டை",
+    "network": "IR",
+    "operator": "SR",
+    "public_transport": "station",
+    "railway": "station",
+    "ref": "CMP",
+    "wikidata": "Q5113793",
+    "wikipedia": "en:Chromepet railway station"
+  }
+},
+{
+  "type": "node",
+  "id": 5286945822,
+  "lat": 12.9257923,
+  "lon": 80.1179194,
+  "tags": {
+    "internet_access": "wlan",
+    "name": "Tambaram",
+    "name:ml": "താംബരം",
+    "name:ta": "தாம்பரம்",
+    "network": "IR",
+    "operator": "SR",
+    "public_transport": "station",
+    "railway": "station",
+    "ref": "TBM",
+    "wikidata": "Q7681017",
+    "wikipedia": "en:Tambaram railway station"
+  }
+},
+{
+  "type": "node",
+  "id": 5287023930,
+  "lat": 12.8673657,
+  "lon": 80.0720222,
+  "tags": {
+    "internet_access": "no",
+    "name": "Urappakkam",
+    "network": "IR",
+    "operator": "SR",
+    "public_transport": "station",
+    "railway": "station",
+    "ref": "UPM",
+    "train": "yes",
+    "wikidata": "Q16902399",
+    "wikipedia": "en:Urapakkam railway station"
+  }
+},
+{
+  "type": "node",
+  "id": 5311775879,
+  "lat": 12.8916061,
+  "lon": 80.0849740,
+  "tags": {
+    "internet_access": "no",
+    "name": "Vandalur",
+    "name:ml": "വണ്ടലൂർ",
+    "name:ta": "வண்டலூர்",
+    "network": "IR",
+    "operator": "SR",
+    "public_transport": "station",
+    "railway": "station",
+    "ref": "VDR",
+    "wikidata": "Q7914337",
+    "wikipedia": "en:Vandalur railway station"
+  }
+},
+{
+  "type": "node",
+  "id": 5311775880,
+  "lat": 12.9369591,
+  "lon": 80.1307034,
+  "tags": {
+    "internet_access": "no",
+    "name": "Tambaram Sanatorium",
+    "name:ta": "தாம்பரம் தாம்பரம் சானடோரியம்",
+    "network": "IR",
+    "operator": "SR",
+    "public_transport": "station",
+    "railway": "station",
+    "ref": "TBMS",
+    "wikidata": "Q7681014",
+    "wikipedia": "en:Tambaram Sanatorium railway station"
+  }
+},
+{
+  "type": "node",
+  "id": 6285857239,
+  "lat": 12.9876728,
+  "lon": 80.1764787,
+  "tags": {
+    "name": "Meenambakkam",
+    "name:en": "Meenambakkam",
+    "name:ml": "മീനമ്പാക്കം",
+    "name:ta": "மீனம்பாக்கம்",
+    "network": "Chennai Metro",
+    "note": "Contributors are requested to not edit the \"network\" and the \"operator\" tags. (2023/11/08)",
+    "operator": "Chennai Metro Rail Limited",
+    "public_transport": "station",
+    "railway": "station",
+    "railway:ref": "SME",
+    "ref": "SME",
+    "station": "subway",
+    "subway": "yes",
+    "wheelchair": "yes",
+    "wikidata": "Q19893884",
+    "wikipedia": "en:Meenambakkam metro station"
+  }
+},
+{
+  "type": "node",
+  "id": 6285857241,
+  "lat": 12.9808092,
+  "lon": 80.1642026,
+  "tags": {
+    "name": "Chennai International Airport",
+    "name:en": "Chennai International Airport",
+    "name:ml": "ചെന്നൈ വിമാനത്താവളം",
+    "name:ta": "சென்னை விமான நிலையம்",
+    "network": "Chennai Metro",
+    "note": "Contributors are requested to not edit the \"network\" and the \"operator\" tags. (2023/11/08)",
+    "operator": "Chennai Metro Rail Limited",
+    "public_transport": "station",
+    "railway": "station",
+    "railway:ref": "SAP",
+    "ref": "SAP",
+    "station": "subway",
+    "subway": "yes",
+    "wikidata": "Q5091440",
+    "wikipedia": "en:Chennai International Airport metro station"
+  }
+},
+{
+  "type": "node",
+  "id": 11822901092,
+  "lat": 12.8743618,
+  "lon": 80.0765220,
+  "tags": {
+    "construction:public_transport": "station",
+    "construction:railway": "station",
+    "internet_access": "no",
+    "name": "Kilambakkam",
+    "name:hi": "किलांबाक्कम",
+    "name:ta": "கிளாம்பாக்கம்",
+    "network": "Indian Railways",
+    "operator": "Southern Railway",
+    "platforms": "3",
+    "public_transport": "station",
+    "railway": "halt",
+    "ref": "KKBT",
+    "train": "yes",
+    "wikidata": "Q133850352",
+    "wikipedia": "en:Kilambakkam Railway Station"
+  }
+}
+
+  ]
+}

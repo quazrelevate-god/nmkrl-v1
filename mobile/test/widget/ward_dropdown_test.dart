@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:namma_kural/domain/constituencies.dart';
 import 'package:namma_kural/features/home/widgets/ward_dropdown.dart';
 
 void main() {
   final all = [for (var w = 1; w <= 200; w++) '$w'];
+
+  // The dropdown groups by the LIVE corporation's table; these are Chennai's.
+  setUp(() => setActiveAcMap(kChennaiAcMap));
 
   Widget harness(String? ward, ValueChanged<String> onChanged) => MaterialApp(
         home: Scaffold(

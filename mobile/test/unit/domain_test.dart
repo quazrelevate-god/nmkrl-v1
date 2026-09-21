@@ -73,6 +73,10 @@ void main() {
   });
 
   group('constituencies', () {
+    // The helpers read the LIVE corporation's table (from /api/corporation);
+    // these cases describe Chennai's.
+    setUp(() => setActiveAcMap(kChennaiAcMap));
+
     test('ward 104 belongs to both Villivakkam and Egmore', () {
       final acs = constituenciesForWard(104);
       expect(acs, contains('14 - Villivakkam'));
@@ -96,6 +100,16 @@ void main() {
     test('16 constituencies in the dropdown, Egmore present', () {
       expect(kConstituencies.length, 16);
       expect(kConstituencies, contains('16 - Egmore'));
+    });
+
+    test('switching the live table to Tambaram re-labels its wards', () {
+      setActiveAcMap({
+        'Tambaram Corporation': [for (var w = 1; w <= 70; w++) '$w'],
+      });
+      // Ward 58 is Egmore in Chennai but a Tambaram ward here.
+      expect(constituenciesForWard(58), ['Tambaram Corporation']);
+      expect(constituenciesForWard(108), isEmpty);
+      expect(shortAC('Tambaram Corporation'), 'Tambaram Corporation');
     });
   });
 }

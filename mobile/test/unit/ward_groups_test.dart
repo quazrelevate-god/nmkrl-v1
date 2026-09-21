@@ -5,6 +5,21 @@ void main() {
   // Every GCC ward, 1–200, as the map loads them.
   final all = [for (var w = 1; w <= 200; w++) '$w'];
 
+  // The grouping reads the LIVE corporation's table; these cases are Chennai's.
+  setUp(() => setActiveAcMap(kChennaiAcMap));
+
+  test('Tambaram: one unnumbered group, labelled by its name', () {
+    final groups = groupWardsByConstituency(
+      [for (var w = 1; w <= 70; w++) '$w'],
+      table: {'Tambaram Corporation': [for (var w = 1; w <= 70; w++) '$w']},
+    );
+    expect(groups, hasLength(1));
+    expect(groups.single.label, 'Tambaram Corporation');
+    expect(groups.single.isUnmapped, isFalse);
+    expect(groups.single.wards.first, '1');
+    expect(groups.single.wards.last, '70');
+  });
+
   test('groups follow constituency-number order, wards ascending', () {
     final groups = groupWardsByConstituency(all);
     final mapped = groups.where((g) => !g.isUnmapped).toList();

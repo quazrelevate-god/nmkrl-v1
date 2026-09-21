@@ -3,6 +3,7 @@ import 'dart:io';
 import '../domain/coordinator_data.dart';
 import '../domain/models/boundary_data.dart';
 import '../domain/models/citizen_user.dart';
+import '../domain/models/corporation.dart';
 import '../domain/models/issue.dart';
 import '../domain/models/duplicate_info.dart';
 import '../domain/models/locate_result.dart';
@@ -38,6 +39,11 @@ abstract class ApiClient {
   /// grievances they filed. Identity comes from the session token.
   Future<void> deleteAccount();
 
+  /// The corporation the app is serving right now (GET /api/corporation) —
+  /// switched from the MLA office's console, so read on open and on resume.
+  Future<Corporation> fetchCorporation();
+
+  /// The live corporation's zone + ward polygons.
   Future<BoundaryData> fetchBoundaries();
 
   Future<LocateResult> locate(double lat, double lng);
@@ -109,7 +115,8 @@ abstract class ApiClient {
   /// surface for the coordinator list. Returns unassigned tickets in any of the
   /// AC's wards plus this coordinator's own assignments (any ward); colleagues'
   /// tickets and other constituencies are excluded server-side. The app filters
-  /// these by ward client-side (the AC's ward list comes from kChennaiAcMap).
+  /// these by ward client-side (the AC's ward list comes from the live
+  /// corporation's table, activeAcMap).
   /// [sort] is 'recent' (default) or 'priority' (upvotes desc).
   Future<List<Issue>> fetchCoordinatorConstituencyIssues(
       {required String coordinator, String sort = 'recent'});

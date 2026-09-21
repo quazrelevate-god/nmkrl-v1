@@ -1,7 +1,10 @@
 /**
  * lib/constituencies.js
  * ---------------------
- * Frontend mirror of the backend CHENNAI_AC_MAP (utils.py). Lets the admin
+ * Frontend mirror of the backend CHENNAI_AC_MAP (utils.py), for the Chennai
+ * web pages. The admin console does NOT use it for scoping: it follows the
+ * live corporation (Chennai or Tambaram) via the office's tenant record and
+ * each grievance's server-side `constituencies`. Originally it let the admin
  * portal filter tickets by Assembly Constituency purely client-side (the queue
  * already loads the full set for the heatmap), and populate the AC dropdown.
  * Wards can clip/overlap across AC lines, so a ward maps to a list of ACs.
@@ -39,7 +42,25 @@ export function constituenciesForWard(ward) {
 /** Does an issue's ward fall within the given AC? */
 export function issueInConstituency(issue, ac) {
   if (!ac) return true;
+  // The server labels each grievance from its own corporation's table (ward
+  // numbers repeat between Chennai and Tambaram), so trust that when present.
+  if (Array.isArray(issue.constituencies)) return issue.constituencies.includes(ac);
   return CHENNAI_AC_MAP[ac]?.includes(String(issue.ward_no)) || false;
+}
+
+/** Constituencies a ward belongs to in a given ward -> constituency table —
+ *  the admin console passes its office's corporation table (tenant.constituencies). */
+export function constituenciesForWardIn(acMap, ward) {
+  if (!acMap || ward == null || ward === "") return [];
+  const key = String(ward).trim();
+  return Object.keys(acMap).filter((ac) => (acMap[ac] || []).includes(key));
+}
+
+/** "Egmore constituency" for a numbered assembly constituency; a placeholder
+ *  group such as "Tambaram Corporation" is shown as it is. */
+export function scopeLabel(ac) {
+  if (!ac) return "";
+  return /^\d+\s*-/.test(ac) ? `${shortAC(ac)} constituency` : ac;
 }
 
 /** "20 - Anna Nagar" → "Anna Nagar". */

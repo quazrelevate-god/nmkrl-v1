@@ -327,7 +327,7 @@ class _ReportSheetState extends ConsumerState<ReportSheet>
                 Flexible(
                   child: Text(
                     context.tr(!widget.insideGcc
-                        ? 'Grievances outside GCC boundaries are not accepted right now'
+                        ? 'Grievances outside the corporation limits are not accepted right now'
                         : 'Fair use policy: you can report 1 grievance per day'),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -344,7 +344,7 @@ class _ReportSheetState extends ConsumerState<ReportSheet>
             const SizedBox(height: 16),
             SwipeToConfirm(
               label: context.tr(!widget.insideGcc
-                  ? 'Outside GCC boundaries'
+                  ? 'Outside corporation limits'
                   : _canSubmit
                       ? 'Swipe to submit grievance'
                       : 'Add a photo and a voice note'),

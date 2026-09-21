@@ -22,7 +22,7 @@ import {
   TICKET_TABS, TICKET_STATUSES, portalStatus, derivePriority, PRIORITY_META,
   ticketNo, tokenNo, daysOpen, slaWeeksLabel, slaBreached, citizenName, initials,
 } from "@/lib/adminModel";
-import { shortAC } from "@/lib/constituencies";
+import { scopeLabel } from "@/lib/constituencies";
 
 const PAGE_SIZE = 50; // server page size; "Load more" fetches the next page
 
@@ -176,7 +176,7 @@ export default function TicketsPage() {
           <div>
             <h1 className="text-xl font-extrabold tracking-tight">Tickets</h1>
             <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-              {tenant ? `${shortAC(tenant.constituency)} constituency · ` : ""}Manage and track citizen grievances
+              {tenant ? `${scopeLabel(tenant.constituency)} · ` : ""}Manage and track citizen grievances
             </p>
           </div>
         </div>

@@ -27,6 +27,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import boundaries
+import corporations
 from admin_auth import issue_token, require_admin, verify_credentials
 from database import DB_PATH, IS_POSTGRES, get_connection, get_db, init_db
 from tenancy import current_tenant, decorate as decorate_tenant
@@ -59,7 +60,7 @@ def _backfill_zones_and_departments() -> None:
     with get_connection() as conn:
         rows = conn.execute(
             "SELECT id, title, transcript, latitude, longitude, ward_no, "
-            "zone, department, ticket_number FROM issues"
+            "zone, department, ticket_number, corporation FROM issues"
         ).fetchall()
         for r in rows:
             updates, params = [], []
@@ -67,7 +68,10 @@ def _backfill_zones_and_departments() -> None:
             # (pre-integer-migration rows) rather than the new plain integer.
             zone_val = r["zone"]
             if r["ward_no"] is None or not zone_val or not str(zone_val).isdigit():
-                loc = boundaries.locate(r["latitude"], r["longitude"])
+                loc = boundaries.locate(
+                    r["latitude"], r["longitude"],
+                    r["corporation"] or corporations.LEGACY_CORPORATION,
+                )
                 ward = int(loc["ward"]) if loc["ward"] is not None else None
                 updates += ["ward_no = ?", "zone = ?", "zone_name = ?"]
                 params += [ward, loc["zone"], loc["zone_name"]]
@@ -246,16 +250,20 @@ def _home_tenant(conn):
     """The tenant the env-configured operator account belongs to.
 
     Until per-office staff accounts exist (the super-admin console), there is one
-    operator login; it is bound to the tenant for TENANT_CONSTITUENCY, falling
-    back to the first tenant created.
+    operator login. It signs in to an office of the LIVE corporation (see
+    corporations.py): the tenant for TENANT_CONSTITUENCY when that is in the
+    live corporation, else that corporation's first office.
     """
+    active = corporations.active_id(conn)
     ac = (os.getenv("TENANT_CONSTITUENCY") or "").strip()
-    row = None
-    if ac:
+    if ac and corporations.corporation_of_constituency(ac) == active:
         row = conn.execute("SELECT * FROM tenants WHERE constituency = ?", (ac,)).fetchone()
-    if row is None:
-        row = conn.execute("SELECT * FROM tenants ORDER BY created_at LIMIT 1").fetchone()
-    return row
+        if row is not None:
+            return row
+    for row in conn.execute("SELECT * FROM tenants ORDER BY created_at").fetchall():
+        if corporations.corporation_of_constituency(row["constituency"]) == active:
+            return row
+    return None
 
 
 @app.post("/api/admin/auth/login", tags=["admin"])
@@ -276,6 +284,44 @@ def admin_login(
         raise HTTPException(status_code=403, detail="This MLA office account is suspended.")
     out = issue_token(username.strip().lower(), tenant["id"])
     out["tenant"] = decorate_tenant(tenant)
+    return out
+
+
+class CorporationSwitch(BaseModel):
+    corporation: str
+
+
+@app.get("/api/admin/corporation", tags=["admin"])
+def admin_corporation(who: str = Depends(require_admin), conn=Depends(get_db)):
+    """Which corporation is live, and which the console can switch to."""
+    return {"active": corporations.active_id(conn), "available": corporations.choices()}
+
+
+@app.put("/api/admin/corporation", tags=["admin"])
+def switch_corporation(
+    body: CorporationSwitch, who: str = Depends(require_admin), conn=Depends(get_db)
+):
+    """Switch the live corporation — the console's Chennai/Tambaram toggle.
+
+    Changes what every app shows from their next load: the map, wards and
+    constituencies, where grievances may be filed, and which coordinators can
+    work. Nothing is deleted; switching back restores the other corporation as
+    it was. The console's own session moves to the new corporation's office, so
+    the caller gets a fresh token; other console sessions are sent to sign in.
+    Behind require_admin only, not current_tenant: a session left on the
+    corporation that was switched away from must still be able to switch back.
+    """
+    cid = (body.corporation or "").strip().lower()
+    if cid not in corporations.CORPORATIONS:
+        raise HTTPException(status_code=400, detail=f"Unknown corporation '{body.corporation}'.")
+    corporations.set_active(conn, cid)
+    tenant = _home_tenant(conn)
+    if tenant is None:
+        raise HTTPException(status_code=503, detail="No MLA office is configured for it yet.")
+    print(f"[corporation] {who} switched the live corporation to {cid}")
+    out = issue_token(who, tenant["id"])
+    out["tenant"] = decorate_tenant(tenant)
+    out["corporation"] = corporations.public(cid)
     return out
 
 
@@ -305,10 +351,24 @@ def root():
     }
 
 
+@app.get("/api/corporation")
+def active_corporation(conn=Depends(get_db)):
+    """The live corporation: name, map centre and its ward -> constituency groups.
+
+    The apps read this on open and on refresh instead of carrying any one
+    city's details, so the console's Chennai/Tambaram switch reaches them.
+    """
+    return {**corporations.public(corporations.active_id(conn)),
+            "available": corporations.choices()}
+
+
 @app.get("/api/boundaries")
-def get_boundaries():
-    """Real GCC zone + ward polygons as GeoJSON FeatureCollections (for the map)."""
-    return boundaries.geojson()
+def get_boundaries(corporation: str | None = None):
+    """Zone + ward polygons as GeoJSON FeatureCollections (for the map).
+
+    The live corporation's unless ``corporation`` names another.
+    """
+    return boundaries.geojson(corporation)
 
 
 class LocateRequest(BaseModel):
@@ -318,16 +378,17 @@ class LocateRequest(BaseModel):
 
 @app.post("/api/locate")
 def locate_coordinates(body: LocateRequest):
-    """Resolve a coordinate to its real GCC zone + ward via point-in-polygon.
+    """Resolve a coordinate to the live corporation's zone + ward.
 
     Runs the coordinate through the in-memory KML boundary polygons, logs the
     lookup to ``location_logs``, and returns the detected zone/ward. Fields are
-    null when the point falls outside Greater Chennai Corporation limits.
+    null when the point falls outside the live corporation's limits.
     """
-    result = boundaries.locate(body.latitude, body.longitude)
+    corp_id = corporations.active_id()
+    result = boundaries.locate(body.latitude, body.longitude, corp_id)
 
     # Map the detected ward → its Assembly Constituency/-ies (may overlap).
-    constituencies = get_constituency_by_ward(result["ward"])
+    constituencies = get_constituency_by_ward(result["ward"], corp_id)
     primary_ac = constituencies[0] if constituencies else None
 
     with get_connection() as conn:
@@ -357,6 +418,7 @@ def locate_coordinates(body: LocateRequest):
         "ward": result["ward"],
         "detected_constituencies": constituencies,
         "inside": result["inside"],
+        "corporation": corp_id,
     }
 
 

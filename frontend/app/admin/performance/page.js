@@ -60,9 +60,10 @@ export default function PerformancePage() {
 
   const center = useMemo(() => {
     const pts = scoped.filter((i) => i.latitude && i.longitude);
-    if (!pts.length) return null;
+    // No grievances yet (a newly switched-on corporation): open on its own city.
+    if (!pts.length) return tenant?.center ? { lat: tenant.center[0], lng: tenant.center[1] } : null;
     return { lat: pts.reduce((s, i) => s + i.latitude, 0) / pts.length, lng: pts.reduce((s, i) => s + i.longitude, 0) / pts.length };
-  }, [scoped]);
+  }, [scoped, tenant]);
 
   const kpi = useMemo(() => computeKpis(scoped), [scoped]);
 

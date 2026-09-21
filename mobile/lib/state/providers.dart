@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -9,9 +10,11 @@ import '../data/coordinator_store.dart';
 import '../data/dio_api_client.dart';
 import '../data/prefs.dart';
 import '../data/push_service.dart';
+import '../domain/constituencies.dart';
 import '../domain/coordinator_data.dart';
 import '../domain/daily_limit.dart';
 import '../domain/models/citizen_user.dart';
+import '../domain/models/corporation.dart';
 
 /// Overridden with the real instance in main() before runApp.
 final sharedPreferencesProvider = Provider<SharedPreferences>(
@@ -43,6 +46,55 @@ final apiClientProvider = Provider<ApiClient>(
     },
   ),
 );
+
+/// The corporation the app is serving (Tambaram or Chennai), as switched from
+/// the MLA office's console.
+///
+/// Starts from the last one this device heard about, so a launch opens on the
+/// right city before the network answers, then asks the server. [refresh] is
+/// called again on resume; screens listen and reload their map and wards when
+/// the id changes. Also installs the corporation's ward -> constituency table
+/// for the helpers in domain/constituencies.dart.
+class CorporationNotifier extends Notifier<Corporation?> {
+  static const _key = 'nk_corporation';
+
+  @override
+  Corporation? build() {
+    Corporation? cached;
+    try {
+      final raw = ref.read(sharedPreferencesProvider).getString(_key);
+      if (raw != null) {
+        cached = Corporation.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+      }
+    } catch (_) {
+      cached = null; // unreadable cache: wait for the server
+    }
+    if (cached != null) setActiveAcMap(cached.constituencies);
+    Future.microtask(refresh);
+    return cached;
+  }
+
+  /// Ask the server which corporation is live. Returns true when it differs
+  /// from the one the app was showing.
+  Future<bool> refresh() async {
+    try {
+      final fresh = await ref.read(apiClientProvider).fetchCorporation();
+      if (fresh.id.isEmpty) return false;
+      final changed = state?.id != fresh.id;
+      setActiveAcMap(fresh.constituencies);
+      await ref
+          .read(sharedPreferencesProvider)
+          .setString(_key, jsonEncode(fresh.toJson()));
+      state = fresh;
+      return changed;
+    } catch (_) {
+      return false; // offline: keep what we have
+    }
+  }
+}
+
+final corporationProvider =
+    NotifierProvider<CorporationNotifier, Corporation?>(CorporationNotifier.new);
 
 /// The signed-in citizen's account id.
 ///

@@ -142,7 +142,9 @@ export default function TicketDrawer({ issue, onClose, onChanged, onOpenIssue, o
   const pm = PRIORITY_META[priority];
   const dept = departmentMeta(issue.department);
   const name = citizenName(issue);
-  const acs = constituenciesForWard(issue.ward_no);
+  // Server-labelled from the grievance's own corporation (ward numbers repeat
+  // between Chennai and Tambaram); the Chennai table is only a fallback.
+  const acs = issue.constituencies || constituenciesForWard(issue.ward_no);
   const stage = STAGE_INDEX[issue.status] ?? 1;
 
   // Assign picker: only non-terminal tickets can be (re)assigned; the list is

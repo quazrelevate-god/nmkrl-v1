@@ -133,7 +133,7 @@ def random_phone():
 def build_records():
     boundaries.load_boundaries()
     rows = []
-    for w in boundaries._WARDS:  # noqa: SLF001 — internal cache is the source of truth
+    for w in boundaries._set("chennai").wards:  # noqa: SLF001 — internal cache is the source of truth
         ward = w["ward"]
         zone = w.get("zone")
         zone_name = w.get("zone_name")
@@ -183,8 +183,8 @@ def main():
                    (id, title, image_url, audio_url, transcript, summary_highlights,
                     latitude, longitude, area_name, ward_no, zone, zone_name,
                     department, status, upvotes, notify_reporter, created_at,
-                    created_by, name, phone)
-                   VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)""",
+                    created_by, name, phone, corporation)
+                   VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, 'chennai')""",
                 (r["id"], r["title"], r["image_url"], r["transcript"], json.dumps(r["highlights"]),
                  r["lat"], r["lng"], r["area"], r["ward"], r["zone"], r["zone_name"],
                  r["department"], r["status"], r["upvotes"], r["created_at"],

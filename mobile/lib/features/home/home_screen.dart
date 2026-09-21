@@ -14,6 +14,7 @@ import '../../core/theme.dart';
 import '../../core/i18n.dart';
 import '../../domain/constituencies.dart';
 import '../../domain/models/boundary_data.dart';
+import '../../domain/models/corporation.dart';
 import '../../domain/models/issue.dart';
 import '../../domain/models/locate_result.dart';
 import '../../state/providers.dart';
@@ -25,9 +26,10 @@ import 'widgets/ward_dropdown.dart';
 import 'widgets/map_card.dart';
 import 'widgets/profile_header.dart';
 
-/// Fallback location (Anna Nagar, Chennai) when GPS is denied/unavailable —
-/// mirrors DEFAULT_LOCATION in lib/hooks.js so the app stays usable.
-const kDefaultLocation = LatLng(13.0827, 80.2081);
+/// Fallback location when GPS is denied/unavailable, so the app stays usable:
+/// the live corporation's centre, or this (Tambaram, the pilot) before the app
+/// has heard which corporation is live.
+const kDefaultLocation = kDefaultCorporationCenter;
 
 /// The two destinations of the bottom nav bar, in display order. "My Supports"
 /// is no longer a destination — it became a scope filter inside [_HomeTab.ward].
@@ -348,6 +350,29 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _loadHistory();
     final w = _currentWard;
     if (w != null) _loadWard(w);
+    // The MLA office may have switched corporations while the app was away;
+    // the listener in build() reloads the map and ward if it did.
+    ref.read(corporationProvider.notifier).refresh();
+  }
+
+  /// The console switched the live corporation (Tambaram <-> Chennai): the
+  /// map, the ward and the ward feed all belong to the other city now. A test
+  /// location picked in the old city means nothing in the new one.
+  void _onCorporationChanged() {
+    setState(() {
+      _override = null;
+      _testWard = null;
+      _boundaries = null;
+      _locate = null;
+      _wardIssues = [];
+    });
+    _loadBoundaries();
+    if (_geoStatus == 'fallback') {
+      _useFallbackLocation(); // re-centres on the new corporation
+    } else {
+      _resolveWard();
+    }
+    _loadHistory();
   }
 
 
@@ -388,8 +413,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   void _useFallbackLocation() {
+    final centre = ref.read(corporationProvider)?.center ?? kDefaultLocation;
     setState(() {
-      _geoCoords = kDefaultLocation;
+      _geoCoords = centre;
       _accuracy = null;
       _areaName = '';
       _geoStatus = 'fallback';
@@ -818,6 +844,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when the live corporation (and so the constituency table the
+    // ward pills and the ward picker read) arrives or changes.
+    ref.watch(corporationProvider);
+    ref.listen<Corporation?>(corporationProvider, (prev, next) {
+      if (prev != null && next != null && prev.id != next.id) {
+        _onCorporationChanged();
+      }
+    });
     final topInset = MediaQuery.paddingOf(context).top;
     final bottomInset = MediaQuery.paddingOf(context).bottom;
     final screenH = MediaQuery.sizeOf(context).height;
@@ -919,7 +953,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 child: _WardPill(
                   constituency: (_locate?.constituencies.isEmpty ?? true)
                       ? ''
-                      : shortAC(_locate!.constituencies.first),
+                      : compactAC(_locate!.constituencies.first),
                   ward: '$_currentWard',
                 ),
               ),
@@ -1353,11 +1387,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  context.tr(
-                    'You are outside the Greater Chennai Corporation area. New '
-                    'grievances can only be filed inside GCC — you can still view '
-                    'your reports and your ward.',
-                  ),
+                  context
+                      .tr(
+                        'You are outside the {corp} area. New grievances can only be filed inside '
+                        'it — you can still view your reports and your ward.',
+                      )
+                      .replaceAll(
+                        '{corp}',
+                        ref.read(corporationProvider)?.name ?? 'corporation',
+                      ),
                   style: const TextStyle(
                       fontSize: 12.5, height: 1.4, color: NkColors.slate700),
                 ),

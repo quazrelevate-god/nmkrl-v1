@@ -14,11 +14,15 @@ import { useEffect, useMemo, useState } from "react";
 import { X, Loader2, UserPlus, Camera } from "lucide-react";
 import { adminCreateGrievance, fetchCoordinators } from "@/lib/api";
 import { DEPARTMENTS } from "@/lib/departments";
-import { constituenciesForWard } from "@/lib/constituencies";
+import { constituenciesForWardIn } from "@/lib/constituencies";
+import { useAdminData } from "./AdminDataProvider";
 
 const DEPARTMENT_NAMES = Object.keys(DEPARTMENTS);
 
 export default function CreateGrievanceModal({ boundaries, onClose, onCreated }) {
+  // The office's corporation's ward -> constituency table (Chennai or Tambaram).
+  const { tenant } = useAdminData();
+  const acMap = tenant?.constituencies;
   // The complete ward list, built here from boundaries so it is never narrowed
   // by whatever zone filter happens to be active on the Tickets page behind it.
   const wardOptions = useMemo(() => {
@@ -54,10 +58,10 @@ export default function CreateGrievanceModal({ boundaries, onClose, onCreated })
   const pickCoords = useMemo(() => {
     const active = coords.filter((c) => (c.status || "active") === "active");
     if (!ward) return active;
-    const acs = constituenciesForWard(ward);
+    const acs = constituenciesForWardIn(acMap, ward);
     const inAc = active.filter((c) => acs.includes(c.constituency));
     return inAc.length ? inAc : active;
-  }, [coords, ward]);
+  }, [coords, ward, acMap]);
 
   const ready = title.trim() && ward;
 

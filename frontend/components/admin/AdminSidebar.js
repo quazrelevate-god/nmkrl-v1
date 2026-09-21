@@ -6,16 +6,98 @@
  * Light-grey frosted rail for the Namkural GMS Portal staff console. Three sections —
  * Performance, Tickets (live open-count badge), Petition Review (pending-
  * verification badge) — plus the signed-in staff footer.
+ *
+ * Under the brand sits the corporation toggle (Tambaram | Chennai). It switches
+ * the LIVE corporation for everyone — the mobile apps' map, wards and filing
+ * area follow it — and moves this console to that corporation's office.
  */
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { LayoutDashboard, Ticket, ClipboardCheck, Megaphone, Users, Landmark, LogOut, FolderTree, Network } from "lucide-react";
+import { LayoutDashboard, Ticket, ClipboardCheck, Megaphone, Users, Landmark, LogOut, FolderTree, Network, Loader2 } from "lucide-react";
 import { useAdminData } from "./AdminDataProvider";
 import { listCoordinatorsRemote } from "@/lib/coordinators";
 import { listPending, MODERATION_EVENT } from "@/lib/postModeration";
-import { adminLogout, getAdminUser } from "@/lib/adminAuth";
+import { adminLogout, getAdminUser, switchCorporation } from "@/lib/adminAuth";
+import { fetchAdminCorporation } from "@/lib/api";
+
+// Shown until the server's list arrives, in the same order it sends.
+const CORPORATIONS = [
+  { id: "tambaram", short_name: "Tambaram", name: "Tambaram City Municipal Corporation" },
+  { id: "chennai", short_name: "Chennai", name: "Greater Chennai Corporation" },
+];
+
+/** Tambaram | Chennai switch for the live corporation. */
+function CorporationToggle({ current }) {
+  const [choices, setChoices] = useState(CORPORATIONS);
+  const [live, setLive] = useState(current || null);
+  const [busy, setBusy] = useState(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => { if (current) setLive(current); }, [current]);
+  useEffect(() => {
+    let alive = true;
+    fetchAdminCorporation()
+      .then((d) => {
+        if (!alive) return;
+        if (Array.isArray(d.available) && d.available.length) setChoices(d.available);
+        if (!current) setLive(d.active);
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [current]);
+
+  async function pick(c) {
+    if (busy || c.id === live) return;
+    const from = choices.find((x) => x.id === live)?.short_name || "the current corporation";
+    const ok = window.confirm(
+      `Switch the app to ${c.name}?\n\n` +
+      `Citizens and coordinators will see ${c.short_name}'s map and wards from their next refresh, ` +
+      `and new grievances can be filed only inside ${c.short_name}. ` +
+      `${from} coordinators are paused until you switch back. Nothing is deleted.`
+    );
+    if (!ok) return;
+    setBusy(c.id);
+    setError("");
+    try {
+      await switchCorporation(c.id);
+      // Every page's data belongs to the other office now; start clean.
+      window.location.reload();
+    } catch (err) {
+      setError(err.message);
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div className="px-4 pb-1">
+      <p className="px-1 pb-1.5 text-[10px] font-bold uppercase tracking-widest text-slate-400">Corporation</p>
+      <div role="group" aria-label="Live corporation" className="grid grid-cols-2 gap-1 rounded-xl bg-slate-900/5 p-1">
+        {choices.map((c) => {
+          const on = c.id === live;
+          return (
+            <button
+              key={c.id}
+              type="button"
+              aria-pressed={on}
+              title={on ? `${c.name} is live` : `Switch the app to ${c.name}`}
+              disabled={!!busy}
+              onClick={() => pick(c)}
+              className={`flex items-center justify-center gap-1 rounded-lg px-2 py-1.5 text-xs font-bold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/60 ${
+                on ? "bg-white text-brand-dark shadow-sm" : "text-slate-500 hover:text-slate-800"
+              } ${busy ? "cursor-wait" : ""}`}
+            >
+              {busy === c.id && <Loader2 size={12} className="animate-spin" />}
+              {c.short_name}
+            </button>
+          );
+        })}
+      </div>
+      {error && <p className="px-1 pt-1.5 text-[11px] font-medium text-rose-600">{error}</p>}
+    </div>
+  );
+}
 
 const NAV = [
   { href: "/admin/performance", label: "Performance", icon: LayoutDashboard, badgeKey: null },
@@ -90,6 +172,8 @@ export default function AdminSidebar() {
           <p className="truncate text-[11px] font-medium text-slate-500" title={tenant?.constituency || ""}>{tenant?.name || "Staff Portal"}</p>
         </div>
       </div>
+
+      <CorporationToggle current={tenant?.corporation} />
 
       <p className="px-5 pb-2 pt-3 text-[10px] font-bold uppercase tracking-widest text-slate-400">Menu</p>
 

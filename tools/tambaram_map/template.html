@@ -1,0 +1,291 @@
+<title>Tambaram Ward Map</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@87,600;87,800&family=IBM+Plex+Mono:wght@500;600&family=Public+Sans:wght@400;600&display=swap">
+<style>/*LEAFLET_CSS*/</style>
+<style>
+:root{
+  --ground:#F3F4EF; --panel:#FFFFFF; --ink:#1B2130; --muted:#5A6374; --line:#D8DBD1;
+  --navy:#23267A; --navy-soft:#E6E7F5; --red:#C62828;
+  --z1:#C8553D; --z2:#2E8B57; --z3:#2F66C4; --z4:#8A45AE; --z5:#C4850A;
+  --need:#B3261E; --need-bg:#FBE9E7; --info:#35507A; --info-bg:#E8EEF7;
+  --map-dim:1;
+  --display:"Archivo","Arial Narrow",system-ui,sans-serif;
+  --body:"Public Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --ground:#11141B; --panel:#181C26; --ink:#E7E9EF; --muted:#9BA3B4; --line:#2B3141;
+  --navy:#9AA0F5; --navy-soft:#252A45; --red:#FF7A74;
+  --need:#FF8A80; --need-bg:#3A1F1E; --info:#9DB8E6; --info-bg:#1E2A3D; --map-dim:.86;
+}}
+:root[data-theme="dark"]{
+  --ground:#11141B; --panel:#181C26; --ink:#E7E9EF; --muted:#9BA3B4; --line:#2B3141;
+  --navy:#9AA0F5; --navy-soft:#252A45; --red:#FF7A74;
+  --need:#FF8A80; --need-bg:#3A1F1E; --info:#9DB8E6; --info-bg:#1E2A3D; --map-dim:.86;
+}
+html,body{background:var(--ground)}
+body{color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.5}
+.wrap{max-width:1240px;margin:0 auto;padding-inline:clamp(16px,3vw,32px);padding-block:28px 48px;display:grid;gap:28px}
+header{display:grid;gap:10px}
+.eyebrow{font:600 12px/1 var(--body);letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+h1{font:800 clamp(30px,4.6vw,46px)/1.02 var(--display);font-stretch:87%;letter-spacing:-.01em;margin:0;text-wrap:balance}
+h2{font:800 22px/1.15 var(--display);font-stretch:87%;margin:0;text-wrap:balance}
+.lede{margin:0;max-width:68ch;color:var(--muted)}
+.facts{display:flex;flex-wrap:wrap;gap:8px 22px;margin-top:4px;font-size:14px}
+.facts b{font:600 15px var(--mono);color:var(--ink)}
+.facts span{color:var(--muted)}
+.stage{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:18px;align-items:start}
+@media (max-width:900px){.stage{grid-template-columns:1fr}}
+#map{height:min(74vh,760px);min-height:420px;border:1px solid var(--line);border-radius:6px;background:#EDEEE8}
+.leaflet-container{font-family:var(--body)}
+.leaflet-image-layer{filter:brightness(var(--map-dim))}
+.side{display:grid;gap:16px}
+.box{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:14px 16px;display:grid;gap:10px}
+.box h3{margin:0;font:600 12px/1 var(--body);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.seg{display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--line);border-radius:5px;overflow:hidden}
+.seg button{all:unset;cursor:pointer;text-align:center;padding:8px 6px;font-weight:600;font-size:14px;color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--navy);color:var(--panel)}
+.seg button:focus-visible,.zchip:focus-visible,.wbtn:focus-visible,input:focus-visible{outline:2px solid var(--navy);outline-offset:2px}
+label.row{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--muted)}
+input[type=range]{flex:1;accent-color:var(--navy)}
+.find{display:flex;gap:8px}
+.find input{flex:1;min-width:0;font:600 15px var(--mono);padding:8px 10px;border:1px solid var(--line);border-radius:5px;background:var(--ground);color:var(--ink)}
+.find button{all:unset;cursor:pointer;padding:8px 14px;border-radius:5px;background:var(--navy);color:var(--panel);font-weight:600}
+.find button:focus-visible{outline:2px solid var(--navy);outline-offset:2px}
+.hint{font-size:12.5px;color:var(--muted);margin:0}
+.zchips{display:grid;gap:6px}
+.zchip{all:unset;cursor:pointer;display:grid;grid-template-columns:12px 1fr auto;align-items:center;gap:10px;padding:7px 9px;border-radius:5px;border:1px solid transparent;font-size:14px}
+.zchip:hover{background:var(--navy-soft)}
+.zchip[aria-pressed="true"]{border-color:var(--navy);background:var(--navy-soft)}
+.sw{width:12px;height:12px;border-radius:3px}
+.zchip small{font:500 12.5px var(--mono);color:var(--muted);font-variant-numeric:tabular-nums}
+.ward-card .big{font:800 28px/1 var(--display);font-stretch:87%}
+.ward-card dl{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;margin:0;font-size:14px}
+.ward-card dt{color:var(--muted)}
+.ward-card dd{margin:0;font-variant-numeric:tabular-nums}
+.ward-card .nbs{display:flex;flex-wrap:wrap;gap:5px}
+.wbtn{all:unset;cursor:pointer;font:600 12.5px var(--mono);padding:2px 7px;border-radius:4px;border:1px solid var(--line);color:var(--ink)}
+.wbtn:hover{border-color:var(--navy)}
+.wlabel{font:600 11.5px var(--mono);color:#1B2130;text-shadow:0 0 3px #fff,0 0 3px #fff,0 0 2px #fff;white-space:nowrap;text-align:center;pointer-events:none}
+.hide-labels .wlabel{display:none}
+section{display:grid;gap:14px}
+.zones{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px}
+.zcol{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:12px 14px;display:grid;gap:8px;align-content:start}
+.zcol header{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.zcol h3{margin:0;font:800 17px/1.1 var(--display);font-stretch:87%}
+.zcol .meta{font:500 12.5px var(--mono);color:var(--muted)}
+.zcol ul{list-style:none;margin:0;padding:0;display:grid;gap:1px}
+.zcol li button{all:unset;cursor:pointer;display:flex;justify-content:space-between;width:100%;box-sizing:border-box;padding:3px 6px;border-radius:4px;font-size:14px}
+.zcol li button:hover,.zcol li button[aria-current="true"]{background:var(--navy-soft)}
+.zcol li button:focus-visible{outline:2px solid var(--navy)}
+.zcol li .a{font:500 12.5px var(--mono);color:var(--muted);font-variant-numeric:tabular-nums}
+.notes{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px}
+.note{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:14px 16px;display:grid;gap:6px;align-content:start}
+.note p{margin:0;font-size:14px;color:var(--muted)}
+.note h4{margin:0;font:600 15.5px/1.3 var(--body);color:var(--ink)}
+.tag{justify-self:start;font:600 11px/1 var(--body);letter-spacing:.07em;text-transform:uppercase;padding:5px 7px;border-radius:4px}
+.tag.need{color:var(--need);background:var(--need-bg)}
+.tag.info{color:var(--info);background:var(--info-bg)}
+footer{font-size:12.5px;color:var(--muted);border-top:1px solid var(--line);padding-top:14px;display:grid;gap:6px}
+footer p{margin:0;max-width:95ch}
+@media (prefers-reduced-motion:reduce){.leaflet-zoom-anim .leaflet-zoom-animated{transition:none!important}}
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Tambaram City Municipal Corporation · pilot ward data</div>
+    <h1>Tambaram Ward Map</h1>
+    <p class="lede">All 70 wards and 5 zones, traced from the corporation's printed ward map and placed on the real map. Tap any ward to check its zone and neighbours, or switch to the printed map to compare the two.</p>
+    <div class="facts">
+      <div><b>70</b> <span>wards</span></div>
+      <div><b>5</b> <span>zones</span></div>
+      <div><b>40–100 m</b> <span>typical border accuracy</span></div>
+      <div><b>78.1 km²</b> <span>drawn area (map prints 87.64)</span></div>
+    </div>
+  </header>
+
+  <div class="stage">
+    <div id="map" role="application" aria-label="Map of Tambaram wards"></div>
+    <aside class="side">
+      <div class="box">
+        <h3>Background</h3>
+        <div class="seg" role="group" aria-label="Background map">
+          <button id="bg-real" type="button" aria-pressed="true">Real map</button>
+          <button id="bg-printed" type="button" aria-pressed="false">Printed map</button>
+        </div>
+        <label class="row" for="op">Printed map strength <input id="op" type="range" min="20" max="100" value="80" disabled></label>
+      </div>
+      <div class="box">
+        <h3>Find a ward</h3>
+        <form class="find" id="find">
+          <input id="wardno" type="number" min="1" max="70" inputmode="numeric" placeholder="1 – 70" aria-label="Ward number">
+          <button type="submit">Show</button>
+        </form>
+        <p class="hint" id="findmsg">Or tap a ward on the map.</p>
+      </div>
+      <div class="box ward-card" id="card" aria-live="polite"></div>
+      <div class="box">
+        <h3>Zones</h3>
+        <div class="zchips" id="zchips"></div>
+      </div>
+    </aside>
+  </div>
+
+  <section aria-labelledby="list-h">
+    <h2 id="list-h">Ward list by zone</h2>
+    <div class="zones" id="zones"></div>
+  </section>
+
+  <section aria-labelledby="notes-h">
+    <h2 id="notes-h">Before the app switches to Tambaram</h2>
+    <div class="notes">
+      <div class="note"><span class="tag need">Needs info</span><h4>Which constituency is each ward in?</h4><p>This map shows wards and zones only. The app groups wards by assembly constituency, so we need the official ward-to-constituency list for Tambaram (it spans more than one constituency).</p></div>
+      <div class="note"><span class="tag need">Needs a decision</span><h4>Ward numbers repeat Chennai's</h4><p>Tambaram's wards 1–70 share numbers with Chennai's wards. Either run Tambaram as its own setup, or label wards with a prefix such as “TMB 12”.</p></div>
+      <div class="note"><span class="tag info">Good to know</span><h4>Borders are close, not exact</h4><p>Checked against 15 landmarks (4 railway stations, 11 lakes) plus MIT, Vels, the National Institute of Siddha and Thiruneermalai temple. Borders sit within about 40–100 m, so a complaint filed right on a border may land in the next ward.</p></div>
+      <div class="note"><span class="tag info">Good to know</span><h4>The drawing covers 78.1 km², not 87.64</h4><p>The printed map says 87.64 km² (the official figure), but its drawn boundary measures 78.1 km². The scale is pinned by stations 9 km apart, so this gap is in the drawing itself. We did not stretch the map to hide it.</p></div>
+    </div>
+  </section>
+
+  <footer>
+    <p>Ward and zone borders traced from the Tambaram City Municipal Corporation ward map (red lines = ward borders, navy = zone borders). Ward 9 is in Zone 2: its strip joins Zone 2 with no zone line between.</p>
+    <p>Background map data © OpenStreetMap contributors (openstreetmap.org/copyright).</p>
+  </footer>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script>
+const DATA = /*DATA*/;
+const BASE = "/*BASE*/";
+const PRINTED = "/*PRINTED*/";
+const ZNAME = {1:"Pammal",2:"Pallavaram",3:"Sembakkam",4:"Perungalathur",5:"East Tambaram"};
+const css = getComputedStyle(document.documentElement);
+const zc = z => css.getPropertyValue("--z" + z).trim();
+const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+const map = L.map("map", {minZoom: 12, maxZoom: 17, zoomSnap: 0.5, zoomAnimation: !reduce,
+  maxBounds: L.latLngBounds(DATA.bounds).pad(0.05), attributionControl: true});
+map.attributionControl.setPrefix(false);
+const base = L.imageOverlay(BASE, DATA.bounds, {attribution: "© OpenStreetMap contributors"}).addTo(map);
+const printed = L.imageOverlay(PRINTED, DATA.bounds, {opacity: 0});
+
+const byWard = {};
+let selected = null, zoneFilter = null;
+function style(f) {
+  const w = f.properties.ward, z = f.properties.zone;
+  const faded = zoneFilter && z !== zoneFilter;
+  const sel = selected === w;
+  // The map image is light in both themes, so map strokes use fixed map colours.
+  return {color: sel ? "#23267A" : "#C62828",
+    weight: sel ? 3.2 : 1.2, fillColor: zc(z),
+    fillOpacity: sel ? 0.42 : faded ? 0.04 : printedOn ? 0.0 : 0.2, opacity: faded ? 0.35 : 1};
+}
+let printedOn = false;
+const wards = L.geoJSON(DATA.wards, {
+  style,
+  onEachFeature(f, layer) {
+    byWard[f.properties.ward] = {f, layer};
+    layer.on("click", () => select(f.properties.ward, false));
+    layer.on("mouseover", () => { if (selected !== f.properties.ward) layer.setStyle({weight: 2.4}); });
+    layer.on("mouseout", () => layer.setStyle(style(f)));
+  }
+}).addTo(map);
+map.fitBounds(wards.getBounds(), {padding: [8, 8]});
+L.geoJSON(DATA.zones, {interactive: false, style: () => ({color: "#23267A", weight: 3.2, fill: false})}).addTo(map);
+Object.entries(DATA.lab).forEach(([w, ll]) => L.marker(ll, {interactive: false, keyboard: false,
+  icon: L.divIcon({className: "wlabel", html: w, iconSize: [26, 14], iconAnchor: [13, 7]})}).addTo(map));
+const mapEl = document.getElementById("map");
+const syncLabels = () => mapEl.classList.toggle("hide-labels", map.getZoom() < 12.5);
+map.on("zoomend", syncLabels); syncLabels();
+
+function restyle() { wards.eachLayer(l => l.setStyle(style(l.feature))); }
+
+const card = document.getElementById("card");
+function renderCard() {
+  if (!selected) {
+    card.innerHTML = '<h3>Ward</h3><p class="hint">Tap a ward to see its zone, size and neighbouring wards.</p>';
+    return;
+  }
+  const p = byWard[selected].f.properties;
+  const nbs = DATA.nb[selected].map(n => `<button class="wbtn" type="button" data-w="${n}">${n}</button>`).join("");
+  card.innerHTML = `<h3>Selected ward</h3>
+    <div class="big">Ward ${p.ward}</div>
+    <dl><dt>Zone</dt><dd><span class="sw" style="display:inline-block;vertical-align:-1px;margin-right:6px;background:${zc(p.zone)}"></span>${p.zone} · ${ZNAME[p.zone]}</dd>
+    <dt>Area</dt><dd>${p.area_km2.toFixed(2)} km²</dd>
+    <dt>Borders</dt><dd class="nbs">${nbs}</dd></dl>`;
+  card.querySelectorAll(".wbtn").forEach(b => b.addEventListener("click", () => select(b.dataset.w, true)));
+}
+function select(w, fly) {
+  w = String(w);
+  if (!byWard[w]) return;
+  selected = w;
+  restyle();
+  byWard[w].layer.bringToFront();
+  if (fly) map.fitBounds(byWard[w].layer.getBounds(), {maxZoom: 15.5, padding: [30, 30], animate: !reduce});
+  renderCard();
+  document.querySelectorAll(".zcol li button").forEach(b => b.setAttribute("aria-current", String(b.dataset.w === w)));
+}
+
+// Background toggle
+const op = document.getElementById("op");
+function setBg(p) {
+  printedOn = p;
+  document.getElementById("bg-real").setAttribute("aria-pressed", String(!p));
+  document.getElementById("bg-printed").setAttribute("aria-pressed", String(p));
+  op.disabled = !p;
+  if (p) { printed.addTo(map); printed.setOpacity(op.value / 100); } else { printed.setOpacity(0); printed.remove(); }
+  restyle();
+}
+document.getElementById("bg-real").addEventListener("click", () => setBg(false));
+document.getElementById("bg-printed").addEventListener("click", () => setBg(true));
+op.addEventListener("input", () => printed.setOpacity(op.value / 100));
+
+// Find
+document.getElementById("find").addEventListener("submit", e => {
+  e.preventDefault();
+  const v = document.getElementById("wardno").value.trim();
+  const msg = document.getElementById("findmsg");
+  if (byWard[v]) { select(v, true); msg.textContent = "Or tap a ward on the map."; }
+  else msg.textContent = "Tambaram has wards 1 to 70. Enter a number in that range.";
+});
+
+// Zones: chips + list
+const zinfo = {};
+DATA.zones.features.forEach(f => zinfo[f.properties.zone] = f.properties);
+const zchips = document.getElementById("zchips");
+const zonesEl = document.getElementById("zones");
+Object.keys(zinfo).sort().forEach(z => {
+  const p = zinfo[z];
+  const b = document.createElement("button");
+  b.className = "zchip"; b.type = "button"; b.setAttribute("aria-pressed", "false");
+  b.innerHTML = `<span class="sw" style="background:${zc(z)}"></span><span>Zone ${z} · ${ZNAME[z]}</span><small>${p.wards.length} · ${p.area_km2.toFixed(1)} km²</small>`;
+  b.addEventListener("click", () => {
+    zoneFilter = zoneFilter === z ? null : z;
+    zchips.querySelectorAll(".zchip").forEach(c => c.setAttribute("aria-pressed", "false"));
+    if (zoneFilter) {
+      b.setAttribute("aria-pressed", "true");
+      const bb = L.latLngBounds([]);
+      p.wards.forEach(w => bb.extend(byWard[w].layer.getBounds()));
+      map.fitBounds(bb, {padding: [20, 20], animate: !reduce});
+    }
+    restyle();
+  });
+  zchips.appendChild(b);
+
+  const col = document.createElement("div");
+  col.className = "zcol";
+  const rows = p.wards.map(w => {
+    const a = byWard[w].f.properties.area_km2;
+    return `<li><button type="button" data-w="${w}"><span>Ward ${w}</span><span class="a">${a.toFixed(2)} km²</span></button></li>`;
+  }).join("");
+  col.innerHTML = `<header><span class="sw" style="background:${zc(z)}"></span><h3>Zone ${z} · ${ZNAME[z]}</h3><span class="meta">${p.wards.length} wards · ${p.area_km2.toFixed(1)} km²</span></header><ul>${rows}</ul>`;
+  zonesEl.appendChild(col);
+});
+zonesEl.addEventListener("click", e => {
+  const b = e.target.closest("button[data-w]");
+  if (!b) return;
+  select(b.dataset.w, true);
+  mapEl.scrollIntoView({behavior: reduce ? "auto" : "smooth", block: "center"});
+});
+renderCard();
+</script>

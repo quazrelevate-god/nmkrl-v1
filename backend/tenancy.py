@@ -10,23 +10,33 @@ endpoint depends on `current_tenant` and filters through the helpers below —
 so a new endpoint cannot quietly forget it.
 
 Tenancy is derived from geography rather than stored on every row: a grievance
-belongs to a tenant because its ward is in the tenant's constituency
-(utils.CHENNAI_AC_MAP), and a coordinator because of their `constituency`.
-Wards that CHENNAI_AC_MAP lists under two constituencies are visible to both
+belongs to a tenant because its ward is in the tenant's constituency, and a
+coordinator because of their `constituency`. Constituencies belong to a
+corporation (corporations.py), and ward numbers repeat across corporations, so
+a grievance must also be in the tenant's corporation (issues.corporation).
+Wards that an AC map lists under two constituencies are visible to both
 offices, which matches how those boundary wards are actually shared.
+
+Only the active corporation's offices can use the console: switching the
+corporation sends sessions of the other corporation's offices back to sign in.
 """
 
 from fastapi import Depends, Header, HTTPException
 
 import admin_auth
+import corporations
 from database import get_db
-from utils import CHENNAI_AC_MAP
 
 
 def decorate(row) -> dict:
-    """A tenant row plus the ward list its constituency covers."""
+    """A tenant row plus its corporation and the ward list its constituency covers."""
     t = dict(row)
-    t["wards"] = list(CHENNAI_AC_MAP.get(t["constituency"], []))
+    cid = corporations.corporation_of_constituency(t["constituency"])
+    t["corporation"] = cid
+    corp = corporations.CORPORATIONS.get(cid)
+    t["corporation_name"] = corp["name"] if corp else None
+    t["corporation_short"] = corp["short_name"] if corp else None
+    t["wards"] = list(corp["ac_map"].get(t["constituency"], [])) if corp else []
     return t
 
 
@@ -56,6 +66,14 @@ def current_tenant(
     if (row["status"] or "active").lower() != "active":
         raise HTTPException(status_code=403, detail="This MLA office account is suspended.")
     tenant = decorate(row)
+    active = corporations.active_id(conn)
+    if tenant["corporation"] and tenant["corporation"] != active:
+        raise HTTPException(
+            status_code=401,
+            detail=(f"The console was switched to {corporations.get(active)['short_name']}. "
+                    "Please sign in again."),
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     if not tenant["wards"]:
         raise HTTPException(
             status_code=500,
@@ -67,17 +85,34 @@ def current_tenant(
 def ward_clause(tenant: dict, column: str = "ward_no") -> tuple[str, list]:
     """SQL fragment + params limiting `column` to the tenant's wards.
 
-    ward_no is stored as an integer; CHENNAI_AC_MAP holds ward strings, so the
-    comparison is done as text.
+    Also limits the grievance to the tenant's corporation, whose column sits
+    beside `column` (same table alias). ward_no is stored as an integer and the
+    AC maps hold ward strings, so the comparison is done as text.
     """
     wards = tenant["wards"]
     placeholders = ",".join("?" for _ in wards)
-    return f"CAST({column} AS TEXT) IN ({placeholders})", list(wards)
+    prefix = column.rsplit(".", 1)[0] + "." if "." in column else ""
+    return (
+        f"(CAST({column} AS TEXT) IN ({placeholders}) AND {prefix}corporation = ?)",
+        [*wards, tenant["corporation"]],
+    )
 
 
-def owns_ward(tenant: dict, ward) -> bool:
-    """Is this ward inside the tenant's constituency?"""
+def owns_ward(tenant: dict, ward, corporation: str | None = None) -> bool:
+    """Is this ward inside the tenant's constituency?
+
+    Pass the grievance's `corporation` when checking a grievance: ward numbers
+    repeat across corporations. Without it the ward is taken to be in the
+    tenant's own corporation (a ward the office is choosing).
+    """
+    if corporation is not None and corporation != tenant["corporation"]:
+        return False
     return ward is not None and str(ward).strip() in tenant["wards"]
+
+
+def owns_issue(tenant: dict, issue) -> bool:
+    """Is this grievance (row or dict) the tenant's to see and act on?"""
+    return owns_ward(tenant, issue["ward_no"], issue["corporation"] or corporations.LEGACY_CORPORATION)
 
 
 def load_issue(conn, issue_id: str, tenant: dict):
@@ -87,7 +122,7 @@ def load_issue(conn, issue_id: str, tenant: dict):
     exist, so an office can never confirm another office's grievance is there.
     """
     row = conn.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
-    if row is None or not owns_ward(tenant, row["ward_no"]):
+    if row is None or not owns_issue(tenant, row):
         raise HTTPException(status_code=404, detail="Issue not found")
     return row
 

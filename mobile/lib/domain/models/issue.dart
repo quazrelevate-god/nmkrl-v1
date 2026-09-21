@@ -19,6 +19,7 @@ class Issue {
     this.areaName,
     this.wardNo,
     this.zone,
+    this.constituencies,
     this.department,
     this.coordinatorMessage,
     this.assignedCoordinator,
@@ -60,6 +61,11 @@ class Issue {
   final String? areaName;
   final int? wardNo;
   final String? zone;
+
+  /// The ward's assembly constituencies, worked out by the server within the
+  /// grievance's own corporation (Chennai and Tambaram share ward numbers).
+  /// Null from an older backend; then the app's live table is the fallback.
+  final List<String>? constituencies;
 
   /// AI-routed municipal department (used by the coordinator transfer flow).
   final String? department;
@@ -151,6 +157,9 @@ class Issue {
           : (json['area_name'] as String).trim(),
       wardNo: _toInt(json['ward_no']),
       zone: json['zone']?.toString(),
+      constituencies: json['constituencies'] is List
+          ? [for (final c in json['constituencies'] as List) '$c']
+          : null,
       department: json['department'] as String?,
       coordinatorMessage: json['coordinator_message'] as String?,
       assignedCoordinator: json['assigned_coordinator'] as String?,

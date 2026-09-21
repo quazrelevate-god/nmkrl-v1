@@ -14,6 +14,7 @@ import '../../domain/constituencies.dart';
 import '../../domain/coordinator_data.dart';
 import '../../domain/geo_utils.dart';
 import '../../domain/models/boundary_data.dart';
+import '../../domain/models/corporation.dart';
 import '../../domain/models/issue.dart';
 import '../../state/providers.dart';
 import '../home/widgets/issue_card.dart';
@@ -79,7 +80,8 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
   String? _busyId;
   String? _toast;
 
-  // The AC's wards (from kChennaiAcMap) and which one the list is filtered to.
+  // The AC's wards (from the live corporation's table — see _wardsFor) and
+  // which one the list is filtered to.
   // '' means "All wards" (the whole constituency). Defaults to the coordinator's
   // own home ward — their priority, and the ward their notifications come from.
   // Not final: a home-ward or constituency change made in the admin console
@@ -156,13 +158,19 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _acWards = kChennaiAcMap[_me.constituency] ??
-        (_me.homeWard.isNotEmpty ? [_me.homeWard] : const <String>[]);
+    ref.read(corporationProvider); // starts loading the live corporation's table
+    _acWards = _wardsFor(_me);
     _ward = _me.homeWard; // start on the coordinator's own ward (their priority)
     _loadBoundaries();
     _loadConstituency();
     _refreshProfile();
   }
+
+  /// The coordinator's constituency's wards in the live corporation's table,
+  /// or just their home ward until that table has arrived.
+  List<String> _wardsFor(Coordinator c) =>
+      activeAcMap[c.constituency] ??
+      (c.homeWard.isNotEmpty ? [c.homeWard] : const <String>[]);
 
   Widget _initials(Coordinator me) => Text(me.initials,
       style: const TextStyle(
@@ -187,6 +195,7 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
     if (state == AppLifecycleState.resumed) {
       _loadConstituency();
       _refreshProfile();
+      ref.read(corporationProvider.notifier).refresh();
     }
   }
 
@@ -205,8 +214,7 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
         after.homeWard != before.homeWard;
     setState(() {
       if (moved) {
-        _acWards = kChennaiAcMap[after.constituency] ??
-            (after.homeWard.isNotEmpty ? [after.homeWard] : const <String>[]);
+        _acWards = _wardsFor(after);
         // '' is "All wards" — keep it. A specific ward that is no longer in
         // this coordinator's constituency falls back to the new home ward.
         if (_ward.isNotEmpty && !_acWards.contains(_ward)) {
@@ -456,6 +464,16 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
 
   @override
   Widget build(BuildContext context) {
+    // The live corporation's table can land after this screen opens (first
+    // launch); re-scope the ward chips when it does.
+    ref.listen<Corporation?>(corporationProvider, (prev, next) {
+      if (next == null) return;
+      final wards = _wardsFor(_me);
+      if (wards.join(',') != _acWards.join(',')) {
+        setState(() => _acWards = wards);
+        if (prev?.id != next.id) _loadBoundaries();
+      }
+    });
     final parts = partitionForCoordinator(_wardIssues, _me.username);
     final current = switch (_tab) {
       CoordinatorTab.ward => parts.ward,
@@ -535,7 +553,7 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
               bottom: sheetFloor * screenH + 12,
               left: 14,
               child: _CoordWardPill(
-                constituency: shortAC(_me.constituency),
+                constituency: compactAC(_me.constituency),
                 ward: _ward.isEmpty ? context.tr('All') : _ward,
               ),
             ),

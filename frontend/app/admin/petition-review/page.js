@@ -179,7 +179,7 @@ export default function PetitionReviewPage() {
                 <tbody className="bg-white">
                   {rows.map((issue) => {
                     const name = citizenName(issue);
-                    const acs = constituenciesForWard(issue.ward_no);
+                    const acs = issue.constituencies || constituenciesForWard(issue.ward_no);
                     return (
                       <tr key={issue.id} onClick={() => setSelected(issue)}
                         style={{ transition: "background .25s ease" }}

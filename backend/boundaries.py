@@ -1,10 +1,13 @@
 """
 boundaries.py
 -------------
-Real geographic boundary detection for the Greater Chennai Corporation, replacing
-the old deterministic mock grid (``wards.py``).
+Real geographic boundary detection, replacing the old deterministic mock grid
+(``wards.py``). One boundary set per corporation (corporations.py): Greater
+Chennai from ``geodata/``, Tambaram from ``geodata/tambaram/`` (traced from the
+corporation's printed ward map; see tools/tambaram_map/NOTES.md). Lookups run
+inside one corporation — the active one unless a caller names another.
 
-Two KML exports drive it:
+Each set is two KML exports (the Chennai files are described here):
 
   * ``geodata/zones.kml``  — 16 GCC zones. Each Placemark's <ExtendedData> carries
     ``ZONE`` (roman numeral, e.g. "III") and ``ZONE_NAME`` (e.g. "MADHAVARAM").
@@ -41,8 +44,6 @@ from shapely.strtree import STRtree
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 GEODATA_DIR = os.path.join(BASE_DIR, "geodata")
-ZONES_KML = os.path.join(GEODATA_DIR, "zones.kml")
-WARDS_KML = os.path.join(GEODATA_DIR, "wards.kml")
 
 # The single KML namespace, registered under an explicit prefix for XPath queries.
 _NS = {"kml": "http://www.opengis.net/kml/2.2"}
@@ -53,20 +54,34 @@ SIMPLIFY_TOLERANCE = 0.0001
 
 
 # ── In-memory caches (populated once by load_boundaries) ─────────────────────
-# Each entry: {"geometry": shapely (Multi)Polygon, ...metadata}
-_ZONES: list[dict] = []
-_WARDS: list[dict] = []
+# One set per corporation (see corporations.py), each built from that
+# corporation's geodata dir: zones.kml + wards.kml.
+class _Set:
+    def __init__(self):
+        # Each entry: {"geometry": shapely (Multi)Polygon, ...metadata}
+        self.zones: list[dict] = []
+        self.wards: list[dict] = []
+        # Spatial indexes for O(log n) candidate lookup before the exact test.
+        self.zone_index: STRtree | None = None
+        self.ward_index: STRtree | None = None
+        self.zone_geoms: list = []
+        self.ward_geoms: list = []
+        # Simplified GeoJSON FeatureCollections, built once for the map.
+        self.geojson: dict = {"zones": None, "wards": None}
 
-# Spatial indexes for O(log n) candidate lookup before the exact contains() test.
-_ZONE_INDEX: STRtree | None = None
-_WARD_INDEX: STRtree | None = None
-_ZONE_GEOMS: list = []
-_WARD_GEOMS: list = []
 
-# Simplified GeoJSON FeatureCollections, built once and served to the map.
-_GEOJSON: dict = {"zones": None, "wards": None}
-
+_SETS: dict[str, _Set] = {}
 _loaded = False
+
+
+def _set(corporation: str | None) -> _Set:
+    """The boundary set for a corporation id, or the active corporation's."""
+    import corporations
+
+    if not _loaded:
+        load_boundaries()
+    cid = corporation if corporation in corporations.CORPORATIONS else corporations.active_id()
+    return _SETS.get(cid) or _Set()
 
 
 # ── KML geometry parsing ─────────────────────────────────────────────────────
@@ -218,52 +233,57 @@ def _extract_ward(placemark: ET.Element) -> dict | None:
     return {"ward": ward, "ward_id": ward_id}
 
 
-def load_boundaries() -> dict:
-    """Parse both KML files once and build the in-memory caches + spatial indexes.
+def _load_set(geodata_dir: str) -> _Set:
+    out = _Set()
+    zones_kml = os.path.join(geodata_dir, "zones.kml")
+    wards_kml = os.path.join(geodata_dir, "wards.kml")
+    if not os.path.exists(zones_kml) or not os.path.exists(wards_kml):
+        print(f"[boundaries] KML files missing under {geodata_dir}; locate() disabled there.",
+              file=sys.stderr)
+        return out
 
-    Idempotent: subsequent calls are no-ops. Returns a small summary dict.
-    """
-    global _ZONES, _WARDS, _ZONE_INDEX, _WARD_INDEX, _ZONE_GEOMS, _WARD_GEOMS, _loaded
-    if _loaded:
-        return {"zones": len(_ZONES), "wards": len(_WARDS), "cached": True}
-
-    if not os.path.exists(ZONES_KML) or not os.path.exists(WARDS_KML):
-        print(
-            f"[boundaries] KML files missing under {GEODATA_DIR}; locate() disabled.",
-            file=sys.stderr,
-        )
-        _loaded = True
-        return {"zones": 0, "wards": 0, "error": "kml_missing"}
-
-    _ZONES = _load_kml(ZONES_KML, _extract_zone)
-    _WARDS = _load_kml(WARDS_KML, _extract_ward)
-
-    _ZONE_GEOMS = [z["geometry"] for z in _ZONES]
-    _WARD_GEOMS = [w["geometry"] for w in _WARDS]
-    _ZONE_INDEX = STRtree(_ZONE_GEOMS) if _ZONE_GEOMS else None
-    _WARD_INDEX = STRtree(_WARD_GEOMS) if _WARD_GEOMS else None
+    out.zones = _load_kml(zones_kml, _extract_zone)
+    out.wards = _load_kml(wards_kml, _extract_ward)
+    out.zone_geoms = [z["geometry"] for z in out.zones]
+    out.ward_geoms = [w["geometry"] for w in out.wards]
+    out.zone_index = STRtree(out.zone_geoms) if out.zone_geoms else None
+    out.ward_index = STRtree(out.ward_geoms) if out.ward_geoms else None
 
     # Tag each ward with its parent zone (via a representative interior point),
     # so the map can colour wards by zone and the admin can filter wards by zone.
-    for w in _WARDS:
+    for w in out.wards:
         pt = w["geometry"].representative_point()
-        zrec = _match(pt, _ZONES, _ZONE_INDEX, _ZONE_GEOMS)
+        zrec = _match(pt, out.zones, out.zone_index, out.zone_geoms)
         w["zone"] = zrec["zone"] if zrec else None
         w["zone_name"] = zrec["zone_name"] if zrec else None
 
-    _build_geojson()
+    out.geojson = _build_geojson(out)
+    return out
 
+
+def load_boundaries() -> dict:
+    """Parse every corporation's KML files once and build the caches + indexes.
+
+    Idempotent: subsequent calls are no-ops. Returns a small summary dict.
+    """
+    global _loaded
+    if _loaded:
+        return summary()
+    import corporations
+
+    for cid, corp in corporations.CORPORATIONS.items():
+        _SETS[cid] = _load_set(corp["geodata_dir"])
+        print(
+            f"[boundaries] {cid}: loaded {len(_SETS[cid].zones)} zones, "
+            f"{len(_SETS[cid].wards)} wards.",
+            file=sys.stderr,
+        )
     _loaded = True
-    print(
-        f"[boundaries] loaded {len(_ZONES)} zones, {len(_WARDS)} wards.",
-        file=sys.stderr,
-    )
-    return {"zones": len(_ZONES), "wards": len(_WARDS)}
+    return summary()
 
 
-def _build_geojson() -> None:
-    """Precompute simplified GeoJSON FeatureCollections for zones and wards."""
-    global _GEOJSON
+def _build_geojson(bset: _Set) -> dict:
+    """Simplified GeoJSON FeatureCollections for one corporation's zones and wards."""
 
     def feature(geom, props):
         simple = geom.simplify(SIMPLIFY_TOLERANCE, preserve_topology=True)
@@ -273,25 +293,23 @@ def _build_geojson() -> None:
         feature(z["geometry"], {
             "zone": z["zone"], "zone_name": z["zone_name"], "region": z["region"],
         })
-        for z in _ZONES
+        for z in bset.zones
     ]
     ward_features = [
         feature(w["geometry"], {
             "ward": w["ward"], "zone": w.get("zone"), "zone_name": w.get("zone_name"),
         })
-        for w in _WARDS
+        for w in bset.wards
     ]
-    _GEOJSON = {
+    return {
         "zones": {"type": "FeatureCollection", "features": zone_features},
         "wards": {"type": "FeatureCollection", "features": ward_features},
     }
 
 
-def geojson() -> dict:
-    """Return the cached {zones, wards} GeoJSON FeatureCollections for the map."""
-    if not _loaded:
-        load_boundaries()
-    return _GEOJSON
+def geojson(corporation: str | None = None) -> dict:
+    """The cached {zones, wards} GeoJSON for a corporation (default: the active one)."""
+    return _set(corporation).geojson
 
 
 # ── Point-in-polygon lookup ──────────────────────────────────────────────────
@@ -314,19 +332,18 @@ def _match(point: Point, records: list[dict], index: STRtree | None, geoms: list
     return None
 
 
-def locate(lat: float, lng: float) -> dict:
-    """Resolve (lat, lng) to its GCC zone and ward via point-in-polygon.
+def locate(lat: float, lng: float, corporation: str | None = None) -> dict:
+    """Resolve (lat, lng) to its zone and ward via point-in-polygon.
 
-    Returns a dict with ``zone``, ``zone_name``, ``ward`` (any of which may be
-    None if the point falls outside GCC limits) plus an ``inside`` flag.
+    Looks only inside one corporation — the active one unless named. Returns a
+    dict with ``zone``, ``zone_name``, ``ward`` (any of which may be None if the
+    point falls outside that corporation) plus an ``inside`` flag.
     """
-    if not _loaded:
-        load_boundaries()
-
+    bset = _set(corporation)
     point = Point(lng, lat)  # shapely is (x=lon, y=lat)
 
-    zone_rec = _match(point, _ZONES, _ZONE_INDEX, _ZONE_GEOMS)
-    ward_rec = _match(point, _WARDS, _WARD_INDEX, _WARD_GEOMS)
+    zone_rec = _match(point, bset.zones, bset.zone_index, bset.zone_geoms)
+    ward_rec = _match(point, bset.wards, bset.ward_index, bset.ward_geoms)
 
     return {
         "zone": zone_rec["zone"] if zone_rec else None,
@@ -337,17 +354,15 @@ def locate(lat: float, lng: float) -> dict:
     }
 
 
-def ward_centroid(ward) -> dict | None:
+def ward_centroid(ward, corporation: str | None = None) -> dict | None:
     """A representative interior point + parent zone for a ward number.
 
     For grievances the MLA office logs by hand, where only the ward is known and
     there is no GPS fix: gives the new report a location on the map and its zone,
     the same way ``locate()`` would for a real coordinate.
     """
-    if not _loaded:
-        load_boundaries()
     target = str(ward).strip()
-    for w in _WARDS:
+    for w in _set(corporation).wards:
         if str(w["ward"]).strip() == target:
             pt = w["geometry"].representative_point()
             return {
@@ -360,4 +375,7 @@ def ward_centroid(ward) -> dict | None:
 
 def summary() -> dict:
     """Lightweight status for health/info endpoints."""
-    return {"loaded": _loaded, "zones": len(_ZONES), "wards": len(_WARDS)}
+    return {
+        "loaded": _loaded,
+        **{cid: {"zones": len(b.zones), "wards": len(b.wards)} for cid, b in _SETS.items()},
+    }

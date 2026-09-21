@@ -159,6 +159,12 @@ def emit_new_grievance(conn, issue_row) -> None:
         "SELECT username, constituency FROM coordinators WHERE home_ward = ?",
         (str(ward_no),),
     ).fetchall()
+    # Ward numbers repeat across corporations: Chennai's ward-58 coordinator
+    # has no business with Tambaram's ward 58.
+    import corporations
+    corp = issue_row["corporation"] or corporations.LEGACY_CORPORATION
+    coords = [c for c in coords
+              if corporations.corporation_of_constituency(c["constituency"]) in (corp, None)]
     for c in coords:
         _insert(
             conn,

@@ -27,16 +27,19 @@ import os
 
 import audit
 import boundaries
+import corporations
 import duplicates
 from database import get_db
 from routers.notifications import (
     emit_status_change, emit_to_coordinator, emit_new_grievance,
 )
 from utils import (
-    CHENNAI_AC_MAP, new_id, now_iso, read_upload, save_upload,
+    new_id, now_iso, read_upload, save_upload,
     serialize_issue, ticket_number,
 )
-from tenancy import current_tenant, load_coordinator, load_issue, owns_ward, ward_clause
+from tenancy import (
+    current_tenant, load_coordinator, load_issue, owns_issue, owns_ward, ward_clause,
+)
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -101,7 +104,7 @@ def list_admin_issues(
         clauses.append("department = ?")
         params.append(department)
     if constituency:
-        wards = CHENNAI_AC_MAP.get(constituency, [])
+        wards = corporations.ac_map(tenant["corporation"]).get(constituency, [])
         if wards:
             placeholders = ",".join("?" for _ in wards)
             clauses.append(f"CAST(ward_no AS TEXT) IN ({placeholders})")
@@ -185,12 +188,12 @@ async def create_grievance(
     if not title.strip():
         raise HTTPException(status_code=400, detail="A headline is required.")
     if latitude is not None and longitude is not None:
-        loc = boundaries.locate(latitude, longitude)
+        loc = boundaries.locate(latitude, longitude, tenant["corporation"])
         lat, lng = latitude, longitude
         zone, zone_name = loc["zone"], loc["zone_name"]
         ward_no = int(loc["ward"]) if loc["ward"] else (int(ward) if str(ward).isdigit() else None)
     else:
-        info = boundaries.ward_centroid(ward)
+        info = boundaries.ward_centroid(ward, tenant["corporation"])
         if info is None:
             raise HTTPException(status_code=400, detail=f"Unknown ward '{ward}'.")
         lat, lng, zone, zone_name = info["lat"], info["lng"], info["zone"], info["zone_name"]
@@ -230,14 +233,14 @@ async def create_grievance(
                latitude, longitude, area_name, ward_no, zone, zone_name,
                department, ticket_number, status, upvotes, notify_reporter,
                processing, created_at, created_by, name, phone,
-               assigned_coordinator, assigned_at
+               assigned_coordinator, assigned_at, corporation
            ) VALUES (?, ?, ?, ?, '[]', ?, ?, '', ?, ?, ?, ?, ?, 'ACTIVE',
-                     0, 0, 0, ?, 'admin', ?, ?, ?, ?)""",
+                     0, 0, 0, ?, 'admin', ?, ?, ?, ?, ?)""",
         (
             issue_id, title.strip(), image_url, description.strip(),
             lat, lng, ward_no, zone, zone_name, department.strip(),
             ticket_number(issue_id), now, name.strip(), phone.strip(),
-            who or "", (now if who else None),
+            who or "", (now if who else None), tenant["corporation"],
         ),
     )
     row = conn.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
@@ -293,7 +296,7 @@ def admin_issue_stats(
     if department:
         clauses.append("department = ?"); params.append(department)
     if constituency:
-        wards = CHENNAI_AC_MAP.get(constituency, [])
+        wards = corporations.ac_map(tenant["corporation"]).get(constituency, [])
         if wards:
             placeholders = ",".join("?" for _ in wards)
             clauses.append(f"CAST(ward_no AS TEXT) IN ({placeholders})")
@@ -852,11 +855,11 @@ def duplicate_context(
     # details; merging across offices is refused below.
     parent = duplicates.parent_preview(conn, row)
     if parent is not None:
-        parent["other_office"] = not owns_ward(tenant, parent.get("ward_no"))
+        parent["other_office"] = not owns_issue(tenant, parent)
     full = duplicates.merged_children(conn, issue_id)
     redacted = {c["id"]: c for c in duplicates.merged_children(conn, issue_id, redact=True)}
     children = [
-        c if owns_ward(tenant, c.get("ward_no")) else redacted.get(c["id"], c)
+        c if owns_issue(tenant, c) else redacted.get(c["id"], c)
         for c in full
     ]
     return {
@@ -882,7 +885,7 @@ def merge_duplicate(
     parent = conn.execute("SELECT * FROM issues WHERE id = ?", (parent_id,)).fetchone()
     if parent is None:
         raise HTTPException(status_code=404, detail="Issue not found")
-    if not owns_ward(tenant, parent["ward_no"]):
+    if not owns_issue(tenant, parent):
         raise HTTPException(
             status_code=409,
             detail="The original is in another constituency; it cannot be merged from here.",
@@ -1003,9 +1006,18 @@ def my_tenant(tenant: dict = Depends(current_tenant)):
     """
     wards = set(tenant["wards"])
     zones = {}
-    for f in ((boundaries.geojson() or {}).get("wards") or {}).get("features", []):
+    for f in ((boundaries.geojson(tenant["corporation"]) or {}).get("wards") or {}).get("features", []):
         props = f.get("properties") or {}
         if str(props.get("ward")) in wards and props.get("zone"):
             zones[str(props["zone"])] = props.get("zone_name")
     ordered = sorted(zones.items(), key=lambda kv: int(kv[0]) if kv[0].isdigit() else 0)
-    return {**tenant, "zones": [{"zone": z, "zone_name": n} for z, n in ordered]}
+    corp = corporations.public(tenant["corporation"])
+    return {
+        **tenant,
+        "zones": [{"zone": z, "zone_name": n} for z, n in ordered],
+        # The corporation's map centre (an office with no grievances yet still
+        # opens on its own city) and its ward -> constituency table, which the
+        # console uses instead of carrying any one city's copy.
+        "center": corp["center"],
+        "constituencies": corp["constituencies"],
+    }

@@ -7,6 +7,7 @@ import '../core/env.dart';
 import '../domain/coordinator_data.dart';
 import '../domain/models/boundary_data.dart';
 import '../domain/models/citizen_user.dart';
+import '../domain/models/corporation.dart';
 import '../domain/models/issue.dart';
 import '../domain/models/duplicate_info.dart';
 import '../domain/models/locate_result.dart';
@@ -180,6 +181,12 @@ class DioApiClient implements ApiClient {
       _friendly(e);
     }
   }
+
+  @override
+  Future<Corporation> fetchCorporation() => _get(
+        '/api/corporation',
+        parse: (d) => Corporation.fromJson(d as Map<String, dynamic>),
+      );
 
   @override
   Future<BoundaryData> fetchBoundaries() => _get(

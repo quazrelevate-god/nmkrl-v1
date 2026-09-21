@@ -1,6 +1,8 @@
-/// Port of lib/constituencies.js — Chennai Assembly Constituency ↔ GCC ward
-/// mapping (mirror of the backend CHENNAI_AC_MAP). Wards can clip/overlap
-/// across AC lines, so a ward maps to a LIST of ACs.
+/// Chennai Assembly Constituency ↔ GCC ward mapping (mirror of the backend
+/// CHENNAI_AC_MAP). Reference data only: the app uses the LIVE corporation's
+/// table from GET /api/corporation ([activeAcMap]), because the MLA office's
+/// console switches the app between Tambaram and Chennai. Wards can clip/
+/// overlap across AC lines, so a ward maps to a LIST of ACs.
 const Map<String, List<String>> kChennaiAcMap = {
   '11 - Dr. Radhakrishnan Nagar': ['38', '39', '40', '41', '42', '43', '47'],
   '12 - Perambur': ['34', '35', '36', '37', '44', '45', '46', '64', '65', '66', '67', '68', '69', '70'],
@@ -20,24 +22,43 @@ const Map<String, List<String>> kChennaiAcMap = {
   '26 - Shozhinganallur': ['191', '195', '196', '197', '198', '199', '200'],
 };
 
-/// All AC names (keys), in numeric order.
-final List<String> kConstituencies = kChennaiAcMap.keys.toList();
+/// The live corporation's constituency -> wards table. Empty until the app
+/// has heard from the server (see corporationProvider, which sets it and
+/// remembers it for the next launch).
+Map<String, List<String>> _activeAcMap = const {};
+
+Map<String, List<String>> get activeAcMap => _activeAcMap;
+
+/// Install the live corporation's table (corporationProvider calls this).
+void setActiveAcMap(Map<String, List<String>> table) => _activeAcMap = table;
+
+/// All AC names (keys) of the live corporation.
+List<String> get kConstituencies => _activeAcMap.keys.toList();
 
 /// The wards used by the "jump to Egmore" demo shortcut.
 const List<String> kEgmoreWards = ['58', '61', '77', '78', '104', '108'];
 
-/// Return the list of ACs a ward number belongs to.
+/// Return the list of ACs a ward number belongs to, in the live corporation.
+/// A grievance carries its own server-computed list (Issue.constituencies);
+/// prefer that — an old report may be from the other corporation.
 List<String> constituenciesForWard(Object? ward) {
   if (ward == null || '$ward'.trim().isEmpty) return [];
   final key = '$ward'.trim();
   return kConstituencies
-      .where((ac) => kChennaiAcMap[ac]!.contains(key))
+      .where((ac) => _activeAcMap[ac]!.contains(key))
       .toList();
 }
 
-/// "20 - Anna Nagar" → "Anna Nagar".
+/// "20 - Anna Nagar" → "Anna Nagar". A group without a number (Tambaram's
+/// "Tambaram Corporation") is returned as it is.
 String shortAC(String? ac) =>
     (ac ?? '').replaceFirst(RegExp(r'^\d+\s*-\s*'), '');
+
+/// The short form for tight spots (map pills, card pills): "20 - Anna Nagar"
+/// → "Anna Nagar", and Tambaram's whole-corporation group "Tambaram
+/// Corporation" → "Tambaram".
+String compactAC(String? ac) =>
+    shortAC(ac).replaceFirst(RegExp(r'\s+Corporation$'), '');
 
 /// "ANNA NAGAR" → "Anna Nagar" for display.
 String titleCase(String s) => s
@@ -48,11 +69,12 @@ String titleCase(String s) => s
 class WardGroup {
   const WardGroup(this.key, this.label, this.wards);
 
-  /// Stable id, unique across groups: the constituency number ("16"), or
-  /// [WardGroup.unmappedKey] for wards no constituency covers.
+  /// Stable id, unique across groups: the constituency number ("16"), the
+  /// name of an unnumbered group, or [WardGroup.unmappedKey] for wards no
+  /// constituency covers.
   final String key;
 
-  /// "16 · Egmore", or "No constituency yet".
+  /// "16 · Egmore", "Tambaram Corporation", or "No constituency yet".
   final String label;
   final List<String> wards;
 
@@ -69,25 +91,32 @@ class WardGroup {
 /// own group, rather than being dropped: a grievance filed in one reaches no
 /// coordinator and no MLA office, and a person choosing a ward needs to see
 /// that before they choose it.
-List<WardGroup> groupWardsByConstituency(Iterable<String> wards) {
+List<WardGroup> groupWardsByConstituency(
+  Iterable<String> wards, {
+  Map<String, List<String>>? table,
+}) {
+  final acMap = table ?? _activeAcMap;
   final available = wards.toSet();
   int byNumber(String a, String b) =>
       (int.tryParse(a) ?? 0).compareTo(int.tryParse(b) ?? 0);
   String numberOf(String ac) => ac.split(' - ').first.trim();
 
-  final acs = [...kConstituencies]
+  final acs = [...acMap.keys]
     ..sort((a, b) => byNumber(numberOf(a), numberOf(b)));
   final out = <WardGroup>[];
   final placed = <String>{};
   for (final ac in acs) {
-    final inAc = (kChennaiAcMap[ac] ?? const <String>[])
+    final inAc = (acMap[ac] ?? const <String>[])
         .where(available.contains)
         .toList()
       ..sort(byNumber);
     if (inAc.isEmpty) continue;
     placed.addAll(inAc);
     final number = numberOf(ac);
-    out.add(WardGroup(number, '$number · ${shortAC(ac)}', inAc));
+    // A numbered assembly constituency reads "16 · Egmore"; an unnumbered
+    // group (Tambaram's whole-corporation placeholder) reads as its name.
+    final numbered = int.tryParse(number) != null;
+    out.add(WardGroup(number, numbered ? '$number · ${shortAC(ac)}' : ac, inAc));
   }
   final unmapped = available.where((w) => !placed.contains(w)).toList()
     ..sort(byNumber);

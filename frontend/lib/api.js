@@ -134,9 +134,11 @@ export async function fetchHistory(userId) {
   return handle(res);
 }
 
-/** Fetch the real GCC zone + ward boundary polygons (GeoJSON) for the maps. */
-export async function fetchBoundaries() {
-  const res = await fetch(`${API_BASE}/api/boundaries`);
+/** Fetch zone + ward boundary polygons (GeoJSON) for the maps — the live
+ *  corporation's, or `corporation`'s when given. */
+export async function fetchBoundaries(corporation) {
+  const qs = corporation ? `?corporation=${encodeURIComponent(corporation)}` : "";
+  const res = await fetch(`${API_BASE}/api/boundaries${qs}`);
   return handle(res);
 }
 
@@ -228,6 +230,12 @@ export async function fetchAdminIssueStats({
   const res = await fetch(`${API_BASE}/api/admin/issues/stats${qs ? `?${qs}` : ""}`, {
     headers: adminHeaders(),
   });
+  return handle(res);
+}
+
+/** Admin: which corporation is live and which the console can switch to. */
+export async function fetchAdminCorporation() {
+  const res = await fetch(`${API_BASE}/api/admin/corporation`, { headers: adminHeaders() });
   return handle(res);
 }
 

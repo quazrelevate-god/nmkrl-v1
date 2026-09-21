@@ -293,6 +293,13 @@ CREATE TABLE IF NOT EXISTS app_secrets (
     value  TEXT NOT NULL
 );
 
+-- Operator settings that must survive a redeploy and read the same on every
+-- worker — today just which corporation is live (see corporations.py).
+CREATE TABLE IF NOT EXISTS app_settings (
+    key    TEXT PRIMARY KEY,
+    value  TEXT NOT NULL
+);
+
 -- Tenants: one per MLA office. The console is handed to each office as its own
 -- tenant, bound to ONE Assembly Constituency, and its staff see only that
 -- constituency — its wards, the grievances in them, and its coordinators.
@@ -437,6 +444,12 @@ def _add_column(conn, table: str, col: str, defn: str) -> None:
         pass
 
 
+def _has_column(conn, table: str, col: str) -> bool:
+    cur = conn.execute(f"SELECT * FROM {table} LIMIT 0")
+    names = [d[0] for d in (cur.description or [])]
+    return col in names
+
+
 def init_db() -> None:
     with get_connection() as conn:
         if IS_POSTGRES:
@@ -527,6 +540,19 @@ def init_db() -> None:
             ("duplicate_decided_by", "TEXT DEFAULT ''"),
         ]:
             _add_column(conn, "issues", col, defn)
+        # Which corporation a grievance was filed in. Ward numbers repeat
+        # across corporations (Chennai and Tambaram both have a ward 58), so
+        # every ward lookup is made within one corporation. Grievances that
+        # predate the column were all filed in Chennai; they are labelled once,
+        # when the column is created, so a later NULL is never silently taken
+        # for Chennai.
+        if not _has_column(conn, "issues", "corporation"):
+            _add_column(conn, "issues", "corporation", "TEXT")
+            conn.execute("UPDATE issues SET corporation = 'chennai' WHERE corporation IS NULL")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_issues_corp_ward "
+            "ON issues (corporation, ward_no)"
+        )
         # Every admin/coordinator open of a parent grievance lists the reports
         # merged into it. The column arrives by ALTER above, so the index
         # cannot live in SCHEMA — it would run before the column exists.
@@ -626,27 +652,36 @@ DEFAULT_TENANT_CONSTITUENCY = "16 - Egmore"
 
 
 def _ensure_default_tenant(conn) -> None:
-    """Seed the first tenant when there are none.
+    """Make sure every corporation has an MLA office to sign in to.
 
     Before tenancy there was one console for everything; the env-configured
-    admin is now bound to this tenant (see main.admin_login). Its constituency
-    comes from TENANT_CONSTITUENCY. Idempotent: once any tenant exists — seeded
-    here or created from the super-admin console — this does nothing.
+    admin is bound to a tenant (see main.admin_login). The console now switches
+    between corporations, so each needs at least one office: a corporation with
+    none gets its default one (corporations.py). The very first tenant on a
+    database still honours TENANT_CONSTITUENCY / TENANT_NAME. Idempotent.
     """
-    if conn.execute("SELECT 1 FROM tenants LIMIT 1").fetchone():
-        return
     import uuid
     from datetime import datetime, timezone
 
-    ac = (os.getenv("TENANT_CONSTITUENCY") or DEFAULT_TENANT_CONSTITUENCY).strip()
-    short = re.sub(r"^\d+\s*-\s*", "", ac) or ac
-    name = (os.getenv("TENANT_NAME") or f"{short} MLA Office").strip()
-    conn.execute(
-        """INSERT INTO tenants (id, name, constituency, status, created_at)
-           VALUES (?, ?, ?, 'active', ?) ON CONFLICT DO NOTHING""",
-        (str(uuid.uuid4()), name, ac, datetime.now(timezone.utc).isoformat()),
-    )
-    print(f"[tenancy] seeded default tenant: {name} ({ac})")
+    import corporations
+
+    def add(ac: str, name: str) -> None:
+        conn.execute(
+            """INSERT INTO tenants (id, name, constituency, status, created_at)
+               VALUES (?, ?, ?, 'active', ?) ON CONFLICT DO NOTHING""",
+            (str(uuid.uuid4()), name, ac, datetime.now(timezone.utc).isoformat()),
+        )
+        print(f"[tenancy] seeded default tenant: {name} ({ac})")
+
+    if not conn.execute("SELECT 1 FROM tenants LIMIT 1").fetchone():
+        ac = (os.getenv("TENANT_CONSTITUENCY") or DEFAULT_TENANT_CONSTITUENCY).strip()
+        short = re.sub(r"^\d+\s*-\s*", "", ac) or ac
+        add(ac, (os.getenv("TENANT_NAME") or f"{short} MLA Office").strip())
+
+    offices = [r["constituency"] for r in conn.execute("SELECT constituency FROM tenants").fetchall()]
+    for cid, corp in corporations.CORPORATIONS.items():
+        if not any(corporations.corporation_of_constituency(ac) == cid for ac in offices):
+            add(corp["default_constituency"], corp["default_office"])
 
 
 # Names used for the backfilled seed supporters (see _reconcile_upvotes).

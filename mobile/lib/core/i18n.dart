@@ -224,7 +224,7 @@ const Map<String, String> _ta = {
   'Refresh location': 'இருப்பிடத்தைப் புதுப்பி',
   'Locating your ward…': 'உங்கள் வார்டைக் கண்டறிகிறது…',
   'Detecting zone…': 'மண்டலம் கண்டறியப்படுகிறது…',
-  'Outside GCC limits': 'GCC எல்லைக்கு வெளியே',
+  'Outside corporation limits': 'மாநகராட்சி எல்லைக்கு வெளியே',
   'No ward boundary here': 'இங்கு வார்டு எல்லை இல்லை',
   'Ward': 'வார்டு',
   'CONSTITUENCY': 'தொகுதி',
@@ -321,9 +321,14 @@ const Map<String, String> _ta = {
   'Close': 'மூடு',
   'Assigning…': 'ஒதுக்குகிறது…',
   'Recent': 'சமீபத்தியது',
-  'Grievances outside GCC boundaries are not accepted right now':
-      'GCC எல்லைக்கு வெளியே உள்ள புகார்கள் தற்போது ஏற்கப்படவில்லை',
-  'Outside GCC boundaries': 'GCC எல்லைக்கு வெளியே',
+  'Grievances outside the corporation limits are not accepted right now':
+      'மாநகராட்சி எல்லைக்கு வெளியே உள்ள புகார்கள் தற்போது ஏற்கப்படவில்லை',
+  // {corp} is replaced with the live corporation's name after translation.
+  'You are outside the {corp} area. New grievances can only be filed inside '
+          'it — you can still view your reports and your ward.':
+      'நீங்கள் {corp} பகுதிக்கு வெளியே இருக்கிறீர்கள். புதிய புகார்களை அதன் '
+          'உள்ளே மட்டுமே பதிவு செய்ய முடியும் — உங்கள் புகார்களையும் உங்கள் '
+          'வார்டையும் பார்க்கலாம்.',
   'Already supported this grievance': 'இந்த புகாருக்கு ஏற்கனவே ஆதரவு அளித்துள்ளீர்கள்',
   'Add both a photo and a voice note to submit.':
       'சமர்ப்பிக்க புகைப்படம் மற்றும் குரல் பதிவு இரண்டையும் சேர்க்கவும்.',

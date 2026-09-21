@@ -23,6 +23,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPExcepti
 
 import audit
 import boundaries
+import corporations
 from database import get_connection, get_db
 from session_auth import citizen_session, require_same_citizen, resolve_self
 from gemini_service import ai_available, check_duplicate, classify_department, process_audio
@@ -43,9 +44,10 @@ router = APIRouter(prefix="/api/issues", tags=["issues"])
 
 # Single source of truth for the out-of-area refusal, so the API and the two
 # clients cannot drift apart on the wording.
-OUTSIDE_GCC_MESSAGE = (
-    "Grievances outside GCC boundaries are not accepted right now."
-)
+def outside_message(corp_id: str) -> str:
+    """Why a report outside the live corporation is refused."""
+    return (f"Grievances outside {corporations.get(corp_id)['name']} limits "
+            "are not accepted right now.")
 
 DUPLICATE_RADIUS_M = 100.0
 # Client sends this literal when the user hasn't typed a title — we replace
@@ -53,8 +55,14 @@ DUPLICATE_RADIUS_M = 100.0
 _DEFAULT_TITLE_SENTINEL = "Street Issue"
 
 
-def _nearby_open_issues(conn, lat: float, lng: float, radius_m: float) -> list[dict]:
-    """Return all open issues within radius as dicts (for Gemini comparison)."""
+def _nearby_open_issues(
+    conn, lat: float, lng: float, radius_m: float, corporation: str
+) -> list[dict]:
+    """Return all open issues within radius as dicts (for Gemini comparison).
+
+    Only within one corporation: a grievance just across the border belongs to
+    another corporation's office and cannot be the same case.
+    """
     min_lat, max_lat, min_lng, max_lng = bbox_for(lat, lng, radius_m)
     # Bounding-box pre-filter in SQL so the Haversine below only runs on the
     # rows that could possibly be within the radius, not every open grievance
@@ -62,8 +70,9 @@ def _nearby_open_issues(conn, lat: float, lng: float, radius_m: float) -> list[d
     rows = conn.execute(
         """SELECT * FROM issues
             WHERE status IN ('SUBMITTED', 'ACTIVE', 'IN_PROGRESS')
+              AND corporation = ?
               AND latitude BETWEEN ? AND ? AND longitude BETWEEN ? AND ?""",
-        (min_lat, max_lat, min_lng, max_lng),
+        (corporation, min_lat, max_lat, min_lng, max_lng),
     ).fetchall()
     results = []
     for row in rows:
@@ -134,7 +143,10 @@ def _finish_report(
         dup_id = None
         try:
             nearby = [
-                i for i in _nearby_open_issues(conn, latitude, longitude, DUPLICATE_RADIUS_M)
+                i for i in _nearby_open_issues(
+                    conn, latitude, longitude, DUPLICATE_RADIUS_M,
+                    row["corporation"] or corporations.LEGACY_CORPORATION,
+                )
                 if i["id"] != issue_id
             ]
             if nearby:
@@ -217,10 +229,12 @@ async def report_issue(
 
     # Refuse out-of-area reports up front — cheap and in-memory. The app blocks
     # the "+" outside GCC too; this is the safety net. No ward means no queue.
-    loc = boundaries.locate(latitude, longitude)
+    # Only the live corporation takes new grievances (corporations.py).
+    corp_id = corporations.active_id(conn)
+    loc = boundaries.locate(latitude, longitude, corp_id)
     ward_no = int(loc["ward"]) if loc["ward"] is not None else None
     if ward_no is None:
-        raise HTTPException(status_code=422, detail=OUTSIDE_GCC_MESSAGE)
+        raise HTTPException(status_code=422, detail=outside_message(corp_id))
 
     # Persist uploads now so the files exist when the app and the task read them.
     image_url = save_upload(await image.read(), image.filename, "image") if image is not None else None
@@ -248,14 +262,15 @@ async def report_issue(
             id, title, image_url, audio_url, transcript, transcript_ta,
             summary_highlights, latitude, longitude, area_name, ward_no, zone,
             zone_name, department, ticket_number, document_url, document_name,
-            status, upvotes, notify_reporter, processing, created_at, created_by
+            status, upvotes, notify_reporter, processing, created_at, created_by,
+            corporation
         ) VALUES (?, ?, ?, ?, '', '', '[]', ?, ?, '', ?, ?, ?, '', ?, ?, ?,
-                  'SUBMITTED', 0, 0, 1, ?, ?)
+                  'SUBMITTED', 0, 0, 1, ?, ?, ?)
         """,
         (
             issue_id, initial_title, image_url, audio_url, latitude, longitude,
             ward_no, loc["zone"], loc["zone_name"], ticket_number(issue_id),
-            document_url, document_name, created_at, user_id,
+            document_url, document_name, created_at, user_id, corp_id,
         ),
     )
     conn.commit()
@@ -326,16 +341,17 @@ def nearby_issues(
     """Return every admin-verified issue within ``radius`` meters of (lat, lng).
 
     SUBMITTED issues are awaiting authority verification and are intentionally
-    hidden from the public map until an admin approves them.
+    hidden from the public map until an admin approves them. Only the live
+    corporation's grievances are shown: the map shows only its boundaries.
     """
     min_lat, max_lat, min_lng, max_lng = bbox_for(lat, lng, radius)
     # Same bounding-box pre-filter as the duplicate scan: SQL narrows to the box,
     # the Haversine trims it to a true circle (see utils.bbox_for).
     rows = conn.execute(
         """SELECT * FROM issues
-            WHERE status != 'SUBMITTED'
+            WHERE status != 'SUBMITTED' AND corporation = ?
               AND latitude BETWEEN ? AND ? AND longitude BETWEEN ? AND ?""",
-        (min_lat, max_lat, min_lng, max_lng),
+        (corporations.active_id(conn), min_lat, max_lat, min_lng, max_lng),
     ).fetchall()
     results = []
     for row in rows:
@@ -351,12 +367,13 @@ def nearby_issues(
 @router.get("/ward/{ward_no}")
 def ward_issues(ward_no: int, conn=Depends(get_db)):
     """Public (admin-verified) grievances in a given ward — what citizens see
-    for "issues in my ward". SUBMITTED items remain hidden until verified."""
+    for "issues in my ward". SUBMITTED items remain hidden until verified.
+    The ward is the live corporation's: ward numbers repeat across them."""
     rows = conn.execute(
         """SELECT * FROM issues
-           WHERE ward_no = ? AND status != 'SUBMITTED'
+           WHERE ward_no = ? AND corporation = ? AND status != 'SUBMITTED'
            ORDER BY upvotes DESC, created_at DESC""",
-        (ward_no,),
+        (ward_no, corporations.active_id(conn)),
     ).fetchall()
     return {"count": len(rows), "issues": [public_issue(r) for r in rows]}
 

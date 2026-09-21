@@ -29,7 +29,7 @@
 	<key>NSCameraUsageDescription</key>
 	<string>Attach a photo of the street issue you are reporting.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Geo-tag your grievance and detect your GCC ward.</string>
+	<string>Geo-tag your grievance and detect your ward.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Record a voice note describing the issue in your language.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

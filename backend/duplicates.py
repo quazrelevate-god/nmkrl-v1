@@ -176,6 +176,12 @@ def merge(conn, *, child, parent, actor_type: str, actor_id: str) -> dict:
             status_code=409,
             detail="That grievance has itself been merged into another.",
         )
+    # Different corporations are different offices' cases, even a street apart.
+    if (parent["corporation"] or "chennai") != (child["corporation"] or "chennai"):
+        raise HTTPException(
+            status_code=409,
+            detail="These grievances are in different corporations and cannot be merged.",
+        )
     # Folding away a grievance that already reached an outcome would rewrite
     # a settled record — the citizen was told it was resolved or rejected, and
     # the closure evidence belongs to that ticket. Detection only ever flags

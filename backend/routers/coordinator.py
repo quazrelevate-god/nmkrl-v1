@@ -32,7 +32,8 @@ import audit
 import duplicates
 from database import get_db
 from session_auth import coordinator_session, require_same_coordinator
-from utils import CHENNAI_AC_MAP, haversine_m, now_iso, public_issue, serialize_issue
+import corporations
+from utils import haversine_m, now_iso, public_issue, serialize_issue
 from routers.notifications import emit_status_change
 
 router = APIRouter(prefix="/api/coordinator", tags=["coordinator"])
@@ -157,20 +158,23 @@ def coordinator_ward_issues(
     """
     coordinator = require_same_coordinator(session_username, coordinator)
     order = "upvotes DESC, created_at DESC" if sort == "priority" else "created_at DESC"
+    # The live corporation's ward: ward numbers repeat across corporations, and
+    # a signed-in coordinator is always in the live one (session_auth).
+    corp = corporations.active_id(conn)
     if coordinator:
         _reject_if_disabled(conn, coordinator)
         rows = conn.execute(
             f"""SELECT * FROM issues
-                WHERE ward_no = ?
+                WHERE ward_no = ? AND corporation = ?
                   AND (assigned_coordinator = '' OR assigned_coordinator IS NULL
                        OR assigned_coordinator = ?)
                 ORDER BY {order}""",
-            (ward_no, coordinator.strip().lower()),
+            (ward_no, corp, coordinator.strip().lower()),
         ).fetchall()
     else:
         rows = conn.execute(
-            f"SELECT * FROM issues WHERE ward_no = ? ORDER BY {order}",
-            (ward_no,),
+            f"SELECT * FROM issues WHERE ward_no = ? AND corporation = ? ORDER BY {order}",
+            (ward_no, corp),
         ).fetchall()
     return {"count": len(rows), "issues": [serialize_issue(r) for r in rows]}
 
@@ -226,7 +230,8 @@ def coordinator_constituency_issues(
         raise HTTPException(status_code=404, detail="Unknown coordinator.")
     constituency = (me["constituency"] or "").strip()
     home_ward = (me["home_ward"] or "").strip()
-    wards = CHENNAI_AC_MAP.get(constituency, [])
+    corp = corporations.corporation_of_constituency(constituency) or corporations.active_id(conn)
+    wards = corporations.ac_map(corp).get(constituency, [])
     # Never widen to the whole city: if the stored AC name doesn't resolve, fall
     # back to the coordinator's own ward alone.
     if not wards:
@@ -255,10 +260,10 @@ def coordinator_constituency_issues(
     placeholders = ",".join("?" for _ in ward_nos)
     rows = conn.execute(
         f"""SELECT * FROM issues
-             WHERE ward_no IN ({placeholders})
+             WHERE ward_no IN ({placeholders}) AND corporation = ?
                AND COALESCE(assigned_coordinator, '') IN ('', ?)
              ORDER BY {order}""",
-        [*ward_nos, coordinator.strip().lower()],
+        [*ward_nos, corp, coordinator.strip().lower()],
     ).fetchall()
     return {
         "count": len(rows),
@@ -639,8 +644,8 @@ def coord_merge_candidates(
     rows = conn.execute(
         """SELECT * FROM issues
             WHERE status IN ('SUBMITTED', 'ACTIVE', 'IN_PROGRESS', 'FORWARDED')
-              AND id <> ?"""
-        , (issue_id,),
+              AND id <> ? AND corporation = ?"""
+        , (issue_id, row["corporation"] or corporations.LEGACY_CORPORATION),
     ).fetchall()
     out = []
     for cand in rows:
