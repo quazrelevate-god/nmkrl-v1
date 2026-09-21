@@ -120,6 +120,28 @@ def _require_status(prev, allowed, action: str) -> None:
         )
 
 
+@router.get("/me")
+def coordinator_me(
+    session_username: str = Depends(coordinator_session),
+    conn=Depends(get_db),
+):
+    """The signed-in coordinator's current profile.
+
+    The app caches the profile it received at sign-in, so anything the MLA
+    office changed afterwards — a new photo, a moved home ward, a renamed role —
+    never reached the phone until the coordinator happened to sign out and in
+    again. The app re-reads this on open and on resume instead.
+    """
+    from routers.auth import coordinator_profile
+
+    row = conn.execute(
+        "SELECT * FROM coordinators WHERE LOWER(username) = ?", (session_username,)
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Coordinator not found.")
+    return coordinator_profile(row)
+
+
 @router.get("/ward/{ward_no}")
 def coordinator_ward_issues(
     ward_no: int,

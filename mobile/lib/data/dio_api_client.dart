@@ -360,6 +360,16 @@ class DioApiClient implements ApiClient {
   }
 
   @override
+  Future<Coordinator> coordinatorMe() async {
+    try {
+      final res = await _dio.get<Map<String, dynamic>>('/api/coordinator/me');
+      return Coordinator.fromJson(res.data!);
+    } catch (e) {
+      _friendly(e);
+    }
+  }
+
+  @override
   Future<List<Issue>> fetchCoordinatorWardIssues(int wardNo,
           {required String coordinator, String sort = 'recent'}) =>
       _get('/api/coordinator/ward/$wardNo?coordinator=$coordinator&sort=$sort',

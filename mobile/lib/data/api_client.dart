@@ -95,6 +95,10 @@ abstract class ApiClient {
   Future<Coordinator> coordinatorLogin(
       {required String name, required String phone, required String otp});
 
+  /// The signed-in coordinator's current profile — photo, name, role, home
+  /// ward — as the MLA office has it now, not as it was at sign-in.
+  Future<Coordinator> coordinatorMe();
+
   /// Ward grievances scoped for [coordinator] (excludes tickets assigned to
   /// OTHER coordinators; unassigned + own-assigned are returned).
   /// [sort] is 'recent' (default) or 'priority' (upvotes desc).

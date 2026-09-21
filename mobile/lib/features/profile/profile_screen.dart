@@ -31,8 +31,10 @@ class ProfileScreen extends ConsumerWidget {
     final coordinator = ref.watch(coordinatorAuthProvider);
     final isCoordinator = coordinator != null;
     final prefs = ref.watch(prefsProvider);
-    // Citizen-only profile picture (local to the device).
+    // A citizen's picture is local to the device; a coordinator's is the one
+    // the MLA office uploaded, served from the backend.
     final avatarPath = isCoordinator ? null : ref.watch(avatarProvider);
+    final coordPhoto = isCoordinator ? coordinator.photo : null;
 
     final name = isCoordinator ? coordinator.name : prefs.citizenName;
     final initials = isCoordinator
@@ -100,7 +102,22 @@ class ProfileScreen extends ConsumerWidget {
                               border: Border.all(
                                   color: Colors.white, width: 2.5),
                             ),
-                            child: avatarPath != null
+                            child: coordPhoto != null
+                                ? Image.network(
+                                    coordPhoto,
+                                    height: 84,
+                                    width: 84,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (_, __, ___) => Text(
+                                      initials,
+                                      style: const TextStyle(
+                                        fontSize: 28,
+                                        fontWeight: FontWeight.w900,
+                                        color: Color(0xFFDDC689),
+                                      ),
+                                    ),
+                                  )
+                                : avatarPath != null
                                 ? Image.file(
                                     File(avatarPath),
                                     height: 84,

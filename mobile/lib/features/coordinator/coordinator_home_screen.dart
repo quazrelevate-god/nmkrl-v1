@@ -82,7 +82,9 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
   // The AC's wards (from kChennaiAcMap) and which one the list is filtered to.
   // '' means "All wards" (the whole constituency). Defaults to the coordinator's
   // own home ward — their priority, and the ward their notifications come from.
-  late final List<String> _acWards;
+  // Not final: a home-ward or constituency change made in the admin console
+  // re-scopes this when the profile refreshes (see _refreshProfile).
+  late List<String> _acWards;
   late String _ward;
   CoordinatorTab _tab = CoordinatorTab.ward;
   String? _expandedId;
@@ -159,7 +161,15 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
     _ward = _me.homeWard; // start on the coordinator's own ward (their priority)
     _loadBoundaries();
     _loadConstituency();
+    _refreshProfile();
   }
+
+  Widget _initials(Coordinator me) => Text(me.initials,
+      style: const TextStyle(
+        fontSize: 12,
+        fontWeight: FontWeight.w900,
+        color: NkColors.gold300,
+      ));
 
   @override
   void dispose() {
@@ -174,7 +184,37 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
     // Polling stops while the app is backgrounded, so anything that happened
     // in the meantime is invisible on return. Reloading here is what makes
     // reopening the app show the truth without a force-quit.
-    if (state == AppLifecycleState.resumed) _loadConstituency();
+    if (state == AppLifecycleState.resumed) {
+      _loadConstituency();
+      _refreshProfile();
+    }
+  }
+
+  /// Pull the latest profile the MLA office holds for this coordinator.
+  ///
+  /// Mostly this brings the admin-uploaded photo onto the phone. It also
+  /// carries a changed home ward or constituency, which re-scopes the ward
+  /// chips — the old profile was fixed at sign-in, so those edits never
+  /// arrived until the coordinator signed out and back in.
+  Future<void> _refreshProfile() async {
+    final before = _me;
+    await ref.read(coordinatorAuthProvider.notifier).refreshProfile();
+    if (!mounted) return;
+    final after = _me;
+    final moved = after.constituency != before.constituency ||
+        after.homeWard != before.homeWard;
+    setState(() {
+      if (moved) {
+        _acWards = kChennaiAcMap[after.constituency] ??
+            (after.homeWard.isNotEmpty ? [after.homeWard] : const <String>[]);
+        // '' is "All wards" — keep it. A specific ward that is no longer in
+        // this coordinator's constituency falls back to the new home ward.
+        if (_ward.isNotEmpty && !_acWards.contains(_ward)) {
+          _ward = after.homeWard;
+        }
+      }
+    });
+    if (moved) _loadConstituency();
   }
 
   Future<void> _loadBoundaries() async {
@@ -762,12 +802,20 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
                       color: NkColors.refBlue,
                       shape: BoxShape.circle,
                     ),
-                    child: Text(me.initials,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w900,
-                          color: NkColors.gold300,
-                        )),
+                    // The photo the MLA office uploaded, else initials. The
+                    // fallback also covers a photo that fails to load, so a
+                    // broken image never replaces the coordinator's initials.
+                    child: me.photo == null
+                        ? _initials(me)
+                        : ClipOval(
+                            child: Image.network(
+                              me.photo!,
+                              height: 34,
+                              width: 34,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => _initials(me),
+                            ),
+                          ),
                   ),
                 ),
               ),

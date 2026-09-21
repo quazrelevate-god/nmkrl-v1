@@ -1,3 +1,4 @@
+import '../core/env.dart';
 import 'models/issue.dart';
 
 /// The authenticated constituency-staff account, as returned by
@@ -14,6 +15,7 @@ class Coordinator {
     required this.homeWard,
     this.mustChangePassword = false,
     this.token = '',
+    this.photoUrl = '',
   });
 
   final String id;
@@ -30,6 +32,14 @@ class Coordinator {
   final String homeWard;
 
   final bool mustChangePassword;
+
+  /// Stored path of the profile photo the MLA office uploaded for this
+  /// coordinator (e.g. `/uploads/images/…`), or '' when there is none.
+  final String photoUrl;
+
+  /// [photoUrl] resolved against the API host, ready for Image.network — or
+  /// null, in which case the UI shows [initials].
+  String? get photo => Env.mediaUrl(photoUrl);
 
   /// Signed session token from login, sent on every later request. Not
   /// persisted in [toJson] — the token lives in Prefs, not the cached profile.
@@ -51,6 +61,21 @@ class Coordinator {
         mustChangePassword:
             json['must_change_password'] == true || json['mustChangePassword'] == true,
         token: '${json['token'] ?? ''}',
+        photoUrl: '${json['photo_url'] ?? json['photoUrl'] ?? ''}',
+      );
+
+  /// This profile with the server's latest details, keeping the session
+  /// [token] — which the profile endpoint deliberately does not resend.
+  Coordinator withServerProfile(Coordinator fresh) => Coordinator(
+        id: fresh.id,
+        username: fresh.username,
+        name: fresh.name,
+        role: fresh.role,
+        constituency: fresh.constituency,
+        homeWard: fresh.homeWard,
+        mustChangePassword: fresh.mustChangePassword,
+        photoUrl: fresh.photoUrl,
+        token: token,
       );
 
   Map<String, dynamic> toJson() => {
@@ -61,6 +86,7 @@ class Coordinator {
         'constituency': constituency,
         'home_ward': homeWard,
         'must_change_password': mustChangePassword,
+        'photo_url': photoUrl,
       };
 }
 

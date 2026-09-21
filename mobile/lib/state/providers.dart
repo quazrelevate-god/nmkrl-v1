@@ -246,6 +246,25 @@ class CoordinatorAuthNotifier extends Notifier<Coordinator?> {
     return session;
   }
 
+  /// Re-read this coordinator's profile from the server and cache it.
+  ///
+  /// The profile is cached at sign-in, so an admin change made afterwards —
+  /// the photo above all, but also a moved home ward or a renamed role — used
+  /// to stay invisible until the coordinator signed out and back in. Failures
+  /// are swallowed: an offline refresh must not sign anybody out (a genuinely
+  /// dead session is already handled by the 401 interceptor).
+  Future<void> refreshProfile() async {
+    final current = state;
+    if (current == null) return;
+    try {
+      final fresh = await ref.read(apiClientProvider).coordinatorMe();
+      if (state == null) return; // signed out while we waited
+      final merged = current.withServerProfile(fresh);
+      await ref.read(coordinatorStoreProvider).saveSession(merged);
+      state = merged;
+    } catch (_) {}
+  }
+
   /// Sign in with name + mobile + OTP. Throws [ApiException] on a bad code or
   /// a name/number that does not match an admin-created account.
   Future<Coordinator> signIn(

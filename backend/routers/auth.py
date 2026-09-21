@@ -319,6 +319,26 @@ def citizen_login(
     }
 
 
+def coordinator_profile(row) -> dict:
+    """The signed-in coordinator's own profile, as the app displays it.
+
+    One shape for both the login response and GET /api/coordinator/me, so the
+    two cannot drift. It carries the admin-uploaded photo: the app used to be
+    sent everything except that, so a coordinator never saw the picture the
+    MLA office had set for them.
+    """
+    return {
+        "id": row["id"],
+        "username": row["username"],
+        "name": row["name"],
+        "role": row["role"],
+        "constituency": row["constituency"],
+        "home_ward": row["home_ward"],
+        "photo_url": row["photo_url"] or "",
+        "must_change_password": False,
+    }
+
+
 def _match_coordinator(conn, name: str, phone10: str):
     """Find the coordinator whose mobile is [phone10] and confirm the name.
 
@@ -416,13 +436,7 @@ def coordinator_login(
         "UPDATE coordinators SET session_epoch = ? WHERE id = ?", (stamp, row["id"])
     )
     return {
-        "id": row["id"],
-        "username": row["username"],
-        "name": row["name"],
-        "role": row["role"],
-        "constituency": row["constituency"],
-        "home_ward": row["home_ward"],
-        "must_change_password": False,
+        **coordinator_profile(row),
         "token": session_auth.issue(
             "coordinator", row["username"].lower(), stamp
         ),
