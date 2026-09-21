@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../core/i18n.dart';
 import '../../../core/theme.dart';
 import '../../../data/media.dart';
+import '../../../domain/constituencies.dart';
 import '../../../domain/geo_utils.dart';
 import '../../../domain/models/issue.dart';
 import '../../../domain/status_meta.dart';
@@ -34,6 +35,48 @@ Widget _thumbFallback(double size, double emoji) => Container(
 String _ticketOf(Issue i) => i.ticketNo ?? ticketNumber(i.id);
 
 /// Upvote count + "Support" label, shared by the list row and the dialog.
+/// "Ward 108 · Egmore". A ward on a constituency boundary names both; a ward
+/// not yet mapped to any constituency shows the ward alone.
+class _WardPill extends StatelessWidget {
+  const _WardPill({required this.ward});
+
+  final int ward;
+
+  @override
+  Widget build(BuildContext context) {
+    final acs = constituenciesForWard(ward).map(shortAC).join(' / ');
+    final label = acs.isEmpty
+        ? '${context.tr('Ward')} $ward'
+        : '${context.tr('Ward')} $ward · $acs';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: _kPillBg,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.place_outlined, size: 11, color: _kInk),
+          const SizedBox(width: 3),
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+                color: _kInk,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _SupportPill extends StatelessWidget {
   const _SupportPill({required this.count});
 
@@ -366,12 +409,23 @@ class GrievanceDialog extends ConsumerWidget {
                     ),
                   ),
 
-                  // ── 5. Support count ──
+                  // ── 5. Support count + where it is ──
+                  // The ward and constituency live here rather than on the
+                  // list row, which stays compact; opening a grievance is when
+                  // a citizen wants to know exactly where it is filed.
                   Padding(
                     padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
                     child: Align(
                       alignment: Alignment.centerLeft,
-                      child: _SupportPill(count: issue.upvotes),
+                      child: Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: [
+                          _SupportPill(count: issue.upvotes),
+                          if (issue.wardNo != null)
+                            _WardPill(ward: issue.wardNo!),
+                        ],
+                      ),
                     ),
                   ),
 
