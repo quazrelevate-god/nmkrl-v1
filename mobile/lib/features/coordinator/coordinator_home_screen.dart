@@ -70,7 +70,7 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
     with WidgetsBindingObserver {
   BoundaryData? _boundaries;
   // The whole constituency feed. The visible list is this, filtered to the
-  // selected ward (see the _wardIssues getter). Notifications stay ward-locked
+  // selected ward (see the _parts getter). Notifications stay ward-locked
   // server-side; this screen is the browse/claim surface across the AC.
   List<Issue> _allIssues = [];
   Issue? _selected;
@@ -92,11 +92,22 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
   String? _expandedId;
   String _sort = 'recent'; // 'recent' | 'priority'
 
-  /// The visible feed: the constituency feed narrowed to the selected ward, or
-  /// all of it when "All wards" (_ward == '') is selected.
-  List<Issue> get _wardIssues => _ward.isEmpty
-      ? _allIssues
-      : _allIssues.where((i) => '${i.wardNo}' == _ward).toList();
+  /// The four tabs. The ward chip narrows the Open tab (the ward pool) only:
+  /// Assigned, Escalated and Previous are this coordinator's own work in any
+  /// ward. Filtering those too — with the chip reset to the home ward on
+  /// every open — made their own grievances elsewhere read "0".
+  ({List<Issue> ward, List<Issue> mine, List<Issue> escalated, List<Issue> previous})
+      get _parts {
+    final p = partitionForCoordinator(_allIssues, _me.username);
+    return (
+      ward: _ward.isEmpty
+          ? p.ward
+          : p.ward.where((i) => '${i.wardNo}' == _ward).toList(),
+      mine: p.mine,
+      escalated: p.escalated,
+      previous: p.previous,
+    );
+  }
 
   final _sheetCtrl = DraggableScrollableController();
 
@@ -297,7 +308,7 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
       _selected = i;
       if (i != null) {
         _expandedId = i.id;
-        final parts = partitionForCoordinator(_wardIssues, _me.username);
+        final parts = _parts;
         if (parts.ward.any((x) => x.id == i.id)) {
           _tab = CoordinatorTab.ward;
         } else if (parts.mine.any((x) => x.id == i.id)) {
@@ -365,6 +376,9 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
       await _loadConstituency();
     } catch (e) {
       setState(() => _error = '$e');
+      // Refused (usually taken by a colleague, or moved by the MLA office):
+      // reload, so the stale card leaves instead of offering dead buttons.
+      _loadConstituency();
     } finally {
       if (mounted) setState(() => _busyId = null);
     }
@@ -387,6 +401,9 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
       await _loadConstituency();
     } catch (e) {
       setState(() => _error = '$e');
+      // Refused (usually taken by a colleague, or moved by the MLA office):
+      // reload, so the stale card leaves instead of offering dead buttons.
+      _loadConstituency();
     } finally {
       if (mounted) setState(() => _busyId = null);
     }
@@ -410,6 +427,10 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
         await _loadConstituency();
       },
     );
+    if (!mounted) return;
+    // Reload whatever happened in the sheet: a refused transfer means the
+    // grievance changed hands, and its card must not stay.
+    _loadConstituency();
     setState(() => _expandedId = null);
   }
 
@@ -432,6 +453,9 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
       await _loadConstituency();
     } catch (e) {
       setState(() => _error = '$e');
+      // Refused (usually taken by a colleague, or moved by the MLA office):
+      // reload, so the stale card leaves instead of offering dead buttons.
+      _loadConstituency();
     } finally {
       if (mounted) setState(() => _busyId = null);
     }
@@ -455,6 +479,9 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
       await _loadConstituency();
     } catch (e) {
       setState(() => _error = '$e');
+      // Refused (usually taken by a colleague, or moved by the MLA office):
+      // reload, so the stale card leaves instead of offering dead buttons.
+      _loadConstituency();
     } finally {
       if (mounted) setState(() => _busyId = null);
     }
@@ -474,7 +501,7 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
         if (prev?.id != next.id) _loadBoundaries();
       }
     });
-    final parts = partitionForCoordinator(_wardIssues, _me.username);
+    final parts = _parts;
     final current = switch (_tab) {
       CoordinatorTab.ward => parts.ward,
       CoordinatorTab.mine => parts.mine,
@@ -974,8 +1001,10 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
     final others = _acWards.where((w) => w != home).toList()
       ..sort((a, b) => (int.tryParse(a) ?? 0).compareTo(int.tryParse(b) ?? 0));
     final wards = [if (home.isNotEmpty) home, ...others];
-    int countFor(String w) =>
-        _allIssues.where((i) => '${i.wardNo}' == w).length;
+    // The chip narrows the Open tab, so it counts what that tab would show:
+    // open, unassigned grievances in the ward (it used to count every status).
+    final pool = partitionForCoordinator(_allIssues, _me.username).ward;
+    int countFor(String w) => pool.where((i) => '${i.wardNo}' == w).length;
     return SizedBox(
       height: 34,
       child: ListView(
@@ -1252,6 +1281,7 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
           coordinator: _me.username);
     } catch (e) {
       if (mounted) setState(() => _error = '$e');
+      _loadConstituency();
       return;
     } finally {
       if (mounted) setState(() => _busyId = null);
@@ -1278,6 +1308,7 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
       await _loadConstituency();
     } catch (e) {
       if (mounted) setState(() => _error = '$e');
+      _loadConstituency();
     } finally {
       if (mounted) setState(() => _busyId = null);
     }

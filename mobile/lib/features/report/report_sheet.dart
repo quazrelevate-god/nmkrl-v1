@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -8,7 +9,6 @@ import 'package:latlong2/latlong.dart';
 
 import '../../core/theme.dart';
 import '../../core/i18n.dart';
-import '../../domain/daily_limit.dart';
 import '../../domain/ticket.dart';
 import '../../state/providers.dart';
 import 'widgets/success_overlay.dart';
@@ -17,7 +17,6 @@ import 'package:file_picker/file_picker.dart';
 
 import 'widgets/voice_recorder.dart';
 
-const _kDailyMax = 1;
 
 /// Upload tiles are a FIXED height so the sheet never reflows when a photo is
 /// added or audio is recorded — only the tile's inner content changes.
@@ -37,9 +36,14 @@ class ReportSheet extends ConsumerStatefulWidget {
     required this.insideGcc,
     required this.onRefreshLocation,
     required this.onSubmitted,
+    this.placeLabel = '',
   });
 
   final LatLng? coords;
+
+  /// Where the grievance will be filed ("Ward 34 · Chitlapakkam"), shown in
+  /// the sheet so the citizen can see it before submitting.
+  final String placeLabel;
   final String areaName;
 
   /// 'ready' | 'loading' | 'fallback'
@@ -62,6 +66,7 @@ class ReportSheet extends ConsumerStatefulWidget {
     required bool insideGcc,
     required VoidCallback onRefreshLocation,
     required VoidCallback onSubmitted,
+    String placeLabel = '',
   }) {
     HapticFeedback.lightImpact();
     return showModalBottomSheet<void>(
@@ -77,6 +82,7 @@ class ReportSheet extends ConsumerStatefulWidget {
         insideGcc: insideGcc,
         onRefreshLocation: onRefreshLocation,
         onSubmitted: onSubmitted,
+        placeLabel: placeLabel,
       ),
     );
   }
@@ -102,6 +108,12 @@ class _ReportSheetState extends ConsumerState<ReportSheet>
   bool _submitting = false;
   String? _error;
   int _resetToken = 0;
+
+  /// One id for everything submitted from this sheet: if a submit is retried
+  /// after its response was lost, the server returns the grievance it already
+  /// saved instead of filing a second copy.
+  final String _requestId =
+      '${DateTime.now().microsecondsSinceEpoch}-${Random().nextInt(1 << 32)}';
 
   /// 0 = slider hidden below the fold, 1 = fully revealed.
   ///
@@ -149,7 +161,13 @@ class _ReportSheetState extends ConsumerState<ReportSheet>
         maxWidth: 1600,
         imageQuality: 85,
       );
-      if (shot != null) setState(() => _images.add(shot));
+      // One photo per grievance — the server keeps one. Taking another
+      // replaces it; the tile used to say "Added (3)" and upload only the first.
+      if (shot != null) {
+        setState(() => _images
+          ..clear()
+          ..add(shot));
+      }
     } catch (_) {
       setState(() => _error =
           'Camera unavailable. Check the camera permission and try again.');
@@ -201,6 +219,7 @@ class _ReportSheetState extends ConsumerState<ReportSheet>
         audio: _recorder.file,
         document: _document?.path == null ? null : File(_document!.path!),
         documentName: _document?.name,
+        clientRequestId: _requestId,
       );
 
       // Fire-and-forget: the report is saved server-side the instant this
@@ -208,18 +227,15 @@ class _ReportSheetState extends ConsumerState<ReportSheet>
       // background; if a duplicate turns up it surfaces later, inline in
       // My Reports — never as a blocking dialog here.
       final issue = outcome.issue!;
-      // Attach the authenticated account's contact details (phone was
-      // OTP-verified at login) — non-blocking, same as the web flow.
-      try {
-        await api.confirmIssue(issue.id, prefs.citizenPhone,
-            name: prefs.citizenName);
-      } catch (_) {}
+      // The server attaches the account's name and phone itself now, and it
+      // enforces the 1-a-day limit (the local counter never blocked anything).
 
-      await ref
-          .read(dailyLimitProvider)
-          .consume(kGrievanceLimitKey, _kDailyMax);
-
-      if (!mounted) return;
+      // Refresh My Reports even if the sheet was dismissed mid-upload — the
+      // grievance is saved, and the citizen must see it rather than file again.
+      if (!mounted) {
+        widget.onSubmitted();
+        return;
+      }
       Navigator.of(context).pop(); // close the sheet under the overlay
       await SuccessOverlay.show(
         context,
@@ -245,7 +261,10 @@ class _ReportSheetState extends ConsumerState<ReportSheet>
     _syncReveal();
     return AnimatedBuilder(
       animation: _reveal,
-      builder: (context, child) => Transform.translate(
+      // No dismissing with back while the upload is in flight.
+      builder: (context, child) => PopScope(
+        canPop: !_submitting,
+        child: Transform.translate(
         // Sheet slides down by the height of the swipe block, putting the
         // slider past the bottom edge. Everything above it holds position.
         offset: Offset(
@@ -254,7 +273,7 @@ class _ReportSheetState extends ConsumerState<ReportSheet>
               _kSwipeBlockHeight,
         ),
         child: child,
-      ),
+      )),
       child: Container(
       width: double.infinity,
       decoration: const BoxDecoration(
@@ -306,6 +325,38 @@ class _ReportSheetState extends ConsumerState<ReportSheet>
                 ],
               ),
             ),
+
+            // Where it will be filed, so a wrong location is caught before
+            // submitting rather than discovered in My Reports.
+            if (widget.placeLabel.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.place_outlined,
+                      size: 15, color: Colors.white.withValues(alpha: 0.75)),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      '${context.tr('Filing in')} ${widget.placeLabel}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                          fontSize: 12.5,
+                          color: Colors.white.withValues(alpha: 0.85)),
+                    ),
+                  ),
+                  GestureDetector(
+                    onTap: _submitting ? null : widget.onRefreshLocation,
+                    child: Padding(
+                      padding: const EdgeInsets.only(left: 8),
+                      child: Icon(Icons.refresh,
+                          size: 16, color: Colors.white.withValues(alpha: 0.75)),
+                    ),
+                  ),
+                ],
+              ),
+            ],
 
             if (_error != null || _recorder.error != null) ...[
               const SizedBox(height: 10),
@@ -554,9 +605,8 @@ class _ReportSheetState extends ConsumerState<ReportSheet>
           child: Image.file(File(_images.first.path),
               height: 44, width: 44, fit: BoxFit.cover),
         ),
-        title:
-            _images.length > 1 ? 'Added (${_images.length})' : 'Photo added',
-        subtitle: context.tr('Tap to add another'),
+        title: context.tr('Photo added'),
+        subtitle: context.tr('Tap to retake'),
         trailing: GestureDetector(
           onTap: () => setState(() => _images.clear()),
           child: const Icon(Icons.delete_outline,

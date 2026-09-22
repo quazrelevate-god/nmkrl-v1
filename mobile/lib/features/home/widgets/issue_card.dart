@@ -79,9 +79,10 @@ class IssueCard extends StatelessWidget {
         'SUBMITTED' => 'Pending',
         'ACTIVE' => 'Assigned',
         'FORWARDED' || 'IN_PROGRESS' => 'In Progress',
-        'PENDING_VERIFICATION' => 'Verification',
+        'PENDING_VERIFICATION' => 'Awaiting confirmation',
         'CLOSED' => 'Resolved',
         'FALSE' => 'False Petition',
+        'MERGED' => 'Combined',
         _ => 'Unknown',
       };
 

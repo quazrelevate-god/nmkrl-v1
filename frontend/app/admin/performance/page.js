@@ -250,7 +250,10 @@ function computeKpis(issues) {
   const breached = issues.filter(slaBreached).length;
   const resolutionRate = total ? Math.round((closed / total) * 100) : 0;
 
-  const openIssues = issues.filter((i) => !["CLOSED", "PENDING_VERIFICATION"].includes(i.status));
+  // False and merged grievances are finished, not open work: counting them
+  // skewed the ageing, the average, the oldest-open and the SLA figures.
+  const openIssues = issues.filter(
+    (i) => !["CLOSED", "PENDING_VERIFICATION", "FALSE", "MERGED"].includes(i.status));
   const ages = openIssues.map(daysOpen);
   const avgOpen = ages.length ? Math.round(ages.reduce((a, b) => a + b, 0) / ages.length) : 0;
   const oldest = ages.length ? Math.max(...ages) : 0;
@@ -259,7 +262,8 @@ function computeKpis(issues) {
 
   // Funnel: each stage is everything that reached AT LEAST that far, so the
   // widths read as drop-off rather than as four unrelated buckets.
-  const reachedCoordinator = total - pending;
+  // A merged duplicate never reached a coordinator as its own case.
+  const reachedCoordinator = total - pending - by("MERGED");
   const reachedDept = by("FORWARDED") + by("IN_PROGRESS") + resolved;
   const funnel = [
     { label: "Reported", value: total },

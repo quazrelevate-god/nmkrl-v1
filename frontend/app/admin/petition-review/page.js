@@ -501,4 +501,16 @@ const EVENT_LABELS = {
   mark_false: "Marked false petition",
   citizen_approve: "Citizen approved",
   citizen_reject: "Citizen rejected",
+  // Office and duplicate actions showed as raw names in the timeline.
+  admin_create: "Logged at the MLA office",
+  admin_verify: "Verified by the MLA office",
+  admin_forward: "Forwarded by the MLA office",
+  admin_progress: "Marked in progress by the MLA office",
+  admin_close: "Closed by the MLA office",
+  assign: "Assignment changed",
+  release: "Released to the ward",
+  merge: "Merged into another grievance",
+  merge_received: "Duplicate merged in",
+  duplicate_separate: "Kept separate (not a duplicate)",
+  unmerge: "Merge reversed",
 };

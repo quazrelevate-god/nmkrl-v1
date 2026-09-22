@@ -234,6 +234,29 @@ const Map<String, String> _ta = {
   'Assigned': 'ஒதுக்கப்பட்டது',
   'In Progress': 'செயலில் உள்ளது',
   'Verification Pending': 'சரிபார்ப்பு நிலுவையில்',
+  // Pilot audit v1 (M11): the fix is done and awaits the citizen's say-so —
+  // distinct from 'Pending Verification' (office still reviewing).
+  'Resolved — awaiting confirmation': 'தீர்க்கப்பட்டது — உங்கள் உறுதிப்படுத்தலுக்குக் காத்திருக்கிறது',
+  'Awaiting confirmation': 'உறுதிப்படுத்தலுக்குக் காத்திருக்கிறது',
+  'Combined with another report': 'மற்றொரு புகாருடன் இணைக்கப்பட்டது',
+  'Combined': 'இணைக்கப்பட்டது',
+  'Action Required': 'நடவடிக்கை தேவை',
+  'Authority marked this issue as RESOLVED. Has it really been fixed?':
+      'அதிகாரிகள் இந்தப் புகாரைத் தீர்க்கப்பட்டதாகக் குறித்துள்ளனர். உண்மையில் சரிசெய்யப்பட்டதா?',
+  'Approve & Close': 'ஒப்புதல் அளித்து மூடு',
+  'Reject / Not Fixed': 'நிராகரி / சரிசெய்யப்படவில்லை',
+  'Close this grievance?': 'இந்தப் புகாரை மூடவா?',
+  'Only approve if the problem has really been fixed. This cannot be undone.':
+      'பிரச்சினை உண்மையில் சரிசெய்யப்பட்டிருந்தால் மட்டும் ஒப்புதல் அளிக்கவும். இதைத் திரும்பப் பெற முடியாது.',
+  'Yes, it is fixed': 'ஆம், சரிசெய்யப்பட்டது',
+  'This is your grievance — other citizens can support it.':
+      'இது உங்கள் புகார் — மற்ற குடிமக்கள் இதற்கு ஆதரவு அளிக்கலாம்.',
+  'Your report {ticket} was combined with this grievance — the same problem reported by others. Updates arrive here.':
+      'உங்கள் புகார் {ticket} இந்தப் புகாருடன் இணைக்கப்பட்டது — மற்றவர்களும் இதே பிரச்சினையைப் புகாரளித்துள்ளனர். புதுப்பிப்புகள் இங்கே வரும்.',
+  'Tap to retake': 'மீண்டும் எடுக்க தட்டவும்',
+  'Filing in': 'பதிவு செய்யப்படும் இடம்:',
+  'Location is off, so we cannot tell which ward you are in. Turn on location to file a grievance — you can still view your reports and your ward.':
+      'இருப்பிடம் முடக்கப்பட்டுள்ளதால் நீங்கள் எந்த வார்டில் இருக்கிறீர்கள் என்று தெரியவில்லை. புகார் பதிவு செய்ய இருப்பிடத்தை இயக்கவும் — உங்கள் புகார்களையும் வார்டையும் பார்க்கலாம்.',
   'Marked as false petition': 'தவறான மனுவாகக் குறிக்கப்பட்டது',
   'Pending Verification': 'சரிபார்ப்பு நிலுவையில்',
   'Completed': 'முடிந்தது',

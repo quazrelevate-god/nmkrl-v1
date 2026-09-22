@@ -20,6 +20,7 @@ class Issue {
     this.wardNo,
     this.zone,
     this.constituencies,
+    this.mergedFromTicket,
     this.department,
     this.coordinatorMessage,
     this.assignedCoordinator,
@@ -66,6 +67,12 @@ class Issue {
   /// grievance's own corporation (Chennai and Tambaram share ward numbers).
   /// Null from an older backend; then the app's live table is the fallback.
   final List<String>? constituencies;
+
+  /// Set when this card is the grievance the citizen's own report was merged
+  /// into: their original ticket number. My Reports shows the surviving
+  /// grievance in its place, so the card must say why the ticket differs —
+  /// and the confirm prompt belongs to that grievance's own reporter.
+  final String? mergedFromTicket;
 
   /// AI-routed municipal department (used by the coordinator transfer flow).
   final String? department;
@@ -160,6 +167,7 @@ class Issue {
       constituencies: json['constituencies'] is List
           ? [for (final c in json['constituencies'] as List) '$c']
           : null,
+      mergedFromTicket: _blankToNull(json['merged_from_ticket']),
       department: json['department'] as String?,
       coordinatorMessage: json['coordinator_message'] as String?,
       assignedCoordinator: json['assigned_coordinator'] as String?,

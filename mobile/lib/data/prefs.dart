@@ -22,6 +22,7 @@ class Prefs {
   static const _legacyUserIdKey = 'fms_user_id';
   static const _citizenNotifCursorKey = 'nk_citizen_notif_cursor';
   static const _pinHashKey = 'nk_citizen_pin_hash';
+  static const _serverHasPinKey = 'nk_citizen_server_has_pin';
   static const _sessionTokenKey = 'nk_session_token';
   static const _avatarPathKey = 'nk_avatar_path';
 
@@ -45,11 +46,13 @@ class Prefs {
 
   Future<void> clearSessionToken() => _prefs.remove(_sessionTokenKey);
 
+  // Per account: one phone can be shared, and a cursor shared between
+  // accounts hid the next person's older notifications.
   String get citizenNotifCursor =>
-      _prefs.getString(_citizenNotifCursorKey) ?? '';
+      _prefs.getString('$_citizenNotifCursorKey:$userId') ?? '';
 
   Future<void> setCitizenNotifCursor(String isoTs) =>
-      _prefs.setString(_citizenNotifCursorKey, isoTs);
+      _prefs.setString('$_citizenNotifCursorKey:$userId', isoTs);
 
   bool get authed => _prefs.getBool(_authedKey) ?? false;
 
@@ -62,6 +65,11 @@ class Prefs {
   String get pinHash => _prefs.getString(_pinHashKey) ?? '';
 
   bool get hasPin => pinHash.isNotEmpty;
+
+  /// The account already has a PIN on the server (a second phone, or a
+  /// reinstall): the app-open lock checks against the server and caches it,
+  /// so the account is NOT sent through "create PIN" — which overwrote it.
+  bool get serverHasPin => _prefs.getBool(_serverHasPinKey) ?? false;
 
   Future<void> setPinHash(String hash) => _prefs.setString(_pinHashKey, hash);
 
@@ -81,6 +89,7 @@ class Prefs {
     await _prefs.setString(_accountIdKey, user.id);
     await _prefs.setString(_nameKey, user.name);
     await _prefs.setString(_phoneKey, user.phone);
+    await _prefs.setBool(_serverHasPinKey, user.hasPin);
     await _prefs.setBool(_authedKey, true);
   }
 
@@ -94,6 +103,7 @@ class Prefs {
   /// token. The prefill needs the name and phone, not the id.
   Future<void> clearSession() async {
     await _prefs.remove(_pinHashKey);
+    await _prefs.remove(_serverHasPinKey);
     await _prefs.remove(_sessionTokenKey);
     await _prefs.remove(_avatarPathKey);
     await _prefs.remove(_accountIdKey);

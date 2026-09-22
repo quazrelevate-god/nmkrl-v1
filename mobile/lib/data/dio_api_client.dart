@@ -254,6 +254,7 @@ class DioApiClient implements ApiClient {
     String? audioMime,
     File? document,
     String? documentName,
+    String? clientRequestId,
   }) async {
     try {
       final form = FormData.fromMap({
@@ -262,6 +263,7 @@ class DioApiClient implements ApiClient {
         'user_id': userId,
         'title': title,
         'force': '$force',
+        if (clientRequestId != null) 'client_request_id': clientRequestId,
         if (image != null)
           'image': await MultipartFile.fromFile(
             image.path,

@@ -113,7 +113,11 @@ enum CoordinatorTab { ward, mine, escalated, previous }
   final previous = <Issue>[];
   for (final i in issues) {
     final owner = (i.assignedCoordinator ?? '').toLowerCase();
-    final terminal = i.status == 'CLOSED' || i.status == 'FALSE';
+    // MERGED is finished too: every action on it is refused, and its reporter
+    // follows the original now. Left "open", it sat in the Open tab with dead
+    // buttons.
+    final terminal =
+        i.status == 'CLOSED' || i.status == 'FALSE' || i.status == 'MERGED';
     if (owner.isEmpty) {
       if (!terminal) ward.add(i);
       // (terminal + unassigned is a rare seed-only edge case; drop it.)

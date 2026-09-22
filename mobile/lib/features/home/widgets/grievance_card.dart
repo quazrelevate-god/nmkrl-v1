@@ -261,7 +261,8 @@ class GrievanceDialog extends ConsumerWidget {
 
   /// Terminal states: a resolved grievance has nothing left to amplify, and a
   /// rejected one was never valid to begin with.
-  bool get _settled => issue.status == 'CLOSED' || issue.status == 'FALSE';
+  bool get _settled =>
+      issue.status == 'CLOSED' || issue.status == 'FALSE' || issue.status == 'MERGED';
 
   Future<void> _openMaps(BuildContext context) async {
     if (!_hasGeo) {
@@ -284,11 +285,14 @@ class GrievanceDialog extends ConsumerWidget {
   }
 
   /// Which of the three lifecycle pills is lit for this status.
+  // PENDING_VERIFICATION means the fix is done and awaits the citizen's
+  // confirmation — it used to light "Verification", the step a fresh report
+  // sits on, so a finished repair looked like it had never started.
   int get _activeStep => switch (issue.status) {
-        'SUBMITTED' || 'PENDING_VERIFICATION' || 'ACTIVE' => 0,
+        'SUBMITTED' || 'ACTIVE' => 0,
         'FORWARDED' || 'IN_PROGRESS' => 1,
-        'CLOSED' => 2,
-        _ => -1, // FALSE — nothing lit
+        'PENDING_VERIFICATION' || 'CLOSED' => 2,
+        _ => -1, // FALSE / MERGED — nothing lit
       };
 
   @override
@@ -414,6 +418,20 @@ class GrievanceDialog extends ConsumerWidget {
                       ],
                     ),
                   ),
+
+                  // Their own report was merged into this one: say so, or the
+                  // different ticket number reads like a mix-up.
+                  if (issue.mergedFromTicket != null)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(14, 0, 14, 10),
+                      child: Text(
+                        context
+                            .tr('Your report {ticket} was combined with this grievance — '
+                                'the same problem reported by others. Updates arrive here.')
+                            .replaceAll('{ticket}', issue.mergedFromTicket!),
+                        style: const TextStyle(fontSize: 11.5, color: _kMuted, height: 1.35),
+                      ),
+                    ),
 
                   // ── 5. Support count + where it is ──
                   // The ward and constituency live here rather than on the

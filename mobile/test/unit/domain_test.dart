@@ -25,9 +25,14 @@ void main() {
       expect(statusMeta('ACTIVE').label, 'Assigned');
       expect(statusMeta('FORWARDED').label, 'In Progress');
       expect(statusMeta('IN_PROGRESS').label, 'In Progress');
-      expect(statusMeta('PENDING_VERIFICATION').label, 'Verification Pending');
+      // Distinct from SUBMITTED's 'Pending Verification' (pilot audit M11).
+      expect(statusMeta('PENDING_VERIFICATION').label,
+          'Resolved — awaiting confirmation');
       expect(statusMeta('CLOSED').label, 'Resolved');
       expect(statusMeta('FALSE').label, 'Marked as false petition');
+      // Merged reports had no entry and fell back to 'Assigned' (audit H7).
+      expect(statusMeta('MERGED').label, 'Combined with another report');
+      expect(statusMeta('MERGED').open, isFalse);
     });
 
     test('unknown status falls back to ACTIVE meta', () {

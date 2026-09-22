@@ -49,8 +49,11 @@ class _UpvoteSheetState extends ConsumerState<UpvoteSheet> {
   @override
   void initState() {
     super.initState();
-    _limit = ref.read(dailyLimitProvider).state(kSupportLimitKey, _kDailyMax);
+    _limit = ref.read(dailyLimitProvider).state(_limitKey, _kDailyMax);
   }
+
+  /// Per account — a shared phone used to share one day's support count.
+  String get _limitKey => '$kSupportLimitKey:${ref.read(userIdProvider)}';
 
   Future<void> _confirm() async {
     setState(() {
@@ -59,7 +62,7 @@ class _UpvoteSheetState extends ConsumerState<UpvoteSheet> {
     });
     try {
       await widget.onConfirm();
-      await ref.read(dailyLimitProvider).consume(kSupportLimitKey, _kDailyMax);
+      await ref.read(dailyLimitProvider).consume(_limitKey, _kDailyMax);
       // Flip every Support button for this grievance immediately.
       ref.read(supportedIssuesProvider.notifier).markSupported(widget.issue.id);
       if (!mounted) return;

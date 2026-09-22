@@ -145,7 +145,9 @@ export default function TicketDrawer({ issue, onClose, onChanged, onOpenIssue, o
   // Server-labelled from the grievance's own corporation (ward numbers repeat
   // between Chennai and Tambaram); the Chennai table is only a fallback.
   const acs = issue.constituencies || constituenciesForWard(issue.ward_no);
-  const stage = STAGE_INDEX[issue.status] ?? 1;
+  // False and merged grievances left the lifecycle: nothing is lit (they used
+  // to fall back to "Verified"). The status badge says what happened.
+  const stage = ["FALSE", "MERGED"].includes(issue.status) ? -1 : (STAGE_INDEX[issue.status] ?? 1);
 
   // Assign picker: only non-terminal tickets can be (re)assigned; the list is
   // active coordinators, narrowed to this grievance's constituency (falling back
@@ -1013,7 +1015,10 @@ function DuplicateReview({ issue, dup, busy, onOpenParent, onMerge, onSeparate, 
               <p className="truncate text-[13px] font-extrabold text-slate-900">{parent.title || "Untitled"}</p>
               <p className="text-[11px] font-bold text-brand">{parent.ticket_number}</p>
               <p className="mt-0.5 text-[11px] text-slate-500">
-                {parent.distance_m} m away · {parent.upvotes} supporting
+                {parent.distance_m} m away · {parent.upvotes} supporting ·{" "}
+                {/* Whether the original is still open decides whether a merge
+                    makes sense; the server refuses a closed or false one. */}
+                {portalStatus(parent.status).label}
                 {parent.same_ward ? "" : ` · Ward ${parent.ward_no ?? "?"}`}
               </p>
               {!parent.same_ward && (

@@ -78,7 +78,7 @@ final _routerProvider = Provider<GoRouter>((ref) {
         // existed — is sent to set one rather than being let past. The lock
         // itself is not a redirect: home draws it over itself (_LockableHome).
         final prefs = ref.read(prefsProvider);
-        if (!prefs.hasPin) return '/set-pin';
+        if (!prefs.hasPin && !prefs.serverHasPin) return '/set-pin';
       }
       return null;
     },

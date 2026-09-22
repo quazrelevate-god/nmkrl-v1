@@ -12,6 +12,7 @@ import '../../../domain/departments.dart';
 import '../../../domain/geo_utils.dart';
 import '../../../domain/models/duplicate_info.dart';
 import '../../../domain/models/issue.dart';
+import '../../../domain/status_meta.dart';
 import '../../../domain/ticket.dart';
 import '../../../state/providers.dart';
 import 'evidence_section.dart';
@@ -1317,6 +1318,10 @@ class _ParentPreview extends StatelessWidget {
                     Text(
                       [
                         if (issue.ticketNo != null) issue.ticketNo!,
+                        // Whether the original is still open decides whether
+                        // merging makes sense: the server refuses a closed or
+                        // false one, and the coordinator should see why first.
+                        context.tr(statusMeta(issue.status).label),
                         '${issue.upvotes} ${context.tr('supporting')}',
                       ].join(' · '),
                       style: const TextStyle(

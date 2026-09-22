@@ -108,7 +108,9 @@ const double _kSheetCornerRadius = 22;
 const Map<String, Set<String>> _kStatusBuckets = {
   'open': {'SUBMITTED', 'ACTIVE'},
   'progress': {'FORWARDED', 'IN_PROGRESS'},
-  'resolved': {'CLOSED'},
+  // A fix awaiting the citizen's confirmation is shown as resolved; it was in
+  // no bucket at all, so every filter pill hid it.
+  'resolved': {'CLOSED', 'PENDING_VERIFICATION'},
 };
 
 /// The filter pills in display order — (bucket key, label, foreground, fill).
@@ -181,6 +183,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   int? get _currentWard =>
       (_locate?.inside ?? false) ? _locate?.wardNumber : null;
+
+  /// Can a grievance be filed from here? Needs a ward, and a REAL location:
+  /// with location off the app stands in the corporation's centre point, and
+  /// filing from there put the grievance in whatever ward that is (ward 34 in
+  /// Tambaram) without the citizen knowing. The tester's picked location
+  /// counts as real.
+  bool get _canFile =>
+      _currentWard != null && (_override != null || _geoStatus != 'fallback');
+
+  /// Location is off (or timed out): say why "+" is disabled.
+  bool get _locationOff => _override == null && _geoStatus == 'fallback';
 
   /// Bounding box of the detected ward's polygon(s), or null when no ward is
   /// resolved yet (outside GCC, or before /api/locate returns). Drives the
@@ -350,6 +363,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _loadHistory();
     final w = _currentWard;
     if (w != null) _loadWard(w);
+    // Location was read once at start-up, so a grievance filed later in the
+    // day was filed where the app was first opened. Re-read it on return —
+    // quietly: never re-prompt for a permission the citizen declined.
+    _relocateOnResume();
     // The MLA office may have switched corporations while the app was away;
     // the listener in build() reloads the map and ward if it did.
     ref.read(corporationProvider.notifier).refresh();
@@ -410,6 +427,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     } catch (_) {
       _useFallbackLocation();
     }
+  }
+
+  Future<void> _relocateOnResume() async {
+    if (_override != null) return; // a tester's picked location stays put
+    try {
+      final p = await Geolocator.checkPermission();
+      if (p == LocationPermission.always || p == LocationPermission.whileInUse) {
+        await _locateDevice();
+      }
+    } catch (_) {}
   }
 
   void _useFallbackLocation() {
@@ -688,6 +715,24 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _afterLocationChanged();
   }
 
+  /// Is this one of the citizen's own grievances (or the one theirs was merged
+  /// into)? Public grievances do not say who reported them, so this is read off
+  /// My Reports. Their own support would only inflate the priority order.
+  bool _isMine(Issue issue) => _history.any((h) => h.id == issue.id);
+
+  /// Support from a surface that lists everyone's grievances (map, search):
+  /// explain instead of opening the sheet for their own.
+  Future<void> _upvoteOthers(Issue issue) async {
+    if (_isMine(issue)) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(context.tr(
+            'This is your grievance — other citizens can support it.')),
+      ));
+      return;
+    }
+    return _upvote(issue);
+  }
+
   Future<void> _upvote(Issue issue) {
     return UpvoteSheet.open(
       context,
@@ -713,6 +758,28 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   Future<void> _verify(Issue issue, String response) async {
+    // Approving closes the grievance for good — ask once before doing it.
+    if (response == 'APPROVED') {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text(ctx.tr('Close this grievance?')),
+          content: Text(ctx.tr(
+              'Only approve if the problem has really been fixed. This cannot be undone.')),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: Text(ctx.tr('Cancel')),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: Text(ctx.tr('Yes, it is fixed')),
+            ),
+          ],
+        ),
+      );
+      if (ok != true || !mounted) return;
+    }
     setState(() => _busyId = issue.id);
     try {
       await ref.read(apiClientProvider).verifyIssue(
@@ -731,11 +798,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   void _openReport() {
-    // Belt-and-suspenders: the "+" is already disabled outside GCC, but never
-    // open the sheet without a ward to file into.
-    if (_currentWard == null) return;
+    // Belt-and-suspenders: the "+" is already disabled outside the corporation
+    // or without a real location, but never open the sheet in either case.
+    if (!_canFile) return;
+    final area = _override != null ? '' : _areaName;
     ReportSheet.open(
       context,
+      placeLabel:
+          '${context.tr('Ward')} $_currentWard${area.isNotEmpty ? ' · $area' : ''}',
       coords: _coords,
       areaName: _areaName,
       geoStatus: _override != null ? 'ready' : _geoStatus,
@@ -910,7 +980,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 currentWard: _currentWard,
                 locate: _locate,
                 locating: _locating,
-                onUpvote: _upvote,
+                onUpvote: _upvoteOthers,
                 borderRadius: 0,
                 showLegend: false,
                 showLocateChip: false,
@@ -938,7 +1008,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               right: 14,
               child: ProfileHeader(
                 searchIssues: [..._wardIssues, ..._history],
-                onUpvote: _upvote,
+                onUpvote: _upvoteOthers,
               ),
             ),
 
@@ -1176,7 +1246,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 onSubmit: _openReport,
                 // Outside GCC there is no ward to file into, so the "+" is
                 // disabled; My Reports and In my Ward stay reachable.
-                canSubmit: _currentWard != null,
+                canSubmit: _canFile,
               ),
             ),
 
@@ -1370,7 +1440,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     // Ward remain usable below it.
     final outsideGcc =
         _coords != null && _currentWard == null && _geoStatus != 'loading';
-    if (outsideGcc) {
+    if (_locationOff) {
+      out.add(_infoBanner(context.tr(
+          'Location is off, so we cannot tell which ward you are in. Turn on '
+          'location to file a grievance — you can still view your reports and '
+          'your ward.')));
+    } else if (outsideGcc) {
       out.add(
         Container(
           margin: const EdgeInsets.only(bottom: 12),
@@ -1489,7 +1564,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           padding: const EdgeInsets.only(bottom: 8),
           child: _selectableCard(
             issue,
-            GrievanceCard(issue: issue, onUpvote: _upvote),
+            GrievanceCard(
+                issue: issue, onUpvote: _isMine(issue) ? null : _upvote),
           ),
         ),
     ];
@@ -1499,8 +1575,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     final out = <Widget>[];
 
     // Action-required verification cards always show — they are blocking.
-    for (final issue
-        in _history.where((i) => i.status == 'PENDING_VERIFICATION')) {
+    // Not for a grievance the citizen follows because their report was merged
+    // into it: only its own reporter can confirm, and the buttons failed.
+    for (final issue in _history.where((i) =>
+        i.status == 'PENDING_VERIFICATION' && i.mergedFromTicket == null)) {
       out.add(_verifyCard(issue));
     }
 
@@ -1551,6 +1629,28 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     return out;
   }
 
+  Widget _infoBanner(String text) => Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: NkColors.amber50,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: NkColors.amber200),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.location_off_outlined,
+                size: 18, color: NkColors.amber700),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(text,
+                  style: const TextStyle(
+                      fontSize: 12.5, height: 1.4, color: NkColors.slate700)),
+            ),
+          ],
+        ),
+      );
+
   Widget _verifyCard(Issue issue) {
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
@@ -1569,7 +1669,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  'Action Required — ${issue.title}',
+                  '${context.tr('Action Required')} — ${issue.title}',
                   style: const TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
@@ -1580,9 +1680,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             ],
           ),
           const SizedBox(height: 6),
-          const Text(
-            'Authority marked this issue as RESOLVED. Has it really been fixed?',
-            style: TextStyle(fontSize: 12, color: NkColors.slate500),
+          Text(
+            context.tr(
+                'Authority marked this issue as RESOLVED. Has it really been fixed?'),
+            style: const TextStyle(fontSize: 12, color: NkColors.slate500),
           ),
           // The proof whoever closed it was required to capture, coordinator
           // or MLA office. Asking someone to approve a repair they cannot see
@@ -1604,15 +1705,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                         color: NkColors.emerald600,
                         borderRadius: BorderRadius.circular(10),
                       ),
-                      child: const Row(
+                      child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.check_circle_outline,
+                          const Icon(Icons.check_circle_outline,
                               size: 13, color: Colors.white),
-                          SizedBox(width: 4),
+                          const SizedBox(width: 4),
                           Text(
-                            'Approve & Close',
-                            style: TextStyle(
+                            context.tr('Approve & Close'),
+                            style: const TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.w600,
                               color: Colors.white,
@@ -1639,15 +1740,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                         borderRadius: BorderRadius.circular(10),
                         border: Border.all(color: NkColors.slate300),
                       ),
-                      child: const Row(
+                      child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.cancel_outlined,
+                          const Icon(Icons.cancel_outlined,
                               size: 13, color: NkColors.slate600),
-                          SizedBox(width: 4),
+                          const SizedBox(width: 4),
                           Text(
-                            'Reject / Not Fixed',
-                            style: TextStyle(
+                            context.tr('Reject / Not Fixed'),
+                            style: const TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.w600,
                               color: NkColors.slate600,

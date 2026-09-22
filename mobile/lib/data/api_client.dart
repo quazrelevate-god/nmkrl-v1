@@ -76,6 +76,9 @@ abstract class ApiClient {
     /// Never required — the photo and voice note remain the mandatory pair.
     File? document,
     String? documentName,
+    /// Stays the same across retries of one submission, so the server can
+    /// return the grievance it already saved instead of filing it twice.
+    String? clientRequestId,
   });
 
   Future<Issue> upvoteIssue(String issueId, String userId, {String name = ''});

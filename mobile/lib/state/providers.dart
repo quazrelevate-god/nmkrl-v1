@@ -237,6 +237,9 @@ final pinLockProvider =
 class SupportedIssuesNotifier extends Notifier<Set<String>> {
   @override
   Set<String> build() {
+    // Rebuilt for every account: the previous person's supports on a shared
+    // phone used to stay, showing their grievances as "Already supported".
+    ref.watch(userIdProvider);
     // Signed-out builds resolve to an empty set; refresh is a no-op then.
     Future.microtask(refresh);
     return const <String>{};

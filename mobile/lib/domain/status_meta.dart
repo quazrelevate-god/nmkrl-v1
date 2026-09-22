@@ -57,7 +57,10 @@ const Map<String, StatusMeta> kStatusMeta = {
     open: true,
   ),
   'PENDING_VERIFICATION': StatusMeta(
-    label: 'Verification Pending',
+    // Was "Verification Pending" — beside SUBMITTED's "Pending Verification"
+    // the two read the same (and were one string in Tamil), though one means
+    // "the office is reviewing it" and this one "the fix is done, confirm it".
+    label: 'Resolved — awaiting confirmation',
     badgeBg: NkColors.amber50,
     badgeFg: NkColors.amber700,
     badgeBorder: NkColors.amber100,
@@ -78,6 +81,16 @@ const Map<String, StatusMeta> kStatusMeta = {
     badgeFg: NkColors.rose700,
     badgeBorder: NkColors.rose100,
     pin: Color(0xFFE11D48),
+    open: false,
+  ),
+  // Folded into an earlier report of the same problem. It had no entry, so it
+  // fell back to "Assigned" and looked like a live grievance.
+  'MERGED': StatusMeta(
+    label: 'Combined with another report',
+    badgeBg: NkColors.slate100,
+    badgeFg: NkColors.slate600,
+    badgeBorder: NkColors.slate200,
+    pin: Color(0xFF94A3B8),
     open: false,
   ),
 };
@@ -119,6 +132,6 @@ int progressIndex(String? status) => switch (status) {
       'IN_PROGRESS' => 3,
       'PENDING_VERIFICATION' => 4,
       'CLOSED' => 5,
-      'FALSE' => -1,
+      'FALSE' || 'MERGED' => -1,
       _ => 0,
     };

@@ -43,6 +43,19 @@ void main() {
       expect(p.previous.map((i) => i.id), ['p1', 'p2']);
     });
 
+    // Pilot audit H7: every action on a merged report is refused, so it must
+    // not sit in the Open tab (unowned) or the Assigned tab (owned).
+    test('merged reports are finished, never open work', () {
+      final issues = [
+        _issue(id: 'mg1', status: 'MERGED'),
+        _issue(id: 'mg2', status: 'MERGED', assigned: 'raja'),
+      ];
+      final p = partitionForCoordinator(issues, 'raja');
+      expect(p.ward, isEmpty);
+      expect(p.mine, isEmpty);
+      expect(p.previous.map((i) => i.id), ['mg2']);
+    });
+
     test('username match is case-insensitive', () {
       final issues = [_issue(id: 'x', status: 'ACTIVE', assigned: 'Raja')];
       final p = partitionForCoordinator(issues, 'raja');

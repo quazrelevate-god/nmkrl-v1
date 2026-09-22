@@ -24,6 +24,10 @@ export const PORTAL_STATUS = {
   IN_PROGRESS:         { label: "In Progress",  badge: "bg-amber-50 text-amber-700 ring-1 ring-amber-200" },
   PENDING_VERIFICATION:{ label: "Resolved",     badge: "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200" },
   CLOSED:              { label: "Closed",       badge: "bg-slate-100 text-slate-500 ring-1 ring-slate-200" },
+  // Both fell back to "Open" — what the office saw when opening a false
+  // petition from the duplicate review.
+  FALSE:               { label: "False petition", badge: "bg-rose-50 text-rose-700 ring-1 ring-rose-200" },
+  MERGED:              { label: "Merged",       badge: "bg-slate-100 text-slate-500 ring-1 ring-slate-200" },
 };
 
 export function portalStatus(status) {
@@ -93,7 +97,7 @@ export function slaWeeksLabel(issue) {
 
 /** Is the ticket past its SLA window (breached)? */
 export function slaBreached(issue) {
-  if (["PENDING_VERIFICATION", "CLOSED"].includes(issue.status)) return false;
+  if (["PENDING_VERIFICATION", "CLOSED", "FALSE", "MERGED"].includes(issue.status)) return false;
   return daysOpen(issue) > departmentMeta(issue.department).slaDays;
 }
 

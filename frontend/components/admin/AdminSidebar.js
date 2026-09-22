@@ -154,7 +154,8 @@ export default function AdminSidebar() {
   }, []);
 
   const badges = {
-    tickets: tickets.length,
+    // Open work only — it counted closed and awaiting-confirmation tickets too.
+    tickets: tickets.filter((t) => !["CLOSED", "PENDING_VERIFICATION"].includes(t.status)).length,
     pending: pending.length,
     postReview: pendingPosts,
     coordinators: coordinatorCount,
