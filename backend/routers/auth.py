@@ -296,6 +296,7 @@ def citizen_login(
         conn.execute(
             "UPDATE users SET session_epoch = ? WHERE id = ?", (stamp, row["id"])
         )
+        _forget_other_phones(conn, "citizen", row["id"])
         return {
             **_serialize_user(row),
             "created": False,
@@ -323,6 +324,17 @@ def _corporation_of(constituency) -> str | None:
     import corporations
 
     return corporations.corporation_of_constituency(constituency)
+
+
+def _forget_other_phones(conn, recipient_type: str, recipient_id: str) -> None:
+    """One device at a time extends to push: the older phone is signed out by
+    the new session stamp, but its push registration stayed and it kept
+    receiving the account's notifications. The new phone registers itself right
+    after sign-in, so every existing registration can go."""
+    conn.execute(
+        "DELETE FROM device_tokens WHERE recipient_type = ? AND LOWER(recipient_id) = LOWER(?)",
+        (recipient_type, str(recipient_id)),
+    )
 
 
 def coordinator_profile(row) -> dict:
@@ -445,6 +457,7 @@ def coordinator_login(
     conn.execute(
         "UPDATE coordinators SET session_epoch = ? WHERE id = ?", (stamp, row["id"])
     )
+    _forget_other_phones(conn, "coordinator", row["username"])
     return {
         **coordinator_profile(row),
         "token": session_auth.issue(
@@ -529,6 +542,13 @@ def erase_citizen(conn, user_id: str) -> dict:
     for r in reports:
         remove_upload(r["audio_url"])
         remove_upload(r["document_url"])
+    # Fixes awaiting THIS citizen's confirmation can never be confirmed once
+    # the account is gone; close them as resolved rather than leave them stuck.
+    conn.execute(
+        """UPDATE issues SET status = 'CLOSED', resolved_at = ?
+            WHERE created_by = ? AND status = 'PENDING_VERIFICATION'""",
+        (now_iso(), user_id),
+    )
     conn.execute(
         """UPDATE issues
               SET created_by = '', name = '', phone = '',

@@ -41,7 +41,15 @@ MERGED = "MERGED"
 
 #: Outcomes a grievance cannot be merged away from — the citizen has already
 #: been told how it ended, and the closure evidence belongs to that ticket.
-_SETTLED = frozenset({"CLOSED", "RESOLVED", "FALSE", MERGED})
+#: PENDING_VERIFICATION too: the fix is awaiting the reporter's verdict, and
+#: merging would throw away the closure evidence they are about to judge.
+_SETTLED = frozenset({"CLOSED", "RESOLVED", "FALSE", MERGED, "PENDING_VERIFICATION"})
+
+#: Originals a new report may not be folded into. A problem reported again
+#: after its grievance was closed (or found false, or is awaiting the
+#: citizen's confirmation) is a fresh complaint — merging it into the old
+#: ticket showed the new reporter "Closed" at once and lost the recurrence.
+_FINISHED_PARENT = frozenset({"CLOSED", "RESOLVED", "FALSE", "PENDING_VERIFICATION"})
 
 
 def load(conn, issue_id: str):
@@ -176,6 +184,15 @@ def merge(conn, *, child, parent, actor_type: str, actor_id: str) -> dict:
             status_code=409,
             detail="That grievance has itself been merged into another.",
         )
+    if parent["status"] in _FINISHED_PARENT:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "The original grievance is already "
+                f"{parent['status'].lower().replace('_', ' ')}. Keep this report "
+                "separate so the problem is followed up again."
+            ),
+        )
     # Different corporations are different offices' cases, even a street apart.
     if (parent["corporation"] or "chennai") != (child["corporation"] or "chennai"):
         raise HTTPException(
@@ -198,14 +215,24 @@ def merge(conn, *, child, parent, actor_type: str, actor_id: str) -> dict:
     now = now_iso()
     was = child["status"]
 
-    conn.execute(
-        """UPDATE issues
+    # First ruling wins, decided by the database: the UPDATE applies only while
+    # nobody has ruled and the child is still in the status we checked. Two
+    # people merging / keeping separate at the same moment used to both succeed,
+    # leaving a MERGED grievance marked "separate".
+    settled = sorted(_SETTLED)
+    cur = conn.execute(
+        f"""UPDATE issues
               SET merged_into_id = ?, merged_at = ?, status = ?,
                   duplicate_decision = 'merged', duplicate_decided_by = ?,
                   possible_duplicate_id = ?
-            WHERE id = ?""",
-        (parent["id"], now, MERGED, actor_id, parent["id"], child["id"]),
+            WHERE id = ? AND COALESCE(duplicate_decision, '') = ''
+              AND status NOT IN ({",".join("?" for _ in settled)})""",
+        (parent["id"], now, MERGED, actor_id, parent["id"], child["id"], *settled),
     )
+    if cur.rowcount != 1:
+        raise HTTPException(
+            status_code=409, detail="This grievance has already been reviewed."
+        )
 
     # Anything already merged into the child comes along, so no report is left
     # pointing at a grievance that is no longer the survivor.
@@ -214,14 +241,23 @@ def merge(conn, *, child, parent, actor_type: str, actor_id: str) -> dict:
         (parent["id"], child["id"]),
     )
 
-    # The reporter's support moves to the parent. ON CONFLICT DO NOTHING because
-    # they may already have upvoted it — UNIQUE(user_id, issue_id) — and one
+    # The reporter's support moves to the parent, and so does everyone who had
+    # supported the child — their support was for this problem, and left on the
+    # merged row it counted for nothing. ON CONFLICT DO NOTHING because they may
+    # already have supported the parent — UNIQUE(user_id, issue_id) — and one
     # person must never count twice.
-    if child["created_by"]:
+    movers = [(child["created_by"], child["name"] or "")] if child["created_by"] else []
+    movers += [
+        (r["user_id"], r["name"] or "")
+        for r in conn.execute(
+            "SELECT user_id, name FROM upvotes WHERE issue_id = ?", (child["id"],)
+        ).fetchall()
+    ]
+    for uid, name in movers:
         conn.execute(
             """INSERT INTO upvotes (id, user_id, issue_id, name)
                VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING""",
-            (new_id(), child["created_by"], parent["id"], child["name"] or ""),
+            (new_id(), uid, parent["id"], name),
         )
     _sync_support(conn, parent["id"])
 
@@ -249,12 +285,16 @@ def keep_separate(conn, *, child, actor_type: str, actor_id: str) -> dict:
             status_code=409,
             detail="This grievance has already been reviewed.",
         )
-    conn.execute(
+    cur = conn.execute(
         """UPDATE issues
               SET duplicate_decision = 'separate', duplicate_decided_by = ?
-            WHERE id = ?""",
+            WHERE id = ? AND COALESCE(duplicate_decision, '') = ''""",
         (actor_id, child["id"]),
     )
+    if cur.rowcount != 1:
+        raise HTTPException(
+            status_code=409, detail="This grievance has already been reviewed."
+        )
     audit.record(
         conn, child["id"], action="duplicate_separate", actor_type=actor_type,
         actor_id=actor_id, from_status=child["status"],

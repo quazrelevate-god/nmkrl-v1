@@ -57,15 +57,56 @@ def _insert(conn, *, recipient_type: str, recipient_id: str,
 
 
 def emit_status_change(conn, issue_row, kind: str, message: str) -> None:
-    """Notify the citizen who reported the grievance."""
-    recipient = issue_row["created_by"] if issue_row else None
+    """Notify the citizen who reported the grievance, and the citizens whose
+    reports were merged into it.
+
+    Merged reporters follow this grievance in place of their own (their My
+    Reports shows it), so they must hear its updates too. Grievances with no
+    real reporter (logged at the MLA office, or the account was deleted) notify
+    nobody — they used to address a citizen called "admin".
+    """
+    if issue_row is None:
+        return
+    from utils import has_reporter
+
+    data = {"status": issue_row["status"], "ward_no": issue_row["ward_no"]}
+    recipients = []
+    if has_reporter(conn, issue_row):
+        recipients.append(str(issue_row["created_by"]))
+    for r in conn.execute(
+        "SELECT DISTINCT created_by FROM issues WHERE merged_into_id = ? AND created_by <> ''",
+        (issue_row["id"],),
+    ).fetchall():
+        uid = str(r["created_by"])
+        if uid not in recipients and has_reporter(conn, {"created_by": uid}):
+            recipients.append(uid)
+    for uid in recipients:
+        _insert(
+            conn,
+            recipient_type="citizen",
+            recipient_id=uid,
+            kind=kind,
+            issue_id=issue_row["id"],
+            title=issue_row["title"] or "Your grievance",
+            message=message,
+            data=data,
+        )
+
+
+def emit_unassigned(conn, issue_row, previous_owner: str, message: str) -> None:
+    """Tell a coordinator a grievance was taken off them (reassigned, unassigned
+    or released). Without it their card stayed on screen and their next action
+    — often after recording a photo and voice note — was refused."""
+    who = (previous_owner or "").strip().lower()
+    if not who or issue_row is None:
+        return
     _insert(
         conn,
-        recipient_type="citizen",
-        recipient_id=str(recipient or ""),
-        kind=kind,
+        recipient_type="coordinator",
+        recipient_id=who,
+        kind="unassigned",
         issue_id=issue_row["id"],
-        title=issue_row["title"] or "Your grievance",
+        title=issue_row["title"] or "Grievance update",
         message=message,
         data={"status": issue_row["status"], "ward_no": issue_row["ward_no"]},
     )
@@ -155,8 +196,11 @@ def emit_new_grievance(conn, issue_row) -> None:
     constituency = None
     # Loop coordinators mapped to this ward (by home_ward) — this is the
     # deliberate coarse filter for phase-1 (each coordinator owns one ward).
+    # Active accounts only: a disabled coordinator must not keep receiving
+    # alerts for work they can no longer take.
     coords = conn.execute(
-        "SELECT username, constituency FROM coordinators WHERE home_ward = ?",
+        "SELECT username, constituency FROM coordinators WHERE home_ward = ? "
+        "AND COALESCE(status, 'active') = 'active'",
         (str(ward_no),),
     ).fetchall()
     # Ward numbers repeat across corporations: Chennai's ward-58 coordinator

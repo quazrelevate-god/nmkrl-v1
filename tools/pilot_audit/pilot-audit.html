@@ -1,0 +1,340 @@
+<title>Pilot Bug Audit v1</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@87,600;87,800&family=IBM+Plex+Mono:wght@500&family=Public+Sans:wght@400;600;700&display=swap">
+<style>
+:root{
+  --ground:#F3F4EF; --panel:#FFFFFF; --ink:#1B2130; --muted:#5A6374; --line:#D8DBD1;
+  --navy:#23267A; --navy-soft:#E6E7F5;
+  --hi:#B3261E; --hi-bg:#FBE9E7; --md:#8A5300; --md-bg:#FFF0D4; --lo:#35507A; --lo-bg:#E7EEF7;
+  --ok:#1E7A4C; --ok-bg:#E2F3E9;
+  --display:"Archivo","Arial Narrow",system-ui,sans-serif;
+  --body:"Public Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --ground:#11141B; --panel:#181C26; --ink:#E7E9EF; --muted:#9BA3B4; --line:#2B3141;
+  --navy:#9AA0F5; --navy-soft:#252A45;
+  --hi:#FF8A80; --hi-bg:#3A1F1E; --md:#F2B45A; --md-bg:#3A2C14; --lo:#9DB8E6; --lo-bg:#1E2A3D;
+  --ok:#6FD39C; --ok-bg:#16301F;
+}}
+:root[data-theme="dark"]{
+  --ground:#11141B; --panel:#181C26; --ink:#E7E9EF; --muted:#9BA3B4; --line:#2B3141;
+  --navy:#9AA0F5; --navy-soft:#252A45;
+  --hi:#FF8A80; --hi-bg:#3A1F1E; --md:#F2B45A; --md-bg:#3A2C14; --lo:#9DB8E6; --lo-bg:#1E2A3D;
+  --ok:#6FD39C; --ok-bg:#16301F;
+}
+html,body{background:var(--ground)}
+body{color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.55}
+.wrap{max-width:1080px;margin:0 auto;padding-inline:clamp(16px,3vw,32px);padding-block:28px 56px;display:grid;gap:34px}
+header{display:grid;gap:10px}
+.eyebrow{font:600 12px/1 var(--body);letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+h1{font:800 clamp(30px,4.4vw,44px)/1.04 var(--display);font-stretch:87%;margin:0;text-wrap:balance}
+h2{font:800 23px/1.15 var(--display);font-stretch:87%;margin:0;text-wrap:balance}
+h3{font:700 16px/1.35 var(--body);margin:0}
+p{margin:0}
+.lede{max-width:70ch;color:var(--muted)}
+.facts{display:flex;flex-wrap:wrap;gap:8px 22px;font-size:14px}
+.facts b{font:600 15px var(--mono)}
+.facts .hi b{color:var(--hi)} .facts .md b{color:var(--md)} .facts .lo b{color:var(--lo)}
+.facts span{color:var(--muted)}
+section{display:grid;gap:14px}
+.sub{color:var(--muted);max-width:75ch;font-size:14px}
+.first{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:16px 18px;display:grid;gap:10px}
+.first ol{margin:0;padding-left:20px;display:grid;gap:6px}
+.first li::marker{font-family:var(--mono);color:var(--muted)}
+.filters{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.filters .lbl{font:600 12px var(--body);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-right:4px}
+.chip{all:unset;cursor:pointer;font:600 13px var(--body);padding:6px 11px;border-radius:999px;border:1px solid var(--line);color:var(--muted);background:var(--panel)}
+.chip[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:var(--panel)}
+.chip:focus-visible{outline:2px solid var(--navy);outline-offset:2px}
+.list{display:grid;gap:10px}
+.f{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px 16px;display:grid;gap:8px;border-left:4px solid var(--sev)}
+.f[data-sev="High"]{--sev:var(--hi)} .f[data-sev="Medium"]{--sev:var(--md)} .f[data-sev="Low"]{--sev:var(--lo)}
+.f .top{display:flex;flex-wrap:wrap;gap:8px 10px;align-items:baseline}
+.id{font:500 12.5px var(--mono);color:var(--muted)}
+.tag{font:600 11px/1 var(--body);letter-spacing:.06em;text-transform:uppercase;padding:4px 7px;border-radius:4px}
+.tag.sev-High{color:var(--hi);background:var(--hi-bg)} .tag.sev-Medium{color:var(--md);background:var(--md-bg)} .tag.sev-Low{color:var(--lo);background:var(--lo-bg)}
+.tag.role{color:var(--navy);background:var(--navy-soft)}
+.tag.proof{color:var(--ok);background:var(--ok-bg)}
+.tag.code{color:var(--muted);background:var(--ground);border:1px solid var(--line)}
+.f dl{display:grid;grid-template-columns:max-content 1fr;gap:4px 14px;margin:0;font-size:14px}
+.f dt{color:var(--muted);font-weight:600}
+.f dd{margin:0}
+@media (max-width:560px){.f dl{grid-template-columns:1fr}.f dt{margin-top:4px}}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:8px;background:var(--panel)}
+table{border-collapse:collapse;width:100%;min-width:640px;font-size:14px}
+th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font:600 12px var(--body);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+tr:last-child td{border-bottom:0}
+td.res{white-space:nowrap;font-weight:600}
+.pass{color:var(--ok)} .bug{color:var(--hi)}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
+.box{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px 16px;display:grid;gap:8px;align-content:start}
+.box ul{margin:0;padding-left:18px;display:grid;gap:6px;font-size:14px}
+footer{font-size:13px;color:var(--muted);border-top:1px solid var(--line);padding-top:14px;display:grid;gap:6px}
+code{font:500 12.5px var(--mono)}
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Namkural Connect · Tambaram pilot · version 1</div>
+    <h1>Pilot Bug Audit v1</h1>
+    <p class="lede">Bugs in what is already built, seen from the citizen's and the coordinator's side. No new features. Every finding marked <b>Reproduced</b> was replayed against a test copy of the backend with real accounts (2 coordinators sharing ward 34, 1 in ward 35, 8 citizens); the rest were confirmed by reading the app code.</p>
+    <div class="facts">
+      <div class="hi"><b id="n-high">0</b> <span>high</span></div>
+      <div class="md"><b id="n-med">0</b> <span>medium</span></div>
+      <div class="lo"><b id="n-low">0</b> <span>low</span></div>
+      <div><b>26</b> <span>scenarios run</span></div>
+    </div>
+  </header>
+
+  <section aria-labelledby="first-h">
+    <h2 id="first-h">Fix these before the pilot</h2>
+    <div class="first">
+      <ol>
+        <li><b>A citizen can see another citizen's name and phone</b> after their reports are merged (H1).</li>
+        <li><b>Two coordinators can take the same grievance at once</b>, and both are told it worked (H2).</li>
+        <li><b>Grievances logged at the MLA office can never be closed</b> (H4).</li>
+        <li><b>A failed voice-note transcription writes a fake "Large Pothole" title</b> and routes it to the wrong department (H5).</li>
+        <li><b>Merging can fold a fresh complaint into an already closed one</b>, and merged reports keep appearing as live grievances (H6, H7).</li>
+        <li><b>Disabling a coordinator hides their open grievances from everyone</b> (H8).</li>
+      </ol>
+      <p class="sub">All six are small, contained fixes, mostly on the server. H3 (acting on another office's grievance by ID) matters most when Chennai is live with many offices; it is cheap to close at the same time.</p>
+    </div>
+  </section>
+
+  <section aria-labelledby="all-h">
+    <h2 id="all-h">All findings</h2>
+    <div class="filters" role="group" aria-label="Filter findings">
+      <span class="lbl">Who hits it</span>
+      <button class="chip" type="button" data-f="role" data-v="" aria-pressed="true">Everyone</button>
+      <button class="chip" type="button" data-f="role" data-v="Citizen" aria-pressed="false">Citizen</button>
+      <button class="chip" type="button" data-f="role" data-v="Coordinator" aria-pressed="false">Coordinator</button>
+      <button class="chip" type="button" data-f="role" data-v="MLA office" aria-pressed="false">MLA office</button>
+    </div>
+    <div class="list" id="list"></div>
+  </section>
+
+  <section aria-labelledby="sc-h">
+    <h2 id="sc-h">Scenarios we ran</h2>
+    <p class="sub">Each row is a real sequence of actions played through the backend, as the apps would send them.</p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Who</th><th>Scenario</th><th>Result</th></tr></thead>
+        <tbody id="sc"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section aria-labelledby="gap-h">
+    <h2 id="gap-h">Information people will miss</h2>
+    <p class="sub">Small gaps in what the screens show. The data is already there; only showing it is missing.</p>
+    <div class="cols">
+      <div class="box"><h3>Coordinator</h3><ul>
+        <li>Who reported it and their phone number. The server sends both, but the app never shows them, so a coordinator cannot call the citizen.</li>
+        <li>A status badge on Open cards. A transferred or walk-in grievance looks the same as a fresh report.</li>
+        <li>Colleagues' names instead of internal IDs like <code>@arunkumarddfa</code> in messages.</li>
+        <li>Tapping a notification only dismisses it; it should open that grievance.</li>
+        <li>Which department or officer a grievance was transferred to, on the card itself.</li>
+        <li>In the duplicate review: whether the original is still open, closed or false.</li>
+      </ul></div>
+      <div class="box"><h3>Citizen</h3><ul>
+        <li>When it was assigned and when it was resolved. Only the filing date is shown.</li>
+        <li>The department it went to, and the coordinator's note (for example, why it was marked false).</li>
+        <li>After rejecting a fix: "You rejected this on …, the coordinator has been asked to review". Today the card silently turns back to "Assigned".</li>
+        <li>A "Your report" marker in the ward feed.</li>
+        <li>Tapping a notification should open that grievance.</li>
+      </ul></div>
+    </div>
+  </section>
+
+  <section aria-labelledby="park-h">
+    <h2 id="park-h">Not for v1</h2>
+    <div class="box"><ul>
+      <li>Uploading several photos per grievance: for v1, limit the picker to one photo (see M14) rather than building multi-photo upload.</li>
+      <li>The real Tambaram ward → assembly constituency split: the office covers all 70 wards as one group until the official list arrives.</li>
+      <li>Per-action notification types, and letting several coordinators share one grievance: design decisions for after the pilot.</li>
+    </ul></div>
+  </section>
+
+  <footer>
+    <p>Method: three code reviews in parallel (coordinator logic, citizen journeys, status and notification consistency), then every server-side finding replayed through the API on a scratch copy of the backend. App-only behaviour (lists, labels, location) was confirmed in code, and the no-GPS behaviour was also seen in the iOS simulator earlier.</p>
+    <p>Codes: H = high (wrong data, privacy, stuck or lost work) · M = medium (confusing or wrong, but recoverable) · L = low (cosmetic or rarely reached).</p>
+  </footer>
+</div>
+
+<script>
+const F = [
+ ["H1","High","Citizen","A citizen can see another citizen's name and phone number",
+  "Latha's report is merged into Siva's. Her My Reports now carries Siva's full record: his name, phone number and account ID.",
+  "Reproduced: after the merge, Latha's list returned “Siva Test, 9200000005”.",
+  "Send the public version of the original grievance to merged reporters (it already strips personal details)."],
+ ["H2","High","Coordinator","Two coordinators can both take the same grievance",
+  "Arun and Bala tap “Assign” on the same new grievance at the same moment. Both are told it worked; Arun silently ends up owning it, Bala's card disappears, and the citizen gets “assigned” twice. The same race exists for mark-false, merge and office assignment.",
+  "Reproduced: both got success, and two “verified” events were recorded one millisecond apart.",
+  "Make the claim conditional in the database (“only if still unassigned”) and tell the loser “Bala already took this grievance”."],
+ ["H3","High","Coordinator","A coordinator can act on another office's grievance if they know its ID",
+  "Coordinator actions only check who owns the grievance, not whether it belongs to the coordinator's own constituency or corporation. IDs are public in the ward feed.",
+  "Reproduced: a Tambaram coordinator verified and took a Chennai grievance.",
+  "Add one scope check (same corporation, ward in the coordinator's constituency) to every coordinator action."],
+ ["H4","High","MLA office","Grievances logged at the MLA office can never be closed",
+  "A walk-in grievance is worked and closed. It then waits for the citizen to confirm, but there is no citizen account, so it stays “awaiting confirmation” forever and nobody can finish it. The same happens to grievances whose reporter deleted their account. Citizen notifications for walk-ins go to a non-existent “admin” account.",
+  "Reproduced: closed walk-in stuck; office close and mark-false both refused; 3 notifications addressed to “admin”.",
+  "When there is no real reporter, a closure goes straight to Closed."],
+ ["H5","High","Citizen","A failed voice-note transcription is saved as a fake pothole report",
+  "If the AI step fails, a built-in sample is stored as if it were real: title “Large Pothole with Water Logging”, a “[Mock transcript]” text, and a department picked from that sample. No error is flagged, so the office's “retry” never appears.",
+  "Reproduced with the AI switched off: the grievance got the pothole title and the storm-water department.",
+  "Treat the sample as a failure: keep “Street Issue”, leave the transcript empty, and mark it for retry."],
+ ["H6","High","Coordinator","A fresh complaint can be merged into a grievance that is already closed or false",
+  "The problem comes back and Ravi reports it. It is merged into Priya's old, closed ticket, so Ravi immediately sees “Closed” and the recurring problem is lost. The duplicate preview does not show the original's status.",
+  "Reproduced: merge into a closed grievance was accepted; Ravi's list showed Closed.",
+  "Refuse a merge into a closed or false grievance and show the original's status in the preview."],
+ ["H7","High","Everyone","Merged reports keep acting like live grievances",
+  "After a merge the duplicate still shows in the public ward feed, still accepts supports that count for nothing, sits in every coordinator's Open tab with buttons that all fail, and has no label (shows as “Assigned” or “Unknown”).",
+  "Reproduced: merged report listed in the ward feed and accepted a support. Open-tab behaviour confirmed in code.",
+  "Hide merged reports from feeds and the Open tab, block supports on them, move their supports to the original, and add a “Merged” label."],
+ ["H8","High","Coordinator","Disabling a coordinator strands their open grievances",
+  "Chitra is disabled with work in hand. Her grievances still say “assigned to Chitra”, so no other coordinator can see or take them, and they are not counted as unassigned. She also keeps receiving new-grievance alerts.",
+  "Reproduced: Arun could not see or take Chitra's grievance; 3 alerts still went to the disabled account.",
+  "On disable or delete, release that coordinator's open grievances back to the ward; skip disabled accounts when sending alerts."],
+
+ ["M1","Medium","Coordinator","Reassigning a grievance does not tell the coordinator who lost it",
+  "The office moves a grievance from Arun to Bala. Only Bala is told. Arun still sees it, records a photo and voice note to close it, and is refused. A transfer is worse: the WhatsApp to the officer goes out before the refusal.",
+  "Reproduced: no notice to the previous coordinator.",
+  "Notify the previous owner on reassign and unassign."],
+ ["M2","Medium","Coordinator","Assigning an unverified petition gives the coordinator buttons that all fail",
+  "The office assigns a grievance straight from Petition Review. The coordinator sees Transfer, Escalate and Close, and all three are refused because it was never verified.",
+  "Reproduced: transfer refused on the assigned petition.",
+  "When the office assigns an unverified grievance, verify it at the same time."],
+ ["M3","Medium","Coordinator","Grievances the office forwards or unassigns clutter every Open tab",
+  "They appear with an “Assign” button that always fails, and they inflate the counts.",
+  "Reproduced: an office-forwarded grievance showed in the feed and “Assign” was refused.",
+  "Let a coordinator take any unowned open grievance, keeping its status."],
+ ["M4","Medium","Citizen","Citizens whose report was merged get a confirm prompt they cannot use",
+  "When the original is resolved, they see Approve/Reject but are refused, and they get no status updates after the merge notice.",
+  "Reproduced: approval refused; only the “merged” notice received.",
+  "Let merged reporters confirm (or hide the prompt for them) and send them the same updates."],
+ ["M5","Medium","Coordinator","Losing a race shows an internal username and leaves a dead card",
+  "The coordinator sees “Already assigned to @arunkumarddfa”. The card stays with live buttons until they refresh by hand, because the list only reloads on open or resume.",
+  "Reproduced: the message uses the internal ID.",
+  "Say “Arun Kumar already took this grievance”, and reload the list after any refused action."],
+ ["M6","Medium","Coordinator","The ward filter hides a coordinator's own work in other wards",
+  "Arun (home ward 34) owns a grievance in ward 35. Every time he opens the app the filter resets to ward 34 and his Assigned tab reads 0.",
+  "Confirmed in code (app only).",
+  "Apply the ward filter to the Open tab only."],
+ ["M7","Medium","Citizen","A grievance can be filed at the wrong place without the citizen knowing",
+  "With location off, the app uses the corporation's centre point (Chitlapakkam, ward 34) and still lets them file. Location is read once, so a grievance filed later is filed where the app was first opened. The report sheet never shows where it will be filed.",
+  "Seen in the iOS simulator (ward 34 with location denied); confirmed in code.",
+  "Disable “+” while using the fallback point; re-check location when the app returns and when the sheet opens; show the ward in the sheet."],
+ ["M8","Medium","Citizen","The one-grievance-a-day limit is not enforced",
+  "Only the phone counts, and only after a report. The server accepts any number, and a retry after a timeout creates a second copy.",
+  "Reproduced: a second report the same day was accepted.",
+  "Check the limit on the server per account per day, and ignore a repeated submit."],
+ ["M9","Medium","Citizen","The server accepts reports with no photo or voice note",
+  "The app requires both; the server requires neither, and accepts any file type.",
+  "Reproduced: a report with neither was accepted.",
+  "Require both on the server and allow only image and audio files."],
+ ["M10","Medium","Coordinator","Old flags stick after the grievance moves on",
+  "A grievance rejected once keeps its “Rejected — review ASAP” badge even after it is closed. “Escalated” stays after a transfer, and reopened grievances still count as resolved in the office's charts.",
+  "Reproduced: a closed grievance still carries the rejection flag.",
+  "Clear or ignore each flag once the grievance moves past it."],
+ ["M11","Medium","Citizen","“Pending Verification” and “Verification Pending” look the same",
+  "One means “office still reviewing”, the other “please confirm the fix”. In Tamil they are the identical string. Approving a fix is a single tap with no confirmation.",
+  "Confirmed in code.",
+  "Relabel the second as “Resolved — please confirm”, and ask “Close this grievance?” before approving."],
+ ["M12","Medium","MLA office","The office can close a grievance with no proof",
+  "Coordinators must add a photo and a voice note; the office close accepts nothing. After a citizen rejects a fix, the old photo stays and is shown again as proof.",
+  "Reproduced: an empty office close was accepted.",
+  "Require a photo (and a note or voice) for office closes; clear the old proof when a fix is rejected."],
+ ["M13","Medium","Citizen","The old phone keeps getting notifications after signing in on a new one",
+  "The old phone is signed out correctly, but its notification registration stays, so it still receives the account's pushes.",
+  "Reproduced: 2 registered phones after re-login.",
+  "Remove other phones' registrations at sign-in."],
+ ["M14","Medium","Citizen","The app says 3 photos were added, but only the first is sent",
+  "The camera tile shows “Added (3)”, but only one photo is uploaded.",
+  "Confirmed in code.",
+  "Allow one photo (tapping again replaces it)."],
+ ["M15","Medium","Citizen","Citizens can support their own grievance",
+  "Own grievances show a Support button in the ward feed. The server also accepts supports on closed and false grievances, which skews the priority sort coordinators use.",
+  "Reproduced: supporting your own grievance was accepted.",
+  "Refuse self-support and support on finished grievances; hide the button on your own."],
+ ["M16","Medium","Citizen","A shared phone carries one person's state into the next account",
+  "The next person to sign in sees the previous account's supports as “Already supported”, and every sign-in asks for a new PIN, overwriting the old one.",
+  "Confirmed in code.",
+  "Reset the supported list on sign-in; skip “create PIN” when the account already has one."],
+ ["M17","Medium","Coordinator","A repeat report of a transferred grievance is not flagged as a duplicate",
+  "Once a grievance is transferred to a department, new reports of the same problem are not matched, so a second coordinator may transfer it again.",
+  "Reproduced: no duplicate flag against a transferred grievance.",
+  "Include transferred grievances in the duplicate check."],
+
+ ["L1","Low","Coordinator","“Redirect” keeps the grievance locked to the same coordinator",
+  "No app uses it today, but the server sends it back to review while keeping the owner, so nobody else can pick it up.",
+  "Confirmed in code.",
+  "Clear the owner on redirect."],
+ ["L2","Low","MLA office","“Retry processing” re-announces the grievance and overwrites the department",
+  "Retrying on a grievance already being worked sends “New grievance” alerts again and replaces the department a coordinator set.",
+  "Confirmed in code.",
+  "On retry, update only the transcript and title."],
+ ["L3","Low","MLA office","Some console labels and counts are off",
+  "False and merged grievances show as “Open” in the drawer, the timeline shows raw event names for office actions, and the Tickets badge includes closed grievances.",
+  "Confirmed in code.",
+  "Add the missing labels and exclude finished statuses from the counts."],
+];
+const S = [
+ ["Citizen","Sign in, file a grievance with photo in ward 34","pass",""],
+ ["Citizen","File from outside Tambaram","pass","Refused with a clear message"],
+ ["Citizen","File a second grievance the same day","bug","M8"],
+ ["Citizen","File with no photo or voice (direct to server)","bug","M9"],
+ ["Citizen","Voice note that the AI cannot transcribe","bug","H5"],
+ ["Citizen","Fix closed → reject → closed again → approve","pass","Works; see M10, M12"],
+ ["Citizen","Support another citizen's grievance, then again","pass","Second support refused"],
+ ["Citizen","Support your own grievance","bug","M15"],
+ ["Citizen","Your report is merged into someone else's","bug","H1, M4"],
+ ["Citizen","Problem comes back; new report merged into the closed one","bug","H6"],
+ ["Citizen","Sign in on a second phone","bug","Old phone signed out, but M13"],
+ ["Citizen","Location permission denied","bug","M7"],
+ ["Coordinator","New grievance in ward 34 → who is alerted","pass","Both ward-34 coordinators, not ward 35"],
+ ["Coordinator","Two ward-34 coordinators tap Assign together","bug","H2"],
+ ["Coordinator","Ward-35 coordinator takes a ward-34 grievance","pass","Allowed by design (constituency-wide)"],
+ ["Coordinator","Second coordinator tries to close a taken grievance","pass","Refused, but see M5"],
+ ["Coordinator","Office reassigns Arun's grievance to Bala","bug","M1"],
+ ["Coordinator","Office assigns an unverified petition","bug","M2"],
+ ["Coordinator","Office forwards an unassigned grievance","bug","M3"],
+ ["Coordinator","Coordinator disabled with open work","bug","H8"],
+ ["Coordinator","Transfer, escalate, mark false","pass","Citizen notified each time"],
+ ["Coordinator","Close without a voice note","pass","Refused, by design"],
+ ["Coordinator","Act on another office's grievance by ID","bug","H3"],
+ ["Coordinator","Repeat report of a transferred grievance","bug","M17"],
+ ["MLA office","Walk-in grievance worked and closed","bug","H4"],
+ ["MLA office","Close with no proof","bug","M12"],
+];
+const list = document.getElementById("list");
+const esc = s => s.replace(/&/g,"&amp;").replace(/</g,"&lt;");
+F.forEach(([id,sev,role,title,what,proof,fix]) => {
+  const el = document.createElement("article");
+  el.className = "f"; el.dataset.sev = sev; el.dataset.role = role;
+  const reproduced = proof.startsWith("Reproduced");
+  el.innerHTML = `<div class="top"><span class="id">${id}</span><span class="tag sev-${sev}">${sev}</span><span class="tag role">${role}</span><span class="tag ${reproduced ? "proof" : "code"}">${reproduced ? "Reproduced" : "Code / app"}</span></div>
+    <h3>${esc(title)}</h3>
+    <dl><dt>What happens</dt><dd>${esc(what)}</dd><dt>Evidence</dt><dd>${esc(proof)}</dd><dt>Smallest fix</dt><dd>${esc(fix)}</dd></dl>`;
+  list.appendChild(el);
+});
+const count = s => F.filter(f => f[1] === s).length;
+document.getElementById("n-high").textContent = count("High");
+document.getElementById("n-med").textContent = count("Medium");
+document.getElementById("n-low").textContent = count("Low");
+const sc = document.getElementById("sc");
+S.forEach(([who,what,res,note]) => {
+  const tr = document.createElement("tr");
+  tr.innerHTML = `<td>${who}</td><td>${esc(what)}${note ? `<div class="sub">${esc(note)}</div>` : ""}</td><td class="res ${res}">${res === "pass" ? "Works" : "Bug"}</td>`;
+  sc.appendChild(tr);
+});
+document.querySelectorAll(".chip").forEach(b => b.addEventListener("click", () => {
+  document.querySelectorAll(".chip").forEach(c => c.setAttribute("aria-pressed", String(c === b)));
+  const v = b.dataset.v;
+  list.querySelectorAll(".f").forEach(el => {
+    el.hidden = !!v && el.dataset.role !== v && el.dataset.role !== "Everyone";
+  });
+}));
+</script>

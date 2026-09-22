@@ -211,11 +211,13 @@ def _coordinator(conn, username: str, stamp: str = "") -> str:
     # MLA office switching corporations signs the other one's staff out.
     corporation_switched_off(conn, row["constituency"])
     # Checked on every request, so disabling an account in the admin console
-    # takes effect on the coordinator's next tap.
+    # takes effect on the coordinator's next tap. 401, not 403: the app signs
+    # out on 401, which also stops it showing a list it can no longer act on.
     if (row[0] or "active").lower() != "active":
         raise HTTPException(
-            status_code=403,
+            status_code=401,
             detail="This account has been disabled. Contact the MLA office.",
+            headers={"WWW-Authenticate": "Bearer"},
         )
     return who
 

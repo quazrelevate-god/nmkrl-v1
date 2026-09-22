@@ -29,6 +29,7 @@ from session_auth import citizen_session, require_same_citizen, resolve_self
 from gemini_service import ai_available, check_duplicate, classify_department, process_audio
 from utils import (
     bbox_for,
+    has_reporter,
     haversine_m,
     new_id,
     now_iso,
@@ -54,6 +55,27 @@ DUPLICATE_RADIUS_M = 100.0
 # it with the Gemini-generated title (or fall back if Gemini gave nothing).
 _DEFAULT_TITLE_SENTINEL = "Street Issue"
 
+#: Fair-use limit on new grievances per citizen account per day (India time).
+#: The app has always told citizens "1 grievance per day", but only the phone
+#: counted, so a reinstall, a second phone or a retry got round it. 0 turns
+#: the limit off (useful while testing with a few accounts).
+try:
+    DAILY_REPORT_LIMIT = max(0, int(os.getenv("DAILY_REPORT_LIMIT", "1")))
+except ValueError:
+    DAILY_REPORT_LIMIT = 1
+
+#: Grievances that can still receive support: verified and not yet finished.
+SUPPORTABLE = ("ACTIVE", "FORWARDED", "IN_PROGRESS", "PENDING_VERIFICATION")
+
+
+def _start_of_india_day_utc() -> str:
+    """Midnight in India today, as a UTC ISO string comparable with created_at."""
+    from datetime import datetime, timedelta, timezone
+
+    ist = timezone(timedelta(hours=5, minutes=30))
+    midnight = datetime.now(ist).replace(hour=0, minute=0, second=0, microsecond=0)
+    return midnight.astimezone(timezone.utc).isoformat()
+
 
 def _nearby_open_issues(
     conn, lat: float, lng: float, radius_m: float, corporation: str
@@ -69,7 +91,7 @@ def _nearby_open_issues(
     # in the city. See utils.bbox_for.
     rows = conn.execute(
         """SELECT * FROM issues
-            WHERE status IN ('SUBMITTED', 'ACTIVE', 'IN_PROGRESS')
+            WHERE status IN ('SUBMITTED', 'ACTIVE', 'IN_PROGRESS', 'FORWARDED')
               AND corporation = ?
               AND latitude BETWEEN ? AND ? AND longitude BETWEEN ? AND ?""",
         (corporation, min_lat, max_lat, min_lng, max_lng),
@@ -86,7 +108,7 @@ def _nearby_open_issues(
 
 def _finish_report(
     *, issue_id: str, audio_bytes, audio_mime: str, latitude: float,
-    longitude: float, user_id: str, keep_title: bool,
+    longitude: float, user_id: str, keep_title: bool, reprocess: bool = False,
 ) -> None:
     """Background half of a submission: transcribe, route, de-duplicate.
 
@@ -101,13 +123,20 @@ def _finish_report(
     grievance card.
     """
     problems = []
+    blank = {"title": "", "transcript": "", "transcript_ta": "", "highlights": []}
     try:
-        ai = (process_audio(audio_bytes, mime_type=audio_mime)
-              if audio_bytes else
-              {"title": "", "transcript": "", "transcript_ta": "", "highlights": []})
+        ai = process_audio(audio_bytes, mime_type=audio_mime) if audio_bytes else dict(blank)
     except Exception as exc:
         problems.append(f"Transcription failed: {exc}")
-        ai = {"title": "", "transcript": "", "transcript_ta": "", "highlights": []}
+        ai = dict(blank)
+    # process_audio never raises: on any failure it returns a built-in sample
+    # ("Large Pothole with Water Logging", a "[Mock transcript]"), flagged
+    # mock=True. Saving that made a failed transcription look like a real
+    # pothole report and routed it by the sample. Treat it as the failure it is,
+    # so the MLA office sees "needs retry" instead.
+    if ai.get("mock"):
+        problems.append(f"Transcription failed: {ai.get('reason') or 'AI unavailable'}")
+        ai = dict(blank)
 
     with get_connection() as conn:
         row = conn.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
@@ -121,6 +150,24 @@ def _finish_report(
         transcript = ai.get("transcript", "") or ""
         transcript_ta = ai.get("transcript_ta", "") or ""
         highlights = ai.get("highlights", []) or []
+
+        if reprocess:
+            # A retry from the MLA office only repairs what the failed
+            # transcription left blank. The grievance may already be verified,
+            # transferred (department chosen by a coordinator) or ruled on as a
+            # duplicate, so routing, the duplicate flag, the "report" timeline
+            # event and the new-grievance alert are left alone.
+            conn.execute(
+                """UPDATE issues
+                      SET title = ?, transcript = ?, transcript_ta = ?,
+                          summary_highlights = ?, processing = 0,
+                          processing_error = ?
+                    WHERE id = ?""",
+                (title, transcript, transcript_ta, json.dumps(highlights),
+                 " · ".join(problems), issue_id),
+            )
+            conn.commit()
+            return
 
         try:
             area_name = reverse_geocode(latitude, longitude)
@@ -210,6 +257,9 @@ async def report_issue(
     # Optional written petition (PDF / doc / scan). The photo and voice note
     # remain the required pair; this is for citizens who arrive with paperwork.
     document: UploadFile = File(None),
+    # A random id the app generates once per submission, so a retry after a
+    # lost response is recognised instead of filing the grievance twice.
+    client_request_id: str = Form(""),
     session_uid: str = Depends(citizen_session),
     conn=Depends(get_db),
 ):
@@ -236,11 +286,43 @@ async def report_issue(
     if ward_no is None:
         raise HTTPException(status_code=422, detail=outside_message(corp_id))
 
+    # A retry of a submission that was in fact saved (the response was lost)
+    # returns the saved grievance instead of filing a second copy.
+    rid = (client_request_id or "").strip()[:64]
+    if rid:
+        existing = conn.execute(
+            "SELECT * FROM issues WHERE created_by = ? AND client_request_id = ?",
+            (user_id, rid),
+        ).fetchone()
+        if existing is not None:
+            return serialize_issue(existing)
+
+    if DAILY_REPORT_LIMIT:
+        today = conn.execute(
+            "SELECT COUNT(*) AS n FROM issues WHERE created_by = ? AND created_at >= ?",
+            (user_id, _start_of_india_day_utc()),
+        ).fetchone()["n"]
+        if today >= DAILY_REPORT_LIMIT:
+            raise HTTPException(
+                status_code=429,
+                detail=("You have already filed today's grievance. "
+                        "You can file another one tomorrow."),
+            )
+
+    # The app requires a photo and a voice note; so does the server now. It
+    # used to accept neither, leaving staff with an empty grievance.
+    image_bytes = await image.read() if image is not None else b""
+    audio_bytes = await audio.read() if audio is not None else b""
+    if not image_bytes or not audio_bytes:
+        missing = " and ".join(
+            m for m, ok in (("a photo", image_bytes), ("a voice note", audio_bytes)) if not ok
+        )
+        raise HTTPException(status_code=422, detail=f"A grievance needs {missing}.")
+
     # Persist uploads now so the files exist when the app and the task read them.
-    image_url = save_upload(await image.read(), image.filename, "image") if image is not None else None
-    audio_bytes = await audio.read() if audio is not None else None
-    audio_mime = (audio.content_type or "audio/webm") if audio is not None else "audio/webm"
-    audio_url = save_upload(audio_bytes, audio.filename, "audio") if audio_bytes else None
+    image_url = save_upload(image_bytes, image.filename, "image")
+    audio_mime = audio.content_type or "audio/webm"
+    audio_url = save_upload(audio_bytes, audio.filename, "audio")
     document_url = None
     document_name = ""
     if document is not None:
@@ -254,6 +336,11 @@ async def report_issue(
     )
     initial_title = title.strip() if user_provided_title else _DEFAULT_TITLE_SENTINEL
 
+    # The reporter's name and phone come from their verified account, in the
+    # same write. They used to arrive through a second, fire-and-forget call
+    # from the app (/confirm); when it failed, staff had no way to reach them.
+    me = conn.execute("SELECT name, phone FROM users WHERE id = ?", (user_id,)).fetchone()
+
     issue_id = new_id()
     created_at = now_iso()
     conn.execute(
@@ -263,14 +350,15 @@ async def report_issue(
             summary_highlights, latitude, longitude, area_name, ward_no, zone,
             zone_name, department, ticket_number, document_url, document_name,
             status, upvotes, notify_reporter, processing, created_at, created_by,
-            corporation
+            corporation, name, phone, client_request_id
         ) VALUES (?, ?, ?, ?, '', '', '[]', ?, ?, '', ?, ?, ?, '', ?, ?, ?,
-                  'SUBMITTED', 0, 0, 1, ?, ?, ?)
+                  'SUBMITTED', 0, 0, 1, ?, ?, ?, ?, ?, ?)
         """,
         (
             issue_id, initial_title, image_url, audio_url, latitude, longitude,
             ward_no, loc["zone"], loc["zone_name"], ticket_number(issue_id),
             document_url, document_name, created_at, user_id, corp_id,
+            (me["name"] if me else "") or "", (me["phone"] if me else "") or "", rid,
         ),
     )
     conn.commit()
@@ -314,6 +402,16 @@ def upvote_issue(
     issue = conn.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
     if issue is None:
         raise HTTPException(status_code=404, detail="Issue not found")
+    # Support is how other citizens raise a grievance's priority; the reporter
+    # supporting their own inflated the order coordinators work in.
+    if (issue["created_by"] or "") == user_id:
+        raise HTTPException(status_code=403, detail="You can't support your own grievance.")
+    # Only verified, unfinished grievances: support on a merged report counted
+    # for nothing, and on a closed or false one it changes nothing.
+    if issue["status"] not in SUPPORTABLE:
+        raise HTTPException(
+            status_code=409, detail="This grievance is no longer open for support."
+        )
 
     already = conn.execute(
         "SELECT 1 FROM upvotes WHERE user_id = ? AND issue_id = ?",
@@ -349,7 +447,7 @@ def nearby_issues(
     # the Haversine trims it to a true circle (see utils.bbox_for).
     rows = conn.execute(
         """SELECT * FROM issues
-            WHERE status != 'SUBMITTED' AND corporation = ?
+            WHERE status NOT IN ('SUBMITTED', 'MERGED', 'FALSE') AND corporation = ?
               AND latitude BETWEEN ? AND ? AND longitude BETWEEN ? AND ?""",
         (corporations.active_id(conn), min_lat, max_lat, min_lng, max_lng),
     ).fetchall()
@@ -371,7 +469,8 @@ def ward_issues(ward_no: int, conn=Depends(get_db)):
     The ward is the live corporation's: ward numbers repeat across them."""
     rows = conn.execute(
         """SELECT * FROM issues
-           WHERE ward_no = ? AND corporation = ? AND status != 'SUBMITTED'
+           WHERE ward_no = ? AND corporation = ?
+             AND status NOT IN ('SUBMITTED', 'MERGED', 'FALSE')
            ORDER BY upvotes DESC, created_at DESC""",
         (ward_no, corporations.active_id(conn)),
     ).fetchall()
@@ -412,7 +511,9 @@ def user_history(user_id: str,
                 if parent["id"] in seen:
                     continue
                 seen.add(parent["id"])
-                data = serialize_issue(parent)
+                # The public shape: the parent was reported by someone else,
+                # and the full record carried their name and phone number.
+                data = public_issue(parent)
                 data["merged_from_ticket"] = row["ticket_number"] or ""
                 data["merged_at"] = row["merged_at"]
                 out.append(data)
@@ -439,7 +540,7 @@ def user_supported(user_id: str,
     rows = conn.execute(
         """SELECT i.* FROM issues i
            JOIN upvotes u ON u.issue_id = i.id
-           WHERE u.user_id = ? AND i.status != 'SUBMITTED'
+           WHERE u.user_id = ? AND i.status NOT IN ('SUBMITTED', 'MERGED')
            ORDER BY i.created_at DESC""",
         (user_id,),
     ).fetchall()
@@ -470,7 +571,7 @@ def user_stats(user_id: str,
         """SELECT COUNT(*) AS n FROM issues
            WHERE created_by = ?
              AND (assigned_coordinator IS NULL OR assigned_coordinator = '')
-             AND status NOT IN ('CLOSED', 'FALSE')""",
+             AND status NOT IN ('CLOSED', 'FALSE', 'MERGED')""",
         (user_id,),
     ).fetchone()["n"]
     upvotes = conn.execute(
@@ -563,14 +664,40 @@ def verify_issue(
         # stamp rejected_at, and clear escalated_at so it lands in the
         # coordinator's Assigned tab (not Escalated). The coordinator app
         # renders an alert card off rejected_at.
+        # The rejected proof and close time are cleared too: they described a
+        # fix the citizen says did not happen, and a later close showed the same
+        # rejected photo again as "proof", and the office charts counted the
+        # reopened grievance as resolved.
         conn.execute(
             """UPDATE issues
                   SET status = 'ACTIVE', notify_reporter = 0,
-                      rejected_at = ?, escalated_at = NULL,
+                      rejected_at = ?, escalated_at = NULL, closed_at = NULL,
+                      closure_image_url = NULL, closure_audio_url = NULL,
                       coordinator_message = 'Citizen rejected the resolution — please review.'
                 WHERE id = ?""",
             (now_iso(), issue_id),
         )
+        # Nobody (active) owns it — closed by the office, or its coordinator
+        # was disabled meanwhile: put it back in the ward pool and tell the
+        # ward's coordinators, or the rejection reaches no one.
+        owner = (issue["assigned_coordinator"] or "").strip().lower()
+        active_owner = owner and conn.execute(
+            "SELECT 1 FROM coordinators WHERE LOWER(username) = ? "
+            "AND COALESCE(status, 'active') = 'active'",
+            (owner,),
+        ).fetchone()
+        if not active_owner:
+            conn.execute(
+                "UPDATE issues SET assigned_coordinator = '', assigned_at = NULL WHERE id = ?",
+                (issue_id,),
+            )
+            try:
+                from routers.notifications import emit_new_grievance
+                emit_new_grievance(
+                    conn, conn.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
+                )
+            except Exception:
+                pass
     conn.execute(
         """INSERT INTO verifications (id, issue_id, user_id, response, timestamp)
            VALUES (?, ?, ?, ?, ?)""",

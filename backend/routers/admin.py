@@ -31,10 +31,10 @@ import corporations
 import duplicates
 from database import get_db
 from routers.notifications import (
-    emit_status_change, emit_to_coordinator, emit_new_grievance,
+    emit_status_change, emit_to_coordinator, emit_new_grievance, emit_unassigned,
 )
 from utils import (
-    new_id, now_iso, read_upload, save_upload,
+    has_reporter, new_id, now_iso, read_upload, save_upload,
     serialize_issue, ticket_number,
 )
 from tenancy import (
@@ -380,7 +380,7 @@ def list_users(
                 f"""SELECT created_by,
                            COUNT(*) AS reports,
                            SUM(CASE WHEN status = 'CLOSED' THEN 1 ELSE 0 END) AS resolved,
-                           SUM(CASE WHEN status NOT IN ('CLOSED','FALSE') THEN 1 ELSE 0 END) AS open
+                           SUM(CASE WHEN status NOT IN ('CLOSED','FALSE','MERGED') THEN 1 ELSE 0 END) AS open
                       FROM issues
                      WHERE created_by IN ({ph}) AND {tsql}
                   GROUP BY created_by""",
@@ -391,7 +391,7 @@ def list_users(
             f"""SELECT created_by,
                       COUNT(*) AS reports,
                       SUM(CASE WHEN status = 'CLOSED' THEN 1 ELSE 0 END) AS resolved,
-                      SUM(CASE WHEN status NOT IN ('CLOSED','FALSE') THEN 1 ELSE 0 END) AS open
+                      SUM(CASE WHEN status NOT IN ('CLOSED','FALSE','MERGED') THEN 1 ELSE 0 END) AS open
                  FROM issues
                 WHERE created_by IS NOT NULL AND created_by != '' AND {tsql}
              GROUP BY created_by""",
@@ -484,8 +484,11 @@ def forward_issue(
     # Stamp the hand-off, as the coordinator's transfer does. Status alone
     # cannot say a ticket was dispatched once it has moved on to IN_PROGRESS,
     # and the console switches dispatch to "Chat with officer" on this.
+    # A forward supersedes an escalation; escalated_at left set kept the ticket
+    # in the coordinator's Escalated tab.
     conn.execute(
-        "UPDATE issues SET status = 'FORWARDED', transferred_at = ? WHERE id = ?",
+        "UPDATE issues SET status = 'FORWARDED', transferred_at = ?, escalated_at = NULL "
+        "WHERE id = ?",
         (now_iso(), issue_id),
     )
     row = conn.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
@@ -521,7 +524,12 @@ def assign_coordinator(
             status_code=409,
             detail=f"A {issue['status'].lower()} grievance cannot be reassigned.",
         )
+    from routers.coordinator import display_name
+
     who = (coordinator or "").strip().lower()
+    before = (issue["assigned_coordinator"] or "").strip().lower()
+    if who == before:
+        return serialize_issue(issue)  # nothing changes
     if who:
         crow = load_coordinator(conn, who, tenant)
         if crow is None:
@@ -533,28 +541,49 @@ def assign_coordinator(
             raise HTTPException(
                 status_code=400, detail="That coordinator account is disabled."
             )
-        conn.execute(
-            "UPDATE issues SET assigned_coordinator = ?, "
-            "assigned_at = COALESCE(assigned_at, ?) WHERE id = ?",
-            (who, now_iso(), issue_id),
+    # Assigning an unverified petition verifies it: the coordinator's buttons
+    # (transfer, escalate, close) all need a verified grievance, so it used to
+    # land in their Assigned tab with every button refused.
+    new_status = "ACTIVE" if (who and issue["status"] == "SUBMITTED") else issue["status"]
+    # Applied only if nobody changed the owner or status since it was read — a
+    # coordinator claiming it at the same moment would otherwise be silently
+    # overwritten.
+    cur = conn.execute(
+        """UPDATE issues
+              SET assigned_coordinator = ?, assigned_at = ?, status = ?
+            WHERE id = ? AND COALESCE(assigned_coordinator, '') = ? AND status = ?""",
+        (who, now_iso() if who else None, new_status, issue_id, before, issue["status"]),
+    )
+    if cur.rowcount != 1:
+        raise HTTPException(
+            status_code=409,
+            detail="This grievance changed while you were assigning it. Refresh and try again.",
         )
-        note = f"Assigned to @{who} by the MLA office."
-    else:
-        conn.execute(
-            "UPDATE issues SET assigned_coordinator = '' WHERE id = ?", (issue_id,)
-        )
-        note = "Unassigned by the MLA office."
+    note = (f"Assigned to {display_name(conn, who)} by the MLA office." if who
+            else "Unassigned by the MLA office.")
     row = conn.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
-    # Notify the newly-assigned coordinator (the updated row now names them); an
-    # unassign has no owner to tell. Best-effort — never fail the assignment.
-    if who:
-        try:
+    # Tell the new owner, and the one who lost it — their card stayed on screen
+    # and their next action (often after recording evidence) was refused.
+    # Best-effort — never fail the assignment.
+    try:
+        if who:
             emit_to_coordinator(
                 conn, row, "assigned",
                 "The MLA office assigned this grievance to you.",
             )
-        except Exception:
-            pass
+        if before:
+            emit_unassigned(
+                conn, row, before,
+                (f"The MLA office moved this grievance to {display_name(conn, who)}."
+                 if who else "The MLA office took this grievance off you."),
+            )
+        if new_status != issue["status"]:
+            emit_status_change(
+                conn, row, "assigned",
+                "Your grievance has been verified and assigned to a coordinator.",
+            )
+    except Exception:
+        pass
     audit.record(
         conn, issue_id, action="assign", actor_type="admin", actor_id="admin",
         from_status=issue["status"], to_status=row["status"], note=note,
@@ -586,14 +615,27 @@ async def close_issue(
             detail=f"Only open issues can be resolved (status={issue['status']})",
         )
     image_url, audio_url = await audit.store_evidence(photo, voice)
+    # The same standard the console asks for: a photo, plus a note or a voice
+    # note. The docstring promised it; the endpoint accepted an empty close.
+    if not image_url or not (note.strip() or audio_url):
+        raise HTTPException(
+            status_code=400,
+            detail="Add a photo and a note or voice note as proof the grievance was resolved.",
+        )
+    # No citizen behind it (a walk-in logged here, or the account was deleted):
+    # nobody can confirm, so it closes outright rather than waiting forever.
+    confirmable = has_reporter(conn, issue)
+    now = now_iso()
     conn.execute(
         """UPDATE issues
-              SET status = 'PENDING_VERIFICATION', notify_reporter = 1,
+              SET status = ?, notify_reporter = ?,
                   closed_at = ?, coordinator_message = ?,
-                  closure_image_url = COALESCE(?, closure_image_url),
-                  closure_audio_url = COALESCE(?, closure_audio_url)
+                  closure_image_url = ?, closure_audio_url = ?, rejected_at = NULL,
+                  resolved_at = CASE WHEN ? = 'CLOSED' THEN ? ELSE resolved_at END
             WHERE id = ?""",
-        (now_iso(), note.strip(), image_url, audio_url, issue_id),
+        ("PENDING_VERIFICATION" if confirmable else "CLOSED", 1 if confirmable else 0,
+         now, note.strip(), image_url, audio_url,
+         "PENDING_VERIFICATION" if confirmable else "CLOSED", now, issue_id),
     )
     row = conn.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
     _announce(conn, row, "closed",
@@ -758,7 +800,7 @@ def coordinator_performance(
     unassigned = conn.execute(
         f"""SELECT COUNT(*) AS n FROM issues
             WHERE (assigned_coordinator IS NULL OR assigned_coordinator = '')
-              AND status NOT IN ('CLOSED', 'FALSE') AND {tsql}""",
+              AND status NOT IN ('CLOSED', 'FALSE', 'MERGED') AND {tsql}""",
         tparams,
     ).fetchone()["n"]
     return {"count": len(stats), "unassigned": unassigned, "coordinators": stats}
@@ -959,7 +1001,7 @@ def reprocess_issue(
         _finish_report, issue_id=issue_id, audio_bytes=audio_bytes,
         audio_mime=_AUDIO_MIME.get(ext, "audio/mp4"),
         latitude=row["latitude"], longitude=row["longitude"],
-        user_id=row["created_by"] or "", keep_title=keep_title,
+        user_id=row["created_by"] or "", keep_title=keep_title, reprocess=True,
     )
     return serialize_issue(duplicates.load(conn, issue_id))
 

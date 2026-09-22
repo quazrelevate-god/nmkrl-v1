@@ -538,8 +538,15 @@ def init_db() -> None:
             # than a second set of buttons.
             ("duplicate_decision", "TEXT DEFAULT ''"),
             ("duplicate_decided_by", "TEXT DEFAULT ''"),
+            # Random id the app sends once per submission; a retry after a lost
+            # response returns the saved grievance instead of filing it twice.
+            ("client_request_id", "TEXT DEFAULT ''"),
         ]:
             _add_column(conn, "issues", col, defn)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_issues_client_request "
+            "ON issues (created_by, client_request_id)"
+        )
         # Which corporation a grievance was filed in. Ward numbers repeat
         # across corporations (Chennai and Tambaram both have a ward 58), so
         # every ward lookup is made within one corporation. Grievances that

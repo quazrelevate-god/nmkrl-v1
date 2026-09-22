@@ -143,6 +143,27 @@ def read_upload(path) -> bytes | None:
         return None
 
 
+_ALLOWED_EXT = {
+    "image": (".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"),
+    "audio": (".m4a", ".mp4", ".aac", ".mp3", ".wav", ".ogg", ".oga", ".opus",
+              ".webm", ".3gp", ".amr", ".caf"),
+    "document": (".pdf", ".jpg", ".jpeg", ".png", ".webp", ".heic", ".doc", ".docx"),
+}
+
+
+def has_reporter(conn, row) -> bool:
+    """Is there a real citizen account behind this grievance?
+
+    Grievances logged at the MLA office (``created_by='admin'``), seeded demo
+    rows, and those whose reporter deleted their account have nobody to confirm
+    a resolution or receive a notification.
+    """
+    uid = (row["created_by"] or "").strip() if row is not None else ""
+    if not uid or uid == "admin":
+        return False
+    return conn.execute("SELECT 1 FROM users WHERE id = ?", (uid,)).fetchone() is not None
+
+
 def save_upload(file_bytes: bytes, original_name: str, kind: str) -> str:
     """
     Persist an uploaded blob to disk and return its public URL path
@@ -154,7 +175,12 @@ def save_upload(file_bytes: bytes, original_name: str, kind: str) -> str:
     _defaults = {"image": ".jpg", "audio": ".webm", "document": ".pdf"}
     _dirs = {"image": IMAGE_DIR, "audio": AUDIO_DIR, "document": DOC_DIR}
     _subdirs = {"image": "images", "audio": "audio", "document": "documents"}
-    ext = os.path.splitext(original_name or "")[1] or _defaults.get(kind, ".bin")
+    ext = os.path.splitext(original_name or "")[1].lower() or _defaults.get(kind, ".bin")
+    # Files are served by extension, so a client-chosen ".html" "photo" would be
+    # served as a web page from our domain. Anything outside the kind's known
+    # types is stored under the kind's default instead.
+    if ext not in _ALLOWED_EXT.get(kind, ()):
+        ext = _defaults.get(kind, ".bin")
     fname = f"{new_id()}{ext}"
     path = os.path.join(_dirs.get(kind, IMAGE_DIR), fname)
     with open(path, "wb") as fh:

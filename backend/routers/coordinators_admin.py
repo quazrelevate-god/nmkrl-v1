@@ -155,11 +155,52 @@ def create_coordinator(
     return _serialize(row)
 
 
+def _release_open_work(conn, username: str, why: str) -> int:
+    """Put a coordinator's unfinished grievances back in the ward pool.
+
+    Disabling or deleting an account left its grievances "assigned" to someone
+    who could no longer act: hidden from every other coordinator, refused if
+    they tried to take them, and missing from the office's Unassigned view.
+    Grievances awaiting the citizen's confirmation keep their owner; if the
+    citizen rejects the fix, that path re-releases them (routers/issues.py).
+    Also forgets the account's phones, so no more pushes reach it.
+    """
+    import audit
+    from routers.notifications import emit_new_grievance
+
+    who = (username or "").strip().lower()
+    rows = conn.execute(
+        """SELECT * FROM issues WHERE LOWER(assigned_coordinator) = ?
+             AND status IN ('SUBMITTED', 'ACTIVE', 'FORWARDED', 'IN_PROGRESS')""",
+        (who,),
+    ).fetchall()
+    for r in rows:
+        conn.execute(
+            "UPDATE issues SET assigned_coordinator = '', assigned_at = NULL WHERE id = ?",
+            (r["id"],),
+        )
+        audit.record(
+            conn, r["id"], action="release", actor_type="admin", actor_id="admin",
+            from_status=r["status"], to_status=r["status"],
+            note=f"Released from @{who}: {why}.",
+        )
+        fresh = conn.execute("SELECT * FROM issues WHERE id = ?", (r["id"],)).fetchone()
+        try:
+            emit_new_grievance(conn, fresh)
+        except Exception:
+            pass
+    conn.execute(
+        "DELETE FROM device_tokens WHERE recipient_type = 'coordinator' AND LOWER(recipient_id) = ?",
+        (who,),
+    )
+    return len(rows)
+
+
 @router.patch("/{username}")
 def update_coordinator(
     username: str, body: CoordinatorUpdate, tenant: dict = Depends(current_tenant), conn=Depends(get_db)
 ):
-    _own(conn, username, tenant)
+    before = _own(conn, username, tenant)
     _check_scope(tenant, body.constituency, body.home_ward)
 
     updates, params = [], []
@@ -192,6 +233,9 @@ def update_coordinator(
             f"UPDATE coordinators SET {', '.join(updates)} WHERE username = ?",
             params,
         )
+    was_active = (before["status"] or "active").lower() == "active"
+    if was_active and body.status and body.status.lower() != "active":
+        _release_open_work(conn, username, "account disabled")
     row = conn.execute(
         "SELECT * FROM coordinators WHERE username = ?", (username.lower(),)
     ).fetchone()
@@ -228,5 +272,6 @@ def delete_coordinator(
     username: str, tenant: dict = Depends(current_tenant), conn=Depends(get_db)
 ):
     _own(conn, username, tenant)
+    released = _release_open_work(conn, username, "account deleted")
     conn.execute("DELETE FROM coordinators WHERE username = ?", (username.lower(),))
-    return {"deleted": username.lower()}
+    return {"deleted": username.lower(), "released": released}
