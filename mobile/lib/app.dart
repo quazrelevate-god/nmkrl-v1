@@ -24,8 +24,8 @@ class NammaKuralApp extends ConsumerWidget {
       debugShowCheckedModeBanner: false,
       theme: buildNkTheme(),
       routerConfig: router,
-      // Rubber-band overscroll everywhere — including pushed routes like the
-      // profile and the search overlay — so no list stops dead at its end.
+      // Scroll feel for every route, including pushed ones like the profile
+      // and the search overlay, and for dialogs.
       scrollBehavior: const _NkScrollBehavior(),
       // Carry the current language above every route so `context.tr(...)`
       // works anywhere and re-translates the whole tree on toggle.
@@ -35,14 +35,40 @@ class NammaKuralApp extends ConsumerWidget {
   }
 }
 
-/// App-wide scroll feel: iOS-style rubber band on every platform, and drags
-/// that also work from a mouse/trackpad (handy in the simulator and on web).
+/// App-wide scroll feel: lists stop DEAD at their ends, and drags also work
+/// from a mouse/trackpad (handy in the simulator and on web).
+///
+/// This used to rubber-band everywhere. Two separate artifacts came out of
+/// that, both read as "stretching": Android 12+'s StretchingOverscrollIndicator
+/// scaling the whole viewport (pinned headers included), and the bouncing
+/// physics translating content past its end so the container's background
+/// opened up behind it — the home sheet tore its cards loose, and the
+/// grievance dialog pushed its photo down behind a white band. Overscroll
+/// motion is not worth either.
 class _NkScrollBehavior extends MaterialScrollBehavior {
   const _NkScrollBehavior();
 
   @override
   ScrollPhysics getScrollPhysics(BuildContext context) =>
-      const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics());
+      // AlwaysScrollable is kept so a short list still accepts a drag — the
+      // home sheet relies on that to resize itself.
+      const ClampingScrollPhysics(parent: AlwaysScrollableScrollPhysics());
+
+  /// No overscroll INDICATOR. MaterialScrollBehavior installs Android 12+'s
+  /// StretchingOverscrollIndicator, which scales the whole viewport — pinned
+  /// headers included — whenever a list is pulled past its end. That reads as
+  /// the content stretching and tearing away from its container; inside the
+  /// home sheet it pulled the cards clear and clipped the grip off the pinned
+  /// header. Clamping the physics above is not enough on its own: the
+  /// indicator is a paint-time transform driven by overscroll notifications,
+  /// which still fire. Both have to go.
+  @override
+  Widget buildOverscrollIndicator(
+    BuildContext context,
+    Widget child,
+    ScrollableDetails details,
+  ) =>
+      child;
 
   @override
   Set<PointerDeviceKind> get dragDevices => {
