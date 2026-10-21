@@ -53,6 +53,13 @@ enum _WardSort { recent, priority }
 const double _kAppBarBlockHeight = 8 + 56 + 10 + 32;
 const double _kExpandedTopGap = 18;
 
+/// Breathing room under the last card, inside the sheet.
+const double _kSheetBottomGap = 16;
+
+/// Smallest gap kept between the floor and the expanded snap, so the sheet is
+/// always draggable even when the list is short enough to need nothing.
+const double _kMinSheetTravel = 0.06;
+
 /// Fixed-duration settle between the two snaps. Without this the sheet lands on
 /// a velocity-driven ballistic simulation, so a flick and a slow drag settle at
 /// very different speeds; a set duration makes the travel read the same either
@@ -232,10 +239,42 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   /// Expanded snap: the tallest the sheet may get while still leaving the app
   /// bar AND the constituency·ward pill clear, with a gap under the pill.
   /// Per-device, since the status-bar inset varies.
-  static double _sheetMaxFraction(double parentHeight, double topInset) {
-    final reserved = topInset + _kAppBarBlockHeight + _kExpandedTopGap;
-    return ((parentHeight - reserved) / parentHeight).clamp(0.5, 0.9);
+  /// The expanded snap, capped by WHAT THE LIST ACTUALLY NEEDS.
+  ///
+  /// The ceiling is still the device one — the tallest the sheet may get while
+  /// leaving the app bar and the ward pill clear. But expanding to that ceiling
+  /// with only two or three cards opened a tall band of empty white under them,
+  /// which reads as the sheet stretching away from its content. Expanding is
+  /// meant to reveal MORE CARDS; when there are none left to reveal there is
+  /// nothing to expand into, so the snap stops at the content's own height.
+  static double _sheetMaxFraction(
+    double parentHeight,
+    double topInset,
+    int cards,
+    double headerHeight,
+    double bottomObstruction,
+    double floor,
+  ) {
+    final ceiling =
+        ((parentHeight - (topInset + _kAppBarBlockHeight + _kExpandedTopGap)) /
+                parentHeight)
+            .clamp(0.5, 0.9);
+    final contentPx = headerHeight +
+        8 +
+        cards * _kCardFootprint +
+        bottomObstruction +
+        _kSheetBottomGap;
+    // Never below the floor plus a little travel: equal stops would make
+    // snapSizes non-ascending, which DraggableScrollableSheet rejects.
+    return (contentPx / parentHeight).clamp(
+      (floor + _kMinSheetTravel).clamp(0.0, ceiling),
+      ceiling,
+    );
   }
+
+  /// The expanded snap as of the last build, so [_syncSheetLift] can clamp to
+  /// it — the cap moves with the card count, and animateTo past it is invalid.
+  double _sheetMaxNow = 0.86;
 
   /// Extra sheet height the revealed ward filter row needs, as a fraction of
   /// [parentHeight] — exactly the header growth, so the two cards below it stay
@@ -269,7 +308,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     final floor = _sheetFloorFraction(parentH, navCover);
     final lift = _sheetLiftFraction(parentH);
     final target =
-        floor + (_sheetHeaderHeight > _kSheetHeaderBase ? lift : 0);
+        (floor + (_sheetHeaderHeight > _kSheetHeaderBase ? lift : 0))
+            .clamp(floor, _sheetMaxNow);
     // Above the low band means the user dragged it there. Not ours to move.
     if (_sheetCtrl.size > floor + lift + 0.02) return;
     if ((_sheetCtrl.size - target).abs() < 0.001) return;
@@ -325,9 +365,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   /// two heights on the same clock so the two never fight each other.
   late final AnimationController _tabAnimCtrl;
 
-  /// +1 when moving toward the right-hand destination, -1 toward the left, so
-  /// the cards travel the same way the nav bar selection does.
-  double _slideDir = 1;
 
   /// The sheet's own scroll controller, handed to us by DraggableScrollableSheet
   /// in its builder. Kept so a destination change can reset the list to its top.
@@ -626,8 +663,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   void _selectTab(_HomeTab tab) {
     if (_tab == tab) return;
     HapticFeedback.selectionClick();
-    // Which way the cards travel — mine sits left of ward in the nav bar.
-    _slideDir = tab.index > _tab.index ? 1 : -1;
     // Where the pinned header is travelling FROM. Read before the tab flips,
     // because _sheetHeaderHeight is derived from _tab. Without this the header
     // snapped 64→100 in one frame and shoved the outgoing cards down 36px
@@ -933,7 +968,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     // The solid nav bar occupies this whole strip at the bottom of the screen.
     final navCover = _kNavBarHeight + _kNavBarBottomGap * 2 + bottomInset;
     final sheetFloor = _sheetFloorFraction(sheetParentH, navCover);
-    final sheetMax = _sheetMaxFraction(sheetParentH, topInset);
+    final sheetMax = _sheetMaxFraction(
+      sheetParentH,
+      topInset,
+      _applyStatusFilter(_tabIssues).length,
+      _sheetHeaderHeight,
+      navCover,
+      sheetFloor,
+    );
+    // Held for [_syncSheetLift], which must not animate past the live cap.
+    _sheetMaxNow = sheetMax;
 
     // Everything the sheet covers at its floor, used to bias the ward fit into
     // the band that stays visible above it.
@@ -1012,35 +1056,47 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               ),
             ),
 
-            // ── 3. Constituency · ward chip under the app bar, left aligned
-            // to the same 14pt inset so its left edge lines up with the
-            // wordmark above it rather than floating on its own centre. ──
-            if (_currentWard != null)
-              Positioned(
-                key: const ValueKey('home-wardpill'),
-                top: topInset + 8 + 56 + 10,
-                left: 14,
-                child: _WardPill(
-                  constituency: (_locate?.constituencies.isEmpty ?? true)
-                      ? ''
-                      : compactAC(_locate!.constituencies.first),
-                  ward: '$_currentWard',
-                ),
-              ),
-
-            // ── 3b. Test-location picker: choose any ward + one of two interior
-            // spots so grievances can be filed anywhere from one device when
-            // real GPS is outside GCC limits. Replaces the old Egmore-108 jump.
+            // ── 3. Constituency · ward chip and the test-location picker,
+            // as ONE row rather than two independently anchored chips. They
+            // used to be separate Positioneds — one pinned left, one pinned
+            // right, neither aware of the other — so a long constituency name
+            // ("Thiru-Vi-Ka-Nagar") grew the pill rightwards until it ran under
+            // the picker. Sharing a bounded row makes the collision impossible:
+            // the picker takes its fixed width, the pill takes what is left. ──
             Positioned(
-              key: const ValueKey('home-testloc'),
+              key: const ValueKey('home-maprow'),
               top: topInset + 8 + 56 + 10,
+              left: 14,
               right: 14,
-              child: _TestLocationPicker(
-                wards: _sortedWards,
-                ward: _testWard,
-                spot: _testSpot,
-                active: _override != null,
-                onPick: _applyTestLocation,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: _currentWard == null
+                          ? const SizedBox.shrink()
+                          : _WardPill(
+                              constituency:
+                                  (_locate?.constituencies.isEmpty ?? true)
+                                      ? ''
+                                      : compactAC(
+                                          _locate!.constituencies.first),
+                              ward: '$_currentWard',
+                            ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  // Test-location picker: choose any ward + one of two interior
+                  // spots so grievances can be filed anywhere from one device
+                  // when real GPS is outside GCC limits.
+                  _TestLocationPicker(
+                    wards: _sortedWards,
+                    ward: _testWard,
+                    spot: _testSpot,
+                    active: _override != null,
+                    onPick: _applyTestLocation,
+                  ),
+                ],
               ),
             ),
 
@@ -1100,9 +1156,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                     ),
                     child: CustomScrollView(
                       controller: scrollController,
-                      // iOS-style rubber-band overscroll — the list now settles
-                      // instead of stopping dead at the ends.
-                      physics: const BouncingScrollPhysics(
+                      // CLAMPING, not bouncing. AlwaysScrollable is required
+                      // so the sheet still accepts drags when the list is too
+                      // short to scroll — but paired with a bouncing parent it
+                      // let a short list rubber-band, dragging the cards up off
+                      // the top and stretching the sheet open into a white void
+                      // below them. Clamping stops dead at both ends, so the
+                      // only thing a drag past the end can do is resize the
+                      // sheet, which is what it should have been doing.
+                      physics: const ClampingScrollPhysics(
                         parent: AlwaysScrollableScrollPhysics(),
                       ),
                       slivers: [
@@ -1136,53 +1198,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                           // two ghosts overlapping. Both trees are alive during
                           // the transition, which is why this is a boxed child
                           // rather than a lazy SliverList.
-                          sliver: SliverToBoxAdapter(
-                            child: AnimatedSwitcher(
-                              duration: _tabAnimCtrl.duration!,
-                              // Same curve the header extent runs on, so the
-                              // vertical and horizontal motion stay locked.
-                              switchInCurve: _kTabCurve,
-                              switchOutCurve: _kTabCurve,
-                              // Anchor both lists to the top; the default
-                              // centres them, so a short list would bob
-                              // vertically against a long one mid-slide.
-                              layoutBuilder: (current, previous) => Stack(
-                                alignment: Alignment.topCenter,
-                                children: [
-                                  ...previous,
-                                  if (current != null) current,
-                                ],
-                              ),
-                              transitionBuilder: (child, animation) {
-                                // Runs for BOTH children. The one whose key
-                                // matches the live tab is arriving; the other
-                                // is leaving and must exit the opposite way,
-                                // or they slide home together.
-                                final key = child.key as ValueKey<_HomeTab>?;
-                                final incoming = key?.value == _tab;
-                                final dx = incoming ? _slideDir : -_slideDir;
-                                // No fade — a page slide translates, it does
-                                // not dissolve. Fading during the travel is
-                                // what made this read as a wash before.
-                                return SlideTransition(
-                                  position: Tween<Offset>(
-                                    begin: Offset(dx, 0),
-                                    end: Offset.zero,
-                                  ).animate(animation),
-                                  // Without this the entire card list — photos
-                                  // and all — re-rasterises on every frame of
-                                  // the travel, because a translate alone is
-                                  // not a repaint boundary. Cached as a layer
-                                  // it is composited, which is the difference
-                                  // between a stutter and a glide.
-                                  child: RepaintBoundary(child: child),
-                                );
-                              },
-                              child: Column(
-                                key: ValueKey<_HomeTab>(_tab),
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: _buildSheetBody(),
-                              ),
+                          // A REAL, lazy SliverList. This used to be a
+                          // SliverToBoxAdapter holding an AnimatedSwitcher
+                          // whose Stack held the whole card Column — one giant
+                          // box reporting a single fixed extent regardless of
+                          // the viewport. Inside a DraggableScrollableSheet the
+                          // viewport height changes on every frame of a drag,
+                          // and a box adapter cannot answer that correctly: the
+                          // content slid against the sheet mid-drag and the
+                          // pinned header clipped its own grip away. A sliver
+                          // that lays out per-child keeps its geometry exact.
+                          //
+                          // The destination change is now carried by the
+                          // per-item _StaggeredEntry already in _buildSheetBody
+                          // rather than a full-width page slide.
+                          sliver: SliverList(
+                            delegate: SliverChildListDelegate(
+                              _buildSheetBody(),
                             ),
                           ),
                         ),
@@ -1348,11 +1380,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           // block so _kSheetHeaderBase clips exactly where My Reports ends.
           const SizedBox(height: 12),
 
-          // Ward feed only: scope + sort. Built whenever the ward is active,
-          // never conditionally removed — the header's ClipRect is what hides
-          // it, so revealing and hiding are one motion played both ways. A
-          // widget torn out of the tree would blink instead of sliding.
-          if (ward) ...[
+          // Ward feed only: scope + sort. Built ONLY while revealed.
+          //
+          // This used to be built whenever the ward was active and hidden by
+          // the header's ClipRect, so hiding and revealing were one motion.
+          // That made the header's CONTENT 101lp while the delegate declared
+          // minExtent == maxExtent == 64 — and a SliverPersistentHeaderDelegate
+          // must build to exactly its declared extent. The OverflowBox made the
+          // mismatch legal box-wise, but the sliver's scroll and paint geometry
+          // still came from the declared 64, so the pinned header drifted and
+          // clipped its own grip away during a sheet drag. The artifact only
+          // ever appeared on this tab, which is the only place the mismatch
+          // existed. Content now matches the declared extent in both settled
+          // states; the OverflowBox below is left purely to absorb the brief
+          // mismatch WHILE the extent animates between them.
+          if (ward && _wardFiltersOpen) ...[
             const SizedBox(height: 8),
             _buildWardFilterPills(),
             const SizedBox(height: 4),
@@ -2454,12 +2496,21 @@ class _WardPill extends StatelessWidget {
           const Icon(Icons.account_balance, size: 15, color: NkColors.refBlue),
           const SizedBox(width: 8),
           if (constituency.isNotEmpty) ...[
-            Text(
-              constituency,
-              style: const TextStyle(
-                fontSize: 12.5,
-                fontWeight: FontWeight.w700,
-                color: NkColors.slate900,
+            // ONLY this is flexible. Everything after it — the divider, the
+            // "Ward" label and the number — keeps its intrinsic width, so a
+            // long constituency eats into its own name and never pushes the
+            // ward number out of the pill.
+            Flexible(
+              child: Text(
+                constituency,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                softWrap: false,
+                style: const TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                  color: NkColors.slate900,
+                ),
               ),
             ),
             const SizedBox(width: 8),

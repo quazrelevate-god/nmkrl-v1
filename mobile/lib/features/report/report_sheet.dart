@@ -91,11 +91,6 @@ class ReportSheet extends ConsumerStatefulWidget {
   ConsumerState<ReportSheet> createState() => _ReportSheetState();
 }
 
-/// Height of the swipe block (control + the gap above it). The sheet is
-/// translated down by exactly this much while the attachments are incomplete,
-/// so the slider sits below the screen edge and everything above it stays put.
-const double _kSwipeBlockHeight = 78;
-
 class _ReportSheetState extends ConsumerState<ReportSheet>
     with SingleTickerProviderStateMixin {
   final _picker = ImagePicker();
@@ -133,8 +128,13 @@ class _ReportSheetState extends ConsumerState<ReportSheet>
     _recorder.addListener(() => setState(() {}));
   }
 
+  /// Eased handle on [_reveal], shared by the swipe block's size reveal.
+  late final CurvedAnimation _revealCurve =
+      CurvedAnimation(parent: _reveal, curve: Curves.easeOutCubic);
+
   @override
   void dispose() {
+    _revealCurve.dispose();
     _reveal.dispose();
     _recorder.dispose();
     super.dispose();
@@ -259,21 +259,15 @@ class _ReportSheetState extends ConsumerState<ReportSheet>
     final viewInset = MediaQuery.of(context).viewInsets.bottom;
     final safeBottom = MediaQuery.paddingOf(context).bottom;
     _syncReveal();
-    return AnimatedBuilder(
-      animation: _reveal,
-      // No dismissing with back while the upload is in flight.
-      builder: (context, child) => PopScope(
-        canPop: !_submitting,
-        child: Transform.translate(
-        // Sheet slides down by the height of the swipe block, putting the
-        // slider past the bottom edge. Everything above it holds position.
-        offset: Offset(
-          0,
-          (1 - Curves.easeOutCubic.transform(_reveal.value)) *
-              _kSwipeBlockHeight,
-        ),
-        child: child,
-      )),
+    // The sheet is NOT translated any more. It used to slide its whole body
+    // down by the swipe block's height while the attachments were incomplete,
+    // which pushed its bottom edge — slider included — past the screen edge:
+    // the sheet read as half-risen with a clipped white box stranded at the
+    // bottom. The block now reveals by growing its own height instead, so the
+    // sheet stays flush to the bottom edge at every stage.
+    // No dismissing with back while the upload is in flight.
+    return PopScope(
+      canPop: !_submitting,
       child: Container(
       width: double.infinity,
       decoration: const BoxDecoration(
@@ -391,9 +385,18 @@ class _ReportSheetState extends ConsumerState<ReportSheet>
               ],
             ),
 
-            // Swipe to submit.
-            const SizedBox(height: 16),
-            SwipeToConfirm(
+            // Swipe to submit. SizeTransition drives this from the
+            // animation directly, so nothing above it rebuilds per frame.
+            SizeTransition(
+              sizeFactor: _revealCurve,
+              // Grow downward from the content above, not from the centre.
+              alignment: Alignment.topCenter,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const SizedBox(height: 16),
+                  SwipeToConfirm(
               label: context.tr(!widget.insideGcc
                   ? 'Outside corporation limits'
                   : _canSubmit
@@ -416,6 +419,9 @@ class _ReportSheetState extends ConsumerState<ReportSheet>
               labelColor: const Color(0xFF8B90A0),
               hintColor: const Color(0xFF8B90A0),
               fillColor: NkColors.refBlue.withValues(alpha: 0.08),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
