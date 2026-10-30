@@ -618,8 +618,7 @@ class IssueCard extends StatelessWidget {
                         // relabelled when already supported.
                         if (actions == null &&
                             onUpvote != null &&
-                            issue.status != 'FALSE' &&
-                            issue.status != 'CLOSED') ...[
+                            supportable(issue.status)) ...[
                           const SizedBox(height: 12),
                           Consumer(builder: (context, ref, _) {
                             final already = ref

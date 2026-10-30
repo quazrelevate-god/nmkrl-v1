@@ -198,24 +198,36 @@ class _SwipeToConfirmState extends State<SwipeToConfirm>
                         ),
                       ),
 
-                      // Label — centred on the FULL track, not on the space
-                      // left of the thumb, and painted before the thumb so the
-                      // knob slides over it rather than pushing it around.
-                      Positioned.fill(
+                      // Label — centred in the track that is actually FREE:
+                      // right of the thumb's resting place, left of the hint
+                      // chevrons. Centring on the full track put the first word
+                      // under the knob. FittedBox keeps a long label (Tamil
+                      // especially) on one line at a smaller size instead of
+                      // letting it clip or collide.
+                      Positioned(
+                        left: _thumbW + 10,
+                        right: 52,
+                        top: 0,
+                        bottom: 0,
                         child: IgnorePointer(
                           child: Center(
-                            child: Text(
-                              (widget.busy
-                                      ? widget.busyLabel
-                                      : _confirmed
-                                          ? 'Confirmed'
-                                          : widget.label)
-                                  .let(widget.uppercaseLabel),
-                              style: TextStyle(
-                                fontSize: widget.uppercaseLabel ? 12 : 13.5,
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: widget.uppercaseLabel ? 0.3 : 0.2,
-                                color: widget.labelColor,
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text(
+                                (widget.busy
+                                        ? widget.busyLabel
+                                        : _confirmed
+                                            ? 'Confirmed'
+                                            : widget.label)
+                                    .let(widget.uppercaseLabel),
+                                maxLines: 1,
+                                style: TextStyle(
+                                  fontSize: widget.uppercaseLabel ? 12 : 13.5,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing:
+                                      widget.uppercaseLabel ? 0.3 : 0.2,
+                                  color: widget.labelColor,
+                                ),
                               ),
                             ),
                           ),

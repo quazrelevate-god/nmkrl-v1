@@ -12,15 +12,31 @@ class StatusMeta {
     required this.badgeBorder,
     required this.pin,
     required this.open,
+    this.icon,
   });
 
   final String label;
+
+  /// Optional glyph shown before the label on the badge. Carries the nuance a
+  /// one-word label cannot, so the text stays short enough to fit a card.
+  final IconData? icon;
   final Color badgeBg;
   final Color badgeFg;
   final Color badgeBorder;
   final Color pin;
   final bool open;
 }
+
+/// Whether a grievance can still be supported. A resolved one — confirmed or
+/// still awaiting the reporter's confirmation — has nothing left to amplify;
+/// a rejected one was never valid, and a merged one lives on under its
+/// original. Single source of truth for every Support affordance.
+bool supportable(String status) => !const {
+      'CLOSED',
+      'FALSE',
+      'MERGED',
+      'PENDING_VERIFICATION',
+    }.contains(status);
 
 const Map<String, StatusMeta> kStatusMeta = {
   'SUBMITTED': StatusMeta(
@@ -57,10 +73,12 @@ const Map<String, StatusMeta> kStatusMeta = {
     open: true,
   ),
   'PENDING_VERIFICATION': StatusMeta(
-    // Was "Verification Pending" — beside SUBMITTED's "Pending Verification"
-    // the two read the same (and were one string in Tamil), though one means
-    // "the office is reviewing it" and this one "the fix is done, confirm it".
-    label: 'Resolved — awaiting confirmation',
+    // Reads "Resolved" like CLOSED does, and is told apart by the amber fill
+    // and the exclamation glyph rather than by a sentence. The full phrase
+    // ("Resolved — awaiting confirmation") overran the card outright in Tamil,
+    // where it runs to 58 characters.
+    label: 'Resolved',
+    icon: Icons.error_outline,
     badgeBg: NkColors.amber50,
     badgeFg: NkColors.amber700,
     badgeBorder: NkColors.amber100,

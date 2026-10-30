@@ -260,9 +260,9 @@ class GrievanceDialog extends ConsumerWidget {
   bool get _hasGeo => issue.latitude != 0 || issue.longitude != 0;
 
   /// Terminal states: a resolved grievance has nothing left to amplify, and a
-  /// rejected one was never valid to begin with.
-  bool get _settled =>
-      issue.status == 'CLOSED' || issue.status == 'FALSE' || issue.status == 'MERGED';
+  /// rejected one was never valid to begin with. The rule lives in
+  /// status_meta so every Support affordance agrees on it.
+  bool get _settled => !supportable(issue.status);
 
   Future<void> _openMaps(BuildContext context) async {
     if (!_hasGeo) {

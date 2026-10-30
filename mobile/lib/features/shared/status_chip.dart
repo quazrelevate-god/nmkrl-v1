@@ -65,14 +65,23 @@ class _StatusChipState extends State<StatusChip>
         borderRadius: BorderRadius.circular(999),
         border: Border.all(color: m.badgeBorder),
       ),
-      child: Text(
-        context.tr(m.label),
-        style: TextStyle(
-          fontSize: widget.fontSize,
-          fontWeight: FontWeight.w600,
-          color: m.badgeFg,
-          height: 1.2,
-        ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (m.icon != null) ...[
+            Icon(m.icon, size: widget.fontSize * 1.15, color: m.badgeFg),
+            SizedBox(width: widget.fontSize * 0.3),
+          ],
+          Text(
+            context.tr(m.label),
+            style: TextStyle(
+              fontSize: widget.fontSize,
+              fontWeight: FontWeight.w600,
+              color: m.badgeFg,
+              height: 1.2,
+            ),
+          ),
+        ],
       ),
     );
     final pulse = _pulse;

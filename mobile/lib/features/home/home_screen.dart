@@ -325,6 +325,26 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   /// Reports' — the destination change then has no vertical step to make.
   bool _wardFiltersOpen = false;
 
+  /// Name shown on the ward pill. /api/locate is the source of truth, but it
+  /// can come back without a constituency list — and then the pill rendered as
+  /// a bare "| Ward 58" with no name. The ward -> AC map we already ship is the
+  /// fallback, so the name survives any gap in the response.
+  String get _currentConstituency {
+    final w = _currentWard;
+    // Every candidate in order of trust, TRIMMED and skipped when blank. A
+    // non-empty list whose first entry is whitespace is what produced the
+    // nameless pill: it passed an isEmpty check, reserved its width and the
+    // divider, then painted nothing — and never reached the fallback.
+    for (final raw in [
+      ...?_locate?.constituencies,
+      if (w != null) ...constituenciesForWard('$w'),
+    ]) {
+      final name = compactAC(raw).trim();
+      if (name.isNotEmpty) return name;
+    }
+    return '';
+  }
+
   /// The pinned header's settled extent for the active destination.
   double get _sheetHeaderHeight =>
       (_tab == _HomeTab.ward && _wardFiltersOpen)
@@ -432,7 +452,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   // ── Location (port of useGeolocation) ──────────────────────────────────
 
+  /// True while a fix is being acquired. A second call landing on top of the
+  /// first is what made consecutive attempts fail: the platform rejects an
+  /// overlapping request, the catch below treated that as "no location", and
+  /// the map dropped to the corporation centre.
+  bool _locateInFlight = false;
+
   Future<void> _locateDevice() async {
+    if (_locateInFlight) return;
+    _locateInFlight = true;
     setState(() => _geoStatus = 'loading');
     try {
       var permission = await Geolocator.checkPermission();
@@ -444,16 +472,32 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         _useFallbackLocation();
         return;
       }
-      final pos = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-          timeLimit: Duration(seconds: 10),
-        ),
-      );
-      final c = LatLng(pos.latitude, pos.longitude);
+      // A high-accuracy fix routinely takes longer than 10s once the GPS has
+      // gone idle — indoors especially — so the old limit timed out on the
+      // second and later attempts. Give it longer, and fall back to the
+      // platform's last known fix rather than to the corporation centre.
+      Position? pos;
+      try {
+        pos = await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.high,
+            timeLimit: Duration(seconds: 20),
+          ),
+        );
+      } catch (_) {
+        pos = await Geolocator.getLastKnownPosition();
+      }
+      if (pos == null) {
+        _keepPositionOrFallback();
+        return;
+      }
+      // Hoisted: pos is a non-final local captured by the closure below,
+      // which blocks Dart's null promotion.
+      final fix = pos;
+      final c = LatLng(fix.latitude, fix.longitude);
       setState(() {
         _geoCoords = c;
-        _accuracy = pos.accuracy;
+        _accuracy = fix.accuracy;
         _geoStatus = 'ready';
       });
       _afterLocationChanged();
@@ -462,8 +506,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           .reverseGeocode(c.latitude, c.longitude);
       if (mounted) setState(() => _areaName = name);
     } catch (_) {
-      _useFallbackLocation();
+      _keepPositionOrFallback();
+    } finally {
+      _locateInFlight = false;
     }
+  }
+
+  /// A failed REFRESH must not discard a fix we already have. Dropping to the
+  /// corporation centre is what made the ward — and with it the constituency
+  /// name on the pill — vanish on the second attempt. Only a device that has
+  /// never had a position falls back.
+  void _keepPositionOrFallback() {
+    if (!mounted) return;
+    if (_geoCoords != null) {
+      setState(() => _geoStatus = 'ready');
+      return;
+    }
+    _useFallbackLocation();
   }
 
   Future<void> _relocateOnResume() async {
@@ -1073,16 +1132,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                   Expanded(
                     child: Align(
                       alignment: Alignment.centerLeft,
-                      child: _currentWard == null
-                          ? const SizedBox.shrink()
-                          : _WardPill(
-                              constituency:
-                                  (_locate?.constituencies.isEmpty ?? true)
-                                      ? ''
-                                      : compactAC(
-                                          _locate!.constituencies.first),
-                              ward: '$_currentWard',
-                            ),
+                      // scaleDown, not ellipsis. The pill's parts are fixed
+                      // width, so on a narrow phone (360lp) there is nothing
+                      // left to give the name and it truncated to nothing
+                      // while the divider still drew. Scaling the whole pill
+                      // keeps every part legible and proportional instead.
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: _currentWard == null
+                            ? const SizedBox.shrink()
+                            : _WardPill(
+                                constituency: _currentConstituency,
+                                ward: '$_currentWard',
+                              ),
+                      ),
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -1992,6 +2056,10 @@ class _NavSegment extends StatelessWidget {
         duration: const Duration(milliseconds: 280),
         curve: NkMotion.settle,
         alignment: Alignment.center,
+        // Keeps the badge + label off the pill's edge. Without it a long label
+        // ran edge to edge and the Tamil pill read as a different shape from
+        // the English one.
+        padding: const EdgeInsets.symmetric(horizontal: 8),
         decoration: BoxDecoration(
           color: active ? Colors.white : Colors.transparent,
           borderRadius: BorderRadius.circular(999),
@@ -2057,8 +2125,15 @@ class _NavSegment extends StatelessWidget {
                   fontWeight: active ? FontWeight.w700 : FontWeight.w600,
                   color: active ? NkColors.slate900 : NkColors.slate500,
                 ),
-                child:
-                    Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+                // scaleDown, not ellipsis: Tamil labels are wider than their
+                // English counterparts and were being cut to "என் புகார்…".
+                // Shrinking keeps the whole word and keeps both segments
+                // looking like the same component.
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(label, maxLines: 1, softWrap: false),
+                ),
               ),
             ),
           ],
@@ -2361,7 +2436,9 @@ class _TestLocationPicker extends StatelessWidget {
               size: 14, color: active ? NkColors.gold300 : NkColors.slate500),
           const SizedBox(width: 6),
           SizedBox(
-            width: 96,
+            // The picker is a testing affordance and was taking half the width
+            // of a 360lp phone, starving the ward pill beside it.
+            width: MediaQuery.sizeOf(context).width < 390 ? 68 : 96,
             child: ConstituencyWardDropdown(
               wards: wards,
               ward: ward,
@@ -2495,22 +2572,19 @@ class _WardPill extends StatelessWidget {
         children: [
           const Icon(Icons.account_balance, size: 15, color: NkColors.refBlue),
           const SizedBox(width: 8),
-          if (constituency.isNotEmpty) ...[
-            // ONLY this is flexible. Everything after it — the divider, the
-            // "Ward" label and the number — keeps its intrinsic width, so a
-            // long constituency eats into its own name and never pushes the
-            // ward number out of the pill.
-            Flexible(
-              child: Text(
-                constituency,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                softWrap: false,
-                style: const TextStyle(
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w700,
-                  color: NkColors.slate900,
-                ),
+          // Trimmed: a whitespace-only name must not reserve the divider.
+          if (constituency.trim().isNotEmpty) ...[
+            // Plain Text: the pill is measured unbounded and scaled to fit
+            // by the FittedBox above it, and a Flexible child under unbounded
+            // constraints throws. Overflow is handled by that scale, not here.
+            Text(
+              constituency,
+              maxLines: 1,
+              softWrap: false,
+              style: const TextStyle(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w700,
+                color: NkColors.slate900,
               ),
             ),
             const SizedBox(width: 8),
