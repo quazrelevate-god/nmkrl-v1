@@ -257,7 +257,9 @@ const Map<String, String> _ta = {
   'Filing in': 'பதிவு செய்யப்படும் இடம்:',
   'Location is off, so we cannot tell which ward you are in. Turn on location to file a grievance — you can still view your reports and your ward.':
       'இருப்பிடம் முடக்கப்பட்டுள்ளதால் நீங்கள் எந்த வார்டில் இருக்கிறீர்கள் என்று தெரியவில்லை. புகார் பதிவு செய்ய இருப்பிடத்தை இயக்கவும் — உங்கள் புகார்களையும் வார்டையும் பார்க்கலாம்.',
-  'Marked as false petition': 'தவறான மனுவாகக் குறிக்கப்பட்டது',
+  // Shortened: the full "marked as false" spelled-out phrase ran so wide on
+  // a card chip that it crowded the title into near-total ellipsis.
+  'Marked as false petition': 'தவறான மனு',
   'Pending Verification': 'சரிபார்ப்பு நிலுவையில்',
   'Completed': 'முடிந்தது',
   'Submitted': 'சமர்ப்பிக்கப்பட்டது',

@@ -28,15 +28,41 @@ class ProfileHeader extends ConsumerWidget {
     super.key,
     this.searchIssues = const [],
     this.onUpvote,
+    // Everything below is coordinator-mode; defaults keep the citizen home
+    // bit-for-bit what it was. When [profile] is supplied the citizen
+    // providers (name, id, avatar file) are not touched at all.
+    this.recipientType = 'citizen',
+    this.recipientId,
+    this.profile,
+    this.badge,
   });
 
   /// Pool the search overlay looks through (ward feed + own reports).
   final List<Issue> searchIssues;
   final ValueChanged<Issue>? onUpvote;
 
+  /// Who the notification bell polls for. Citizens leave both defaults; the
+  /// coordinator screen passes 'coordinator' and its own username.
+  final String recipientType;
+  final String? recipientId;
+
+  /// Coordinator profile — initials fallback and the office-uploaded photo.
+  /// Non-null switches the bar to coordinator mode.
+  final ({String initials, String? photoUrl})? profile;
+
+  /// Optional right-of-wordmark tag, e.g. the coordinator's STAFF pill.
+  final String? badge;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final accountName = ref.watch(prefsProvider).citizenName;
+    final coordinator = profile != null
+        ? (initials: profile!.initials, photo: profile!.photoUrl)
+        : null;
+    final accountName =
+        coordinator != null ? '' : ref.watch(prefsProvider).citizenName;
+    final bellId = coordinator != null
+        ? (recipientId ?? '')
+        : ref.watch(userIdProvider);
     return SolidCapsule(
       // Tighter on the right: the bell and avatar are round, so they carry
       // their own optical margin and an equal numeric inset reads as too much.
@@ -46,26 +72,59 @@ class ProfileHeader extends ConsumerWidget {
           // Every point spent here is a point the placeholder loses, and the
           // placeholder is what tells a first-time user what can be searched.
           const BrandLogo(height: 23, onLight: true),
+          if (badge != null) ...[
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                // Solid dark pill on the white bar, gold lettering.
+                color: NkColors.refBlueDeep,
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(badge!,
+                  style: const TextStyle(
+                    fontSize: 9,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 1,
+                    color: NkColors.gold200,
+                  )),
+            ),
+          ],
           const SizedBox(width: 8),
-          Expanded(
-            child: _SearchField(
+          // Coordinator mode: a compact icon button for search instead of the
+          // always-visible field — the wordmark + STAFF badge already eat most
+          // of the bar. Citizen mode keeps the real field untouched.
+          if (coordinator != null) ...[
+            _SearchIconButton(
               onTap: () => SearchOverlay.open(
                 context,
                 issues: searchIssues,
                 onUpvote: onUpvote,
               ),
             ),
-          ),
-          const SizedBox(width: 4),
+            const SizedBox(width: 4),
+          ] else ...[
+            Expanded(
+              child: _SearchField(
+                onTap: () => SearchOverlay.open(
+                  context,
+                  issues: searchIssues,
+                  onUpvote: onUpvote,
+                ),
+              ),
+            ),
+            const SizedBox(width: 4),
+          ],
           NotificationBell(
-            recipientType: 'citizen',
-            recipientId: ref.watch(userIdProvider),
+            recipientType: recipientType,
+            recipientId: bellId,
             // Dark glyph — the bar is white now.
             dark: false,
           ),
           _ProfileAvatar(
-            initials: ProfileData.initialsOf(accountName),
-            avatarPath: ref.watch(avatarProvider),
+            initials: coordinator?.initials ?? ProfileData.initialsOf(accountName),
+            avatarPath: coordinator == null ? ref.watch(avatarProvider) : null,
+            networkPhoto: coordinator?.photo,
           ),
         ],
       ),
@@ -109,7 +168,7 @@ class SolidCapsule extends StatelessWidget {
   }
 }
 
-/// The search entry point: a real field, not a bare icon. It does not take
+/// The citizen search entry point: a real field, not a bare icon. It does not take
 /// focus — tapping anywhere on it opens [SearchOverlay], which owns the actual
 /// input — so the placeholder is free to say what can be searched for.
 class _SearchField extends StatelessWidget {
@@ -153,14 +212,49 @@ class _SearchField extends StatelessWidget {
   }
 }
 
+/// Coordinator search entry point: a compact round button matching the bell's
+/// proportions, so the bar stays one clean row of round controls. Opens the
+/// same [SearchOverlay] the citizen field does.
+class _SearchIconButton extends StatelessWidget {
+  const _SearchIconButton({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        height: 31,
+        width: 31,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          // Same recessed grey as the citizen field, at the avatar's size —
+          // the three right-side controls read as one family.
+          color: const Color(0xFFF1F3F6),
+          shape: BoxShape.circle,
+          border: Border.all(color: const Color(0xFFE8EBEF)),
+        ),
+        child: const Icon(Icons.search, size: 17, color: NkColors.slate500),
+      ),
+    );
+  }
+}
+
 /// Gold-ringed avatar circle. Tapping navigates to [ProfileScreen].
 class _ProfileAvatar extends StatelessWidget {
-  const _ProfileAvatar({required this.initials, this.avatarPath});
+  const _ProfileAvatar({required this.initials, this.avatarPath, this.networkPhoto});
 
   final String initials;
 
   /// Local profile-picture path, or null to fall back to initials.
   final String? avatarPath;
+
+  /// Office-uploaded photo URL (coordinator mode), which never existed
+  /// locally: the fallback also covers a URL that fails to load, so a broken
+  /// image never replaces the initials.
+  final String? networkPhoto;
 
   @override
   Widget build(BuildContext context) {
@@ -187,18 +281,32 @@ class _ProfileAvatar extends StatelessWidget {
             color: NkColors.refBlue,
             shape: BoxShape.circle,
           ),
-          child: avatarPath != null
-              ? Image.file(
-                  File(avatarPath!),
-                  height: 31,
-                  width: 31,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => _initialsText(),
-                )
-              : _initialsText(),
+          child: _photoWidget(),
         ),
       ),
     );
+  }
+
+  Widget _photoWidget() {
+    if (networkPhoto != null) {
+      return Image.network(
+        networkPhoto!,
+        height: 31,
+        width: 31,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => _initialsText(),
+      );
+    }
+    if (avatarPath != null) {
+      return Image.file(
+        File(avatarPath!),
+        height: 31,
+        width: 31,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => _initialsText(),
+      );
+    }
+    return _initialsText();
   }
 
   Widget _initialsText() => Text(

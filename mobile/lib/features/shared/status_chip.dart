@@ -72,13 +72,21 @@ class _StatusChipState extends State<StatusChip>
             Icon(m.icon, size: widget.fontSize * 1.15, color: m.badgeFg),
             SizedBox(width: widget.fontSize * 0.3),
           ],
-          Text(
-            context.tr(m.label),
-            style: TextStyle(
-              fontSize: widget.fontSize,
-              fontWeight: FontWeight.w600,
-              color: m.badgeFg,
-              height: 1.2,
+          // FittedBox scale-down: in an unconstrained context the chip keeps
+          // its intrinsic size (every other screen is unchanged), but when a
+          // parent caps the chip's width — long localized strings in a card
+          // row — the label shrinks to fit instead of pushing its neighbours.
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              context.tr(m.label),
+              maxLines: 1,
+              style: TextStyle(
+                fontSize: widget.fontSize,
+                fontWeight: FontWeight.w600,
+                color: m.badgeFg,
+                height: 1.2,
+              ),
             ),
           ),
         ],

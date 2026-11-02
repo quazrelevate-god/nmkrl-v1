@@ -207,14 +207,22 @@ class GrievanceCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 8),
-                Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    _SupportPill(count: issue.upvotes),
-                    const SizedBox(height: 6),
-                    StatusChip(status: issue.status, fontSize: 10),
-                  ],
+                // Bounded now via Flexible — the chip column used to take its
+                // intrinsic width, so a long localized status string
+                // (Tamil "marked as false") squeezed the title column to
+                // almost nothing. The Column keeps hugging the chip, but it
+                // shares the remaining space and the chip auto-scales
+                // (see StatusChip) instead of stealing it from the title.
+                Flexible(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      _SupportPill(count: issue.upvotes),
+                      const SizedBox(height: 6),
+                      StatusChip(status: issue.status, fontSize: 10),
+                    ],
+                  ),
                 ),
               ],
             ),

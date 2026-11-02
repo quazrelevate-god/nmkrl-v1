@@ -355,9 +355,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   /// destination change so [_liveHeaderHeight] can travel between the two.
   double _prevHeaderHeight = _kSheetHeaderBase;
 
-  /// The header's extent *right now*, on the same clock and curve as the cards.
+  /// The header's extent *right now*, on the same clock and curve as the
+  /// cards (see [_headerAnimCtrl] — the header's clock, not the slide's).
   double get _liveHeaderHeight {
-    final t = _kTabCurve.transform(_tabAnimCtrl.value);
+    final t = _kTabCurve.transform(_headerAnimCtrl.value);
     return _prevHeaderHeight + (_sheetHeaderHeight - _prevHeaderHeight) * t;
   }
 
@@ -385,6 +386,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   /// two heights on the same clock so the two never fight each other.
   late final AnimationController _tabAnimCtrl;
 
+  /// Drives ONLY the pinned header's height (base ↔ ward-filters-revealed).
+  /// Kept separate from [_tabAnimCtrl] because the ward-filter toggle needs the
+  /// header to animate but must NOT restart the slide: the card list listens
+  /// to _tabAnimCtrl, so running it forward from 0 replayed the whole
+  /// side-in page slide on every Filter tap — the list read as reloading
+  /// when nothing was loading. A toggle animates this one; a destination
+  /// change animates both.
+  late final AnimationController _headerAnimCtrl;
+
 
   /// The sheet's own scroll controller, handed to us by DraggableScrollableSheet
   /// in its builder. Kept so a destination change can reset the list to its top.
@@ -399,6 +409,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       duration: const Duration(milliseconds: 320),
       value: 1, // first paint is already settled — nothing slides on launch
     );
+    // Same clock: the header growth matches a destination change's slide.
+    _headerAnimCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 320),
+      value: 1, // first paint is already settled — no growth on launch
+    );
     _locateDevice();
     _loadBoundaries();
     _loadHistory();
@@ -408,6 +424,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _tabAnimCtrl.dispose();
+    _headerAnimCtrl.dispose();
     _sheetCtrl.dispose();
     super.dispose();
   }
@@ -580,30 +597,110 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     }
   }
 
-  Future<void> _loadWard(int ward) async {
-    try {
-      final list = await ref.read(apiClientProvider).fetchWardIssues(ward);
-      if (mounted) setState(() => _wardIssues = list);
-    } catch (_) {}
+  /// Ward the last fetch was for + its in-flight flag. A stale response for a
+  /// ward the user has already left must not overwrite the current one, and
+  /// duplicate callers (pollers, resume) must not stack requests.
+  int? _wardFetchInFlightFor;
+
+  /// True when both lists describe the same data (id, status, support count,
+  /// title per position). A refresh that discovered nothing replaces nothing —
+  /// swapping in fresh Issue instances for identical content is what made
+  /// every card rebuild, the very churn this guards against.
+  static bool _sameIssues(List<Issue> a, List<Issue> b) {
+    if (identical(a, b)) return true;
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      final x = a[i], y = b[i];
+      if (x.id != y.id ||
+          x.status != y.status ||
+          x.upvotes != y.upvotes ||
+          x.title != y.title) {
+        return false;
+      }
+    }
+    return true;
   }
 
+  Future<void> _loadWard(int ward) async {
+    if (_wardFetchInFlightFor == ward) return;
+    _wardFetchInFlightFor = ward;
+    try {
+      final list = await ref.read(apiClientProvider).fetchWardIssues(ward);
+      if (mounted && _wardFetchInFlightFor == ward) {
+        if (list.isEmpty && _wardIssues.isEmpty) return;
+        setState(() => _wardIssues = list);
+        _freshStagger = true;
+      }
+    } catch (_) {}
+    _wardFetchInFlightFor = null;
+  }
+
+  /// A fetch is already running. The post-submit poller, lifecycle resume and
+  /// the notification pump all hit this — without the guard, overlapping
+  /// responses could land out of order and the older list would overwrite the
+  /// newer one.
+  bool _histFetchInFlight = false;
+
+  /// Card widgets keyed by every field they render. An unchanged payload hands
+  /// back the SAME instance, and the framework short-circuits a child updated
+  /// to an identical widget — so a tab switch (or any rebuild) does not rebuild
+  /// cards at all: no image re-resolve, no status-chip pulse restart, no ink
+  /// state. A reload with different data produces a different key and a fresh
+  /// widget, so content can never go stale.
+  final Map<String, Widget> _cardMemo = <String, Widget>{};
+
+  Widget _memoCard(String tab, Issue issue, {ValueChanged<Issue>? onUpvote}) {
+    final key = '$tab|${issue.id}|${issue.status}|${issue.upvotes}';
+    return _cardMemo[key] ??= Padding(
+      key: ValueKey(key),
+      padding: const EdgeInsets.only(bottom: 8),
+      child: _selectableCard(
+        issue,
+        GrievanceCard(issue: issue, onUpvote: onUpvote),
+      ),
+    );
+  }
+
+  Widget _memoVerifyCard(Issue issue) {
+    final key = 'verify|${issue.id}|${issue.status}';
+    return _cardMemo[key] ??= SizedBox(
+      key: ValueKey(key),
+      child: _verifyCard(issue),
+    );
+  }
+
+  /// Staggered fade-in is a data-arrival effect, not a transition effect: it
+  /// plays once for each load that brought new content, and a plain rebuild —
+  /// a destination switch, a sheet drag, a scroll — must never replay it.
+  /// Consumed by the first [_buildSheetBody] after it is set.
+  bool _freshStagger = true;
+
   Future<void> _loadHistory() async {
+    if (_histFetchInFlight) return;
+    _histFetchInFlight = true;
     setState(() => _histLoading = true);
     try {
       final list = await ref
           .read(apiClientProvider)
           .fetchHistory(ref.read(userIdProvider));
       if (mounted) {
-        setState(() {
-          _history = list;
-          _histLoading = false;
-          // Landing on an empty My Reports is a dead end — switch to My Ward
-          // silently the first time we learn the account has no reports.
-          if (!_autoTabApplied) {
-            _autoTabApplied = true;
-            if (_tab == _HomeTab.mine && list.isEmpty) _tab = _HomeTab.ward;
-          }
-        });
+        if (_sameIssues(_history, list) && !_histLoading) {
+          // Nothing changed — keep the existing instances so cards are not
+          // torn down and rebuilt for identical content.
+          setState(() => _histLoading = false);
+        } else {
+          setState(() {
+            _history = list;
+            _histLoading = false;
+            // Landing on an empty My Reports is a dead end — switch to My Ward
+            // silently the first time we learn the account has no reports.
+            if (!_autoTabApplied) {
+              _autoTabApplied = true;
+              if (_tab == _HomeTab.mine && list.isEmpty) _tab = _HomeTab.ward;
+            }
+          });
+          _freshStagger = true;
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -612,6 +709,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           _histLoading = false;
         });
       }
+    } finally {
+      _histFetchInFlight = false;
     }
   }
 
@@ -624,7 +723,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       final list = await ref
           .read(apiClientProvider)
           .fetchSupported(ref.read(userIdProvider));
-      if (mounted) setState(() => _supported = list);
+      if (mounted) {
+        if (!_sameIssues(_supported, list)) {
+          setState(() => _supported = list);
+          _freshStagger = true;
+        }
+      }
       // Same fetch backs every Support button's disabled state — keep the
       // app-wide set in step rather than issuing a second identical request.
       ref
@@ -694,7 +798,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     HapticFeedback.selectionClick();
     _prevHeaderHeight = _sheetHeaderHeight;
     setState(() => _wardFiltersOpen = !_wardFiltersOpen);
-    _tabAnimCtrl.forward(from: 0);
+    // Header only. Restarting _tabAnimCtrl here is what made every Filter tap
+    // replay the page slide: the card list rides that same controller, so the
+    // my-ward cards slid in from the side (and the thumbnails resurfacing
+    // mid-slide read as a reload) whenever the filters were opened or closed.
+    _headerAnimCtrl.forward(from: 0);
     // Same duration and curve as the header growth, so the sheet's top edge and
     // the filter row arrive together and the cards below never move.
     _syncSheetLift();
@@ -719,9 +827,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _selectTab(direction < 0 ? _HomeTab.ward : _HomeTab.mine);
   }
 
+  /// Direction the incoming list travels from: +1 when moving toward the
+  /// right-hand destination, -1 toward the left, so the page arrives from the
+  /// same side the nav bar selection moved.
+  double _slideDir = 1;
+
   void _selectTab(_HomeTab tab) {
     if (_tab == tab) return;
     HapticFeedback.selectionClick();
+    _slideDir = tab.index > _tab.index ? 1 : -1;
     // Where the pinned header is travelling FROM. Read before the tab flips,
     // because _sheetHeaderHeight is derived from _tab. Without this the header
     // snapped 64→100 in one frame and shoved the outgoing cards down 36px
@@ -729,8 +843,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _prevHeaderHeight = _sheetHeaderHeight;
     setState(() => _tab = tab);
     // Restarting from 0 also cancels an in-flight transition, so rapid taps
-    // never leave a list stranded part-way across.
+    // never leave a list stranded part-way across. The header rides its own
+    // controller too — leaving the ward with filters open gives height back.
     _tabAnimCtrl.forward(from: 0);
+    _headerAnimCtrl.forward(from: 0);
     // Land the new list at its top: without this a scrolled ward feed hands
     // its offset to a shorter reports list and opens part-way down, or blank.
     if (_sheetScrollCtrl?.hasClients ?? false) _sheetScrollCtrl!.jumpTo(0);
@@ -1144,7 +1260,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                             ? const SizedBox.shrink()
                             : _WardPill(
                                 constituency: _currentConstituency,
-                                ward: '$_currentWard',
                               ),
                       ),
                     ),
@@ -1188,6 +1303,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 snapAnimationDuration: _kSheetSnapDuration,
                 builder: (context, scrollController) {
                   _sheetScrollCtrl = scrollController;
+                  // Built once per sheet build and indexed lazily below, so the
+                  // list stays a real sliver.
+                  final body = _buildSheetBody();
                   return GestureDetector(
                     // HORIZONTAL only, and only over the sheet. The sheet's own
                     // vertical drag and the list's scroll keep winning the
@@ -1237,7 +1355,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                         // RenderSliver here — that is what lets the extent
                         // animate without rebuilding the whole scroll view.
                         AnimatedBuilder(
-                          animation: _tabAnimCtrl,
+                          // The header's clock, NOT the slide's: this is the
+                          // only listener _liveHeaderHeight rides, so the ward
+                          // filter toggle can grow the header without the card
+                          // list replaying its destination slide.
+                          animation: _headerAnimCtrl,
                           // Built once per destination change, NOT per frame:
                           // the header's chips are the expensive part and
                           // re-running them 60× would cost the frames we are
@@ -1250,35 +1372,32 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                               child: child!,
                             ),
                           ),
-                        ),
-                        SliverPadding(
+                        ),                        SliverPadding(
                           // Bottom clearance so the last card clears the
                           // floating nav bar rather than hiding under it.
                           padding:
                               EdgeInsets.fromLTRB(14, 0, 14, navCover + 16),
-                          // Page-style slide: the outgoing list travels a
-                          // FULL width out while the incoming one comes a full
-                          // width in, so at any instant you see one list, not
-                          // two ghosts overlapping. Both trees are alive during
-                          // the transition, which is why this is a boxed child
-                          // rather than a lazy SliverList.
-                          // A REAL, lazy SliverList. This used to be a
-                          // SliverToBoxAdapter holding an AnimatedSwitcher
-                          // whose Stack held the whole card Column — one giant
-                          // box reporting a single fixed extent regardless of
-                          // the viewport. Inside a DraggableScrollableSheet the
-                          // viewport height changes on every frame of a drag,
-                          // and a box adapter cannot answer that correctly: the
-                          // content slid against the sheet mid-drag and the
-                          // pinned header clipped its own grip away. A sliver
-                          // that lays out per-child keeps its geometry exact.
+                          // A REAL, lazy SliverList. A SliverToBoxAdapter
+                          // holding the whole card Column reported one fixed
+                          // extent regardless of the viewport, and inside a
+                          // DraggableScrollableSheet the viewport changes on
+                          // every frame of a drag — the content slid against
+                          // the sheet and the pinned header clipped its own
+                          // grip away. A sliver that lays out per child keeps
+                          // its geometry exact.
                           //
-                          // The destination change is now carried by the
-                          // per-item _StaggeredEntry already in _buildSheetBody
-                          // rather than a full-width page slide.
+                          // The destination change rides on top of it: every
+                          // child takes the SAME translation from one
+                          // controller, so the list reads as one page sliding
+                          // in rather than each card animating for itself.
                           sliver: SliverList(
-                            delegate: SliverChildListDelegate(
-                              _buildSheetBody(),
+                            delegate: SliverChildBuilderDelegate(
+                              (context, i) => _TabSlide(
+                                animation: _tabAnimCtrl,
+                                dx: _slideDir,
+                                child: body[i],
+                              ),
+                              childCount: body.length,
                             ),
                           ),
                         ),
@@ -1589,14 +1708,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
     out.add(const SizedBox(height: 4));
 
-    // Cards fade+rise in on their own short stagger, and the whole list
-    // cross-fades when the destination or ward scope changes.
+    // Cards fade+rise in on their own short stagger — but only when the load
+    // actually brought new content. A destination switch or any other rebuild
+    // rides the same list (the memo returns identical instances) and must not
+    // replay the cascade.
     final cards = switch (_tab) {
       _HomeTab.ward => _wardCards(),
       _HomeTab.mine => _myReportCards(),
     };
+    final fresh = _freshStagger;
+    _freshStagger = false;
     for (var i = 0; i < cards.length; i++) {
-      out.add(_StaggeredEntry(index: i, child: cards[i]));
+      out.add(_StaggeredEntry(index: i, fresh: fresh, child: cards[i]));
     }
     return out;
   }
@@ -1666,14 +1789,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
     return [
       for (final issue in list)
-        Padding(
-          padding: const EdgeInsets.only(bottom: 8),
-          child: _selectableCard(
-            issue,
-            GrievanceCard(
-                issue: issue, onUpvote: _isMine(issue) ? null : _upvote),
-          ),
-        ),
+        _memoCard('ward', issue, onUpvote: _isMine(issue) ? null : _upvote),
     ];
   }
 
@@ -1685,10 +1801,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     // into it: only its own reporter can confirm, and the buttons failed.
     for (final issue in _history.where((i) =>
         i.status == 'PENDING_VERIFICATION' && i.mergedFromTicket == null)) {
-      out.add(_verifyCard(issue));
+      out.add(_memoVerifyCard(issue));
     }
 
-    if (_histLoading) {
+    // Spinner ONLY when there is nothing to show yet. _loadHistory raises
+    // this flag on every call, and the post-submit poller calls it every 3s
+    // for ~21s while Gemini works — so the whole feed was being replaced by a
+    // spinner and rebuilt seven times over. A refresh that already has cards
+    // swaps them in silently instead.
+    if (_histLoading && _history.isEmpty) {
       out.add(
         const Padding(
           padding: EdgeInsets.symmetric(vertical: 32),
@@ -1725,12 +1846,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     // saved before any of that runs. Duplicates are staff work now, and the
     // background result arrives on its own (see _pollHistoryWhileProcessing).
     for (final issue in list) {
-      out.add(
-        Padding(
-          padding: const EdgeInsets.only(bottom: 8),
-          child: _selectableCard(issue, GrievanceCard(issue: issue)),
-        ),
-      );
+      out.add(_memoCard('mine', issue));
     }
     return out;
   }
@@ -1994,34 +2110,82 @@ class _HomeNavBar extends StatelessWidget {
             final sideWidth =
                 ((constraints.maxWidth - _plusWidth - _plusGap * 2) / 2)
                     .clamp(0.0, 400.0);
-            return Row(
+            // One white capsule that GLIDES between the two segment slots
+            // (the same treatment as the coordinator sheet's segment pills):
+            // the old per-segment AnimatedContainer cross-faded the capsule
+            // out of the old tab and into the new one, which read as a blink.
+            // The slot jump is a fixed geometry — left segment slot, centre
+            // button, gap, right segment slot — so the pill's position is
+            // arithmetic off the same numbers the Row uses.
+            final rightSlot = sideWidth + _plusWidth + _plusGap * 2;
+            final pillLeft = switch (tab) {
+              _HomeTab.mine => 0.0,
+              _HomeTab.ward => rightSlot,
+            };
+            return Stack(
               children: [
-                SizedBox(
+                AnimatedPositioned(
+                  duration: const Duration(milliseconds: 260),
+                  curve: NkMotion.settle,
+                  left: pillLeft,
+                  top: 0,
+                  bottom: 0,
                   width: sideWidth,
-                  height: _innerHeight,
-                  child: _NavSegment(
-                    label: context.tr('My Reports'),
-                    count: myCount,
-                    active: tab == _HomeTab.mine,
-                    onTap: () => onTab(_HomeTab.mine),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(999),
+                      // The active tab is raised off the track with the same
+                      // two-light logic as the bar, one step quieter so it
+                      // reads as nested inside it.
+                      boxShadow: [
+                        BoxShadow(
+                          color:
+                              const Color(0xFF9AA5B4).withValues(alpha: 0.34),
+                          blurRadius: 6,
+                          offset: const Offset(2, 3),
+                          spreadRadius: -2,
+                        ),
+                        BoxShadow(
+                          color: Colors.white.withValues(alpha: 0.95),
+                          blurRadius: 5,
+                          offset: const Offset(-2, -2),
+                          spreadRadius: -2,
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-                const SizedBox(width: _plusGap),
-                SizedBox(
-                  width: _plusWidth,
-                  height: _innerHeight,
-                  child: _NavPlusButton(onTap: onSubmit, enabled: canSubmit),
-                ),
-                const SizedBox(width: _plusGap),
-                SizedBox(
-                  width: sideWidth,
-                  height: _innerHeight,
-                  child: _NavSegment(
-                    label: context.tr('In my Ward'),
-                    count: wardCount,
-                    active: tab == _HomeTab.ward,
-                    onTap: () => onTab(_HomeTab.ward),
-                  ),
+                Row(
+                  children: [
+                    SizedBox(
+                      width: sideWidth,
+                      height: _innerHeight,
+                      child: _NavSegment(
+                        label: context.tr('My Reports'),
+                        count: myCount,
+                        active: tab == _HomeTab.mine,
+                        onTap: () => onTab(_HomeTab.mine),
+                      ),
+                    ),
+                    const SizedBox(width: _plusGap),
+                    SizedBox(
+                      width: _plusWidth,
+                      height: _innerHeight,
+                      child: _NavPlusButton(onTap: onSubmit, enabled: canSubmit),
+                    ),
+                    const SizedBox(width: _plusGap),
+                    SizedBox(
+                      width: sideWidth,
+                      height: _innerHeight,
+                      child: _NavSegment(
+                        label: context.tr('In my Ward'),
+                        count: wardCount,
+                        active: tab == _HomeTab.ward,
+                        onTap: () => onTab(_HomeTab.ward),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             );
@@ -2049,39 +2213,19 @@ class _NavSegment extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // No capsule of its own any more — the bar owns ONE white pill that
+    // slides between the two segment slots (see _HomeNavBar). Each segment
+    // is just its label + badge over a transparent hit target, swapping
+    // text/badge colours with the active state as the pill glides under it.
     return GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 280),
-        curve: NkMotion.settle,
+      child: Container(
         alignment: Alignment.center,
         // Keeps the badge + label off the pill's edge. Without it a long label
         // ran edge to edge and the Tamil pill read as a different shape from
         // the English one.
         padding: const EdgeInsets.symmetric(horizontal: 8),
-        decoration: BoxDecoration(
-          color: active ? Colors.white : Colors.transparent,
-          borderRadius: BorderRadius.circular(999),
-          // The active tab is raised off the track with the same two-light
-          // logic as the bar, one step quieter so it reads as nested inside it.
-          boxShadow: active
-              ? [
-                  BoxShadow(
-                    color: const Color(0xFF9AA5B4).withValues(alpha: 0.34),
-                    blurRadius: 6,
-                    offset: const Offset(2, 3),
-                    spreadRadius: -2,
-                  ),
-                  BoxShadow(
-                    color: Colors.white.withValues(alpha: 0.95),
-                    blurRadius: 5,
-                    offset: const Offset(-2, -2),
-                    spreadRadius: -2,
-                  ),
-                ]
-              : null,
-        ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.center,
@@ -2239,10 +2383,19 @@ class _NavPlusButtonState extends State<_NavPlusButton> {
 /// Fades + lifts a list item in on a short per-index stagger, so a list that
 /// changes (tab switch, filter change, refresh) settles instead of snapping.
 class _StaggeredEntry extends StatefulWidget {
-  const _StaggeredEntry({required this.index, required this.child});
+  const _StaggeredEntry({
+    required this.index,
+    required this.child,
+    this.fresh = false,
+  });
 
   final int index;
   final Widget child;
+
+  /// True only when the list this entry belongs to is fresh (a load actually
+  /// brought new content). A fresh=false entry paints already settled — the
+  /// fade happens once per data change, never on a rebuild or a tab switch.
+  final bool fresh;
 
   @override
   State<_StaggeredEntry> createState() => _StaggeredEntryState();
@@ -2261,6 +2414,13 @@ class _StaggeredEntryState extends State<_StaggeredEntry>
   @override
   void initState() {
     super.initState();
+    if (!widget.fresh) {
+      // Settled immediately: this entry was mounted by a rebuild, not by new
+      // data. Starting at 1 also short-circuits the transition's opacity
+      // layer, so settled cards do not pay a saveLayer each frame.
+      _c.value = 1.0;
+      return;
+    }
     // Cap the stagger so a long list does not take a second to finish.
     final ms = (widget.index.clamp(0, 6)) * 45;
     if (ms == 0) {
@@ -2556,16 +2716,15 @@ class _WardFilterPill extends StatelessWidget {
 /// Floating "🏛 Egmore | Ward (103)" chip — frosted like the app bar, parked
 /// just under it on the top-left of the map.
 class _WardPill extends StatelessWidget {
-  const _WardPill({required this.constituency, required this.ward});
+  const _WardPill({required this.constituency});
 
   final String constituency;
-  final String ward;
 
   @override
   Widget build(BuildContext context) {
     return SolidCapsule(
-      // Even inset both sides now that the ward number is plain text — the
-      // asymmetric padding existed only to seat the blue circle.
+      // Even inset both sides — the trailing space used to seat the ward
+      // number, which no longer renders here.
       padding: const EdgeInsets.fromLTRB(12, 7, 13, 7),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -2573,7 +2732,7 @@ class _WardPill extends StatelessWidget {
           const Icon(Icons.account_balance, size: 15, color: NkColors.refBlue),
           const SizedBox(width: 8),
           // Trimmed: a whitespace-only name must not reserve the divider.
-          if (constituency.trim().isNotEmpty) ...[
+          if (constituency.trim().isNotEmpty)
             // Plain Text: the pill is measured unbounded and scaled to fit
             // by the FittedBox above it, and a Flexible child under unbounded
             // constraints throws. Overflow is handled by that scale, not here.
@@ -2587,27 +2746,6 @@ class _WardPill extends StatelessWidget {
                 color: NkColors.slate900,
               ),
             ),
-            const SizedBox(width: 8),
-            Container(width: 1, height: 13, color: NkColors.slate200),
-            const SizedBox(width: 8),
-          ],
-          Text(
-            context.tr('Ward'),
-            style: const TextStyle(
-              fontSize: 12.5,
-              fontWeight: FontWeight.w500,
-              color: NkColors.slate500,
-            ),
-          ),
-          const SizedBox(width: 5),
-          Text(
-            ward,
-            style: const TextStyle(
-              fontSize: 12.5,
-              fontWeight: FontWeight.w800,
-              color: NkColors.slate900,
-            ),
-          ),
         ],
       ),
     );
@@ -2788,6 +2926,46 @@ class _ClosureProofState extends State<_ClosureProof> {
           ],
         ],
       ),
+    );
+  }
+}
+
+/// Carries the destination change for one list item. Every child of the sheet's
+/// SliverList is wrapped in this and fed the SAME controller, so they translate
+/// together and the list reads as one page sliding in — rather than each card
+/// animating for itself, which is what made the switch feel like a flicker.
+///
+/// FractionalTranslation, not SlideTransition: the offset is a fraction of the
+/// child's own width, so a full 1.0 is exactly one screen regardless of card
+/// height, and a lazy sliver can still build its children one at a time.
+class _TabSlide extends StatelessWidget {
+  const _TabSlide({
+    required this.animation,
+    required this.dx,
+    required this.child,
+  });
+
+  final Animation<double> animation;
+
+  /// +1 arrives from the right, -1 from the left.
+  final double dx;
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: animation,
+      // Built once, not per frame — only the transform changes.
+      child: child,
+      builder: (context, built) {
+        final t = _kTabCurve.transform(animation.value.clamp(0.0, 1.0));
+        if (t >= 1) return built!; // settled: no transform, no opacity layer
+        return FractionalTranslation(
+          translation: Offset(dx * (1 - t), 0),
+          child: Opacity(opacity: t, child: built),
+        );
+      },
     );
   }
 }

@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart' show LatLngBounds;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../../core/theme.dart';
@@ -18,12 +17,10 @@ import '../../domain/models/corporation.dart';
 import '../../domain/models/issue.dart';
 import '../../state/providers.dart';
 import '../home/widgets/issue_card.dart';
+import '../home/widgets/profile_header.dart';
 import '../../domain/models/duplicate_info.dart';
 import '../home/widgets/map_card.dart';
-import '../profile/profile_screen.dart';
-import '../search/search_overlay.dart';
 import '../shared/notification_banner.dart';
-import '../shared/notification_bell.dart';
 import 'widgets/action_sheets.dart';
 
 /// Coordinator home — map-first treatment for staff:
@@ -51,9 +48,6 @@ const double _kSheetHeaderHeight = 88;
 /// The one corner radius in the composition — it belongs to the white sheet.
 const double _kSheetCornerRadius = 22;
 
-/// Height of the solid app bar's content, below the status-bar inset.
-const double _kAppBarContentHeight = 62;
-
 /// Rendered height of the ward chip — the status legend is lifted by this so
 /// the chip can sit directly beneath it.
 const double _kWardPillHeight = 38;
@@ -67,7 +61,7 @@ class CoordinatorHomeScreen extends ConsumerStatefulWidget {
 }
 
 class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver, TickerProviderStateMixin {
   BoundaryData? _boundaries;
   // The whole constituency feed. The visible list is this, filtered to the
   // selected ward (see the _parts getter). Notifications stay ward-locked
@@ -92,6 +86,142 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
   String? _expandedId;
   String _sort = 'recent'; // 'recent' | 'priority'
 
+  /// Drives the destination page-slide: restarted on every segment change.
+  /// Same composition, duration and curve as the citizen home so both screens
+  /// read as one system.
+  late final AnimationController _tabAnimCtrl;
+
+  /// Real collapsed card heights, per segment tab, measured off the sheet
+  /// rather than copied from the citizen's constant — the coordinator card is
+  /// a different widget (1-line title, pill wrap, optional duplicate ribbon)
+  /// and a wrong constant either hides the second card's bottom half or opens
+  /// a gap under it. The floor is header + 8 + 2 × the active tab's
+  /// measurement; 0 means "not measured yet, use [_kFootprintFallback]".
+  /// Sampled twice per tab (imperfect screen raster, hairline kerning) and
+  /// then settled; only fully-collapsed states are sampled, so an expanded
+  /// card's height never pollutes the floor.
+  final Map<int, double> _cardFootprintByTab = {};
+  double? _cardSample;
+
+  /// What a fully-collapsed card of the active tab measured. Called from the
+  /// [_MeasureHeight] wrapper sitting around the sheet's first two cards.
+  ///
+  /// Two agreeing samples (within 1px — subpixel raster differences between
+  /// builds shouldn't be trusted alone) settle the tab's footprint; the floor
+  /// formula then reads it. Samples are taken only while no card is expanded
+  /// (an expanded card's height would inflate the floor) and only for the
+  /// active tab, since the ribbon/badge heights differ per tab.
+  void _onCardMeasured(int tabIndex, double height) {
+    if (_expandedId != null) return;
+    final settled = _cardFootprintByTab[tabIndex];
+    // Already conclusive — and this value still agrees with the settled one,
+    // so nothing to do and no setState churn.
+    if (settled != null && (settled - height).abs() <= 1) {
+      _cardSample = null;
+      return;
+    }
+    final first = _cardSample;
+    if (first == null) {
+      _cardSample = height;
+      return;
+    }
+    if ((first - height).abs() <= 1) {
+      final mean = (first + height) / 2;
+      _cardSample = null;
+      // Floor and snap read this — tell the sheet.
+      setState(() => _cardFootprintByTab[tabIndex] = mean);
+    } else {
+      // Disagreement: trust the newest reading, wait for the next build.
+      _cardSample = height;
+    }
+  }
+
+  /// Measured height of the list chrome (error banner + ward filter +
+  /// heading row) for a tab — the space the sheet must open before any card
+  /// starts. Unlike cards, this is stored directly from the latest sample
+  /// (settle-guarded): the chrome is rebuilt every build and its height
+  /// legitimately changes between frames (error banner appears/disappears,
+  /// ward chip arrives), so a two-sample lock would go stale.
+  final Map<int, double> _chromeFootprintByTab = {};
+
+  void _onChromeMeasured(int tabIndex, double height) {
+    final settled = _chromeFootprintByTab[tabIndex];
+    // Only re-tell the sheet when the value actually moved.
+    if (settled != null && (settled - height).abs() <= 0.5) return;
+    setState(() => _chromeFootprintByTab[tabIndex] = height);
+  }
+
+  /// The snap list the sheet is handed, rebuilt ONLY when the floor value
+  /// moves. DraggableScrollableSheet re-snaps when snapSizes changes
+  /// identity — fresh literals every build re-snap on every rebuild.
+  List<double> _snapCache = const [0.28, 0.86];
+
+  /// Direction the incoming list travels from: +1 when moving toward a
+  /// higher-index segment, -1 toward a lower one — the page enters from the
+  /// side the selection moved.
+  double _slideDir = 1;
+
+  /// Cards keyed by every field they render + a generation stamp. An
+  /// unchanged payload hands back the SAME instance, and the framework
+  /// short-circuits a child updated to an identical widget — so switching
+  /// segments (or the ward filter, which does no reload) does not rebuild
+  /// cards at all: no image re-resolve, no perch state, no ink. Real changes
+  /// land in the key directly — a fresh payload changes status/upvotes/
+  /// distance, a reload bumps [_dataStamp] as a catch-all for fields the
+  /// key does not spell out (the title).
+  final Map<String, Widget> _cardMemo = <String, Widget>{};
+  int _dataStamp = 0;
+
+  Widget _memoCard(int tabIndex, Issue issue) {
+    final key = 'c$tabIndex|x$_dataStamp|${issue.id}|${issue.status}|'
+        '${issue.upvotes}|${_expandedId == issue.id}|'
+        '${issue.awaitingDuplicateReview}|${issue.rejectedAt != null}'
+        // Distance is rendered on the card against the map centre; carrying
+        // it in the key (not a blanket stamp) is what lets a ward-filter
+        // switch re-render only the cards whose distance actually moved
+        // while every other card keeps its element and its loaded image.
+        '|${_distanceKm(issue)?.toStringAsFixed(1) ?? '-'}'
+        // The map-selection treatment (gold ring + scale in _selectableCard)
+        // is part of the card's look, so it must be in the key too. Without
+        // it, the instance memoised while the issue was map-selected is
+        // handed back on a later expand — a gold glow "hover" with no pin
+        // selected.
+        '|${_selected?.id == issue.id ? 'Y' : 'n'}';
+    return _cardMemo[key] ??= Padding(
+      key: ValueKey(key),
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Flagged by the duplicate check and not yet ruled on. It
+          // sits above the card because it is a gate: assigning a
+          // grievance that is about to be merged wastes the visit.
+          if (issue.awaitingDuplicateReview) _duplicateRibbon(issue),
+          _selectableCard(
+            issue,
+            IssueCard(
+              issue: issue,
+              expanded: _expandedId == issue.id,
+              onToggle: () => setState(() =>
+                  _expandedId = _expandedId == issue.id ? null : issue.id),
+              distanceKm: _distanceKm(issue),
+              badge: tabIndex != CoordinatorTab.ward.index
+                  ? _ActionStatusBadge(
+                      status: issue.status, rejected: issue.rejectedAt != null)
+                  : null,
+              actions: switch (CoordinatorTab.values[tabIndex]) {
+                CoordinatorTab.ward => _wardActions(issue),
+                CoordinatorTab.mine => _mineActions(issue),
+                CoordinatorTab.escalated => _escalatedActions(issue),
+                CoordinatorTab.previous => const SizedBox.shrink(),
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   /// The four tabs. The ward chip narrows the Open tab (the ward pool) only:
   /// Assigned, Escalated and Previous are this coordinator's own work in any
   /// ward. Filtering those too — with the chip reset to the home ward on
@@ -110,6 +240,10 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
   }
 
   final _sheetCtrl = DraggableScrollableController();
+
+  /// The scroll position inside the sheet, captured in its builder. Held so a
+  /// segment change can reset the list to its top (see [_selectTab]).
+  ScrollController? _listScrollCtrl;
 
   /// Live sheet extent. A notifier, not setState state: only the map legend
   /// listens, so dragging never rebuilds the map underneath.
@@ -134,9 +268,16 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
     return LatLngBounds.fromPoints(pts);
   }
 
-  /// Sheet floor: pinned header + ~2 cards, as a fraction of the parent height.
+  /// Sheet floor: pinned header + the list chrome (error banner + ward
+  /// filter + heading) + exactly 2 collapsed cards, as a fraction of the
+  /// parent height. Card and chrome heights are runtime measurements (see
+  /// [_onCardMeasured]/[_onChromeMeasured]) — the coordinator chrome is
+  /// much taller than the citizen's, so a copied constant hides the second
+  /// card entirely. 0 means "not measured yet".
   double _sheetFloorFraction(double parentHeight) {
-    const px = _kSheetHeaderHeight + 8 + 2 * _kCardFootprint;
+    final card = _cardFootprintByTab[_tab.index] ?? _kCardFootprint;
+    final chrome = _chromeFootprintByTab[_tab.index] ?? 0.0;
+    final px = _kSheetHeaderHeight + chrome + 2 * card;
     return (px / parentHeight).clamp(0.28, 0.5);
   }
 
@@ -172,6 +313,11 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
     ref.read(corporationProvider); // starts loading the live corporation's table
     _acWards = _wardsFor(_me);
     _ward = _me.homeWard; // start on the coordinator's own ward (their priority)
+    _tabAnimCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 320),
+      value: 1, // first paint is already settled — nothing slides on launch
+    );
     _loadBoundaries();
     _loadConstituency();
     _refreshProfile();
@@ -183,16 +329,10 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
       activeAcMap[c.constituency] ??
       (c.homeWard.isNotEmpty ? [c.homeWard] : const <String>[]);
 
-  Widget _initials(Coordinator me) => Text(me.initials,
-      style: const TextStyle(
-        fontSize: 12,
-        fontWeight: FontWeight.w900,
-        color: NkColors.gold300,
-      ));
-
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _tabAnimCtrl.dispose();
     _sheetCtrl.dispose();
     _sheetExtent.dispose();
     super.dispose();
@@ -259,6 +399,25 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
     }
   }
 
+  /// True when both lists describe the same data per position. A reload that
+  /// discovered nothing replaces nothing — otherwise every poll cycle would
+  /// hand freshly-parsed Issue instances to the cards (the memo invalidates,
+  /// ink and image subtrees rebuild) and a visible flash would ride along.
+  static bool _sameIssues(List<Issue> a, List<Issue> b) {
+    if (identical(a, b)) return true;
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      final x = a[i], y = b[i];
+      if (x.id != y.id ||
+          x.status != y.status ||
+          x.upvotes != y.upvotes ||
+          x.title != y.title) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   /// Load the whole constituency once; the ward filter narrows it client-side,
   /// so switching wards is instant and needs no round trip.
   Future<void> _loadConstituency() async {
@@ -269,10 +428,29 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
                 sort: _sort,
               );
       if (!mounted) return;
+      if (_sameIssues(_allIssues, list) && _dataStamp > 0) return;
       setState(() => _allIssues = list);
+      _dataStamp++; // stale memoised cards were built from the old payload
     } catch (e) {
       if (mounted) setState(() => _error = '$e');
     }
+  }
+
+  /// Switch segments with the same page-slide the citizen home uses: the
+  /// whole card list translates in from the side the selection moved, over
+  /// one controller, and lands at its top. The chrome above the cards (ward
+  /// filter, heading, refresh) stays put; only the list is a page.
+  void _selectTab(CoordinatorTab tab) {
+    if (_tab == tab) return;
+    HapticFeedback.selectionClick();
+    _slideDir = tab.index > _tab.index ? 1 : -1;
+    setState(() => _tab = tab);
+    // Restarting from 0 also cancels an in-flight transition, so rapid taps
+    // never leave a list stranded part-way across.
+    _tabAnimCtrl.forward(from: 0);
+    // A scrolled Queued/Assigned feed handing its offset to a shorter one
+    // opens part-way down or blank — land at the top like the citizen sheet.
+    if (_listScrollCtrl?.hasClients ?? false) _listScrollCtrl!.jumpTo(0);
   }
 
   /// Switch the ward filter and move the map to match.
@@ -512,13 +690,19 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
     final topInset = MediaQuery.paddingOf(context).top;
     final screenH = MediaQuery.sizeOf(context).height;
     final sheetFloor = _sheetFloorFraction(screenH);
+    // Identity-stable snap list: refreshed only when the measured floor
+    // actually moves (first sample landing, tab with a different ribbon).
+    if (_snapCache[0] != sheetFloor || _snapCache[1] != _kSheetMax) {
+      _snapCache = [sheetFloor, _kSheetMax];
+    }
 
     // Lock the map to the selected ward, fitting it into the band that stays
     // visible above the sheet at its floor.
     final lockBounds = _wardBounds;
     final lockPadding = EdgeInsets.only(
-      // Clear of the app bar and the ward chip parked beneath it.
-      top: topInset + _kAppBarContentHeight + 48,
+      // Clear of the floating app-bar capsule + the ward chip. Same clearance
+      // the citizen map lock uses for its identical chrome stack.
+      top: topInset + 96,
       bottom: sheetFloor * screenH + 16,
       left: 28,
       right: 28,
@@ -564,13 +748,24 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
               ),
             ),
 
-            // ── 2. Solid app bar, edge to edge across the top ──
+            // ── 2. Home app bar capsule — the SAME widget the citizen home
+            // floats, in coordinator mode (STAFF tag after the wordmark, bell
+            // polling the coordinator id, office-uploaded photo or initials).
+            // Floating over the map, inset 8 from the status bar and 14 from
+            // the edges — identical geometry to the citizen's.
             Positioned(
               key: const ValueKey('coord-appbar'),
-              top: 0,
-              left: 0,
-              right: 0,
-              child: _buildAppBar(),
+              top: topInset + 8,
+              left: 14,
+              right: 14,
+              child: ProfileHeader(
+                searchIssues: _allIssues,
+                // Over the whole constituency feed, matching the old bar.
+                recipientType: 'coordinator',
+                recipientId: _me.username,
+                profile: (initials: _me.initials, photoUrl: _me.photo),
+                badge: 'STAFF',
+              ),
             ),
 
             // ── 3. Constituency · ward chip, parked directly under the
@@ -625,9 +820,12 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
                 minChildSize: sheetFloor,
                 maxChildSize: _kSheetMax,
                 snap: true,
-                snapSizes: [sheetFloor, _kSheetMax],
+                snapSizes: _snapCache,
                 snapAnimationDuration: _kSheetSnapDuration,
-                builder: (context, scrollController) => DecoratedBox(
+                builder: (context, scrollController) {
+                  _listScrollCtrl = scrollController;
+                  final tabBody = _cardsOfTab(current);
+                  return DecoratedBox(
                   decoration: BoxDecoration(
                     color: Colors.white,
                     borderRadius: const BorderRadius.vertical(
@@ -645,8 +843,16 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
                         top: Radius.circular(_kSheetCornerRadius)),
                     child: CustomScrollView(
                       controller: scrollController,
-                      // Rubber-band overscroll, matching the citizen sheet.
-                      physics: const BouncingScrollPhysics(
+                      // CLAMPING, not bouncing — and explicitly here, since an
+                      // explicit physics overrides the app-wide clamping
+                      // behavior. The bouncing pair used to let a short list
+                      // rubber-band past its end, dragging the cards up off
+                      // the top and stretching open a white void below them —
+                      // the same artifact the citizen sheet shipped and had
+                      // fixed (see 895ebd0). Clamping stops dead at both ends;
+                      // the only thing a drag past the end can do is resize
+                      // the sheet.
+                      physics: const ClampingScrollPhysics(
                         parent: AlwaysScrollableScrollPhysics(),
                       ),
                       slivers: [
@@ -660,43 +866,37 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
                         SliverPadding(
                           padding: EdgeInsets.fromLTRB(14, 0, 14,
                               40 + MediaQuery.paddingOf(context).bottom),
+                          // A lazy, per-child sliver. The first child is the
+                          // static chrome (error banner + ward filter +
+                          // heading); every card after it rides the page-slide
+                          // (see _selectTab) and is memoised so a segment
+                          // switch hands back identical widgets — Flutter then
+                          // skips the card update entirely and nothing inside
+                          // them replays.
                           sliver: SliverList(
-                            delegate: SliverChildListDelegate([
-                              if (_error != null)
-                                Container(
-                                  margin: const EdgeInsets.only(bottom: 12),
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 12, vertical: 8),
-                                  decoration: BoxDecoration(
-                                    color: NkColors.rose50,
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      Expanded(
-                                        child: Text(_error!,
-                                            style: const TextStyle(
-                                                fontSize: 12,
-                                                color: NkColors.rose600)),
-                                      ),
-                                      GestureDetector(
-                                        onTap: () =>
-                                            setState(() => _error = null),
-                                        child: const Icon(Icons.close,
-                                            size: 14,
-                                            color: NkColors.rose600),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              _buildList(current),
-                            ]),
+                            delegate: SliverChildBuilderDelegate(
+                              (context, i) {
+                                if (i == 0) {
+                                  return _MeasureHeight(
+                                    onHeight: (h) =>
+                                        _onChromeMeasured(_tab.index, h),
+                                    child: _buildListChrome(current),
+                                  );
+                                }
+                                return _TabSlide(
+                                  animation: _tabAnimCtrl,
+                                  dx: _slideDir,
+                                  child: tabBody[i - 1],
+                                );
+                              },
+                              childCount: 1 + tabBody.length,
+                            ),
                           ),
                         ),
                       ],
                     ),
                   ),
-                ),
+                );}
                 ),
               ),
             ),
@@ -743,134 +943,6 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
     );
   }
 
-  /// Solid app bar — a flat white surface running edge to edge under the
-  /// status bar, with dark glyphs. Brand + STAFF badge on the left; search,
-  /// notification bell and avatar on the right.
-  Widget _buildAppBar() {
-    final me = _me;
-    final topInset = MediaQuery.paddingOf(context).top;
-    return Container(
-      width: double.infinity,
-      padding: EdgeInsets.fromLTRB(16, topInset + 10, 12, 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.08),
-            blurRadius: 16,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Flexible(
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // The light-surface cut of the wordmark — the navy-tuned
-                // BrandLogo asset washes out on this white bar.
-                Flexible(
-                  child: SvgPicture.asset(
-                    'assets/brand/நம்குரல் llight.svg',
-                    height: 30,
-                    fit: BoxFit.contain,
-                    alignment: Alignment.centerLeft,
-                  ),
-                ),
-                const SizedBox(width: 14),
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    // Solid dark pill on the white bar, gold lettering.
-                    color: NkColors.refBlueDeep,
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: const Text('STAFF',
-                      style: TextStyle(
-                        fontSize: 9,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: 1,
-                        color: NkColors.gold200,
-                      )),
-                ),
-              ],
-            ),
-          ),
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Replaces the old full-width map search bar — same overlay the
-              // citizen home opens, over the whole constituency feed (not just
-              // the ward the list is filtered to).
-              GestureDetector(
-                onTap: () => SearchOverlay.open(
-                  context,
-                  issues: _allIssues,
-                ),
-                behavior: HitTestBehavior.opaque,
-                child: const SizedBox(
-                  height: 36,
-                  width: 36,
-                  child: Icon(Icons.search,
-                      size: 22, color: NkColors.refBlueDeep),
-                ),
-              ),
-              const SizedBox(width: 2),
-              NotificationBell(
-                recipientType: 'coordinator',
-                recipientId: me.username,
-              ),
-              const SizedBox(width: 4),
-              GestureDetector(
-                onTap: () {
-                  HapticFeedback.selectionClick();
-                  Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => const ProfileScreen(),
-                    ),
-                  );
-                },
-                child: Container(
-                  padding: const EdgeInsets.all(2),
-                  decoration: const BoxDecoration(
-                    gradient: nkGoldGradient,
-                    shape: BoxShape.circle,
-                  ),
-                  child: Container(
-                    height: 34,
-                    width: 34,
-                    alignment: Alignment.center,
-                    decoration: const BoxDecoration(
-                      color: NkColors.refBlue,
-                      shape: BoxShape.circle,
-                    ),
-                    // The photo the MLA office uploaded, else initials. The
-                    // fallback also covers a photo that fails to load, so a
-                    // broken image never replaces the coordinator's initials.
-                    child: me.photo == null
-                        ? _initials(me)
-                        : ClipOval(
-                            child: Image.network(
-                              me.photo!,
-                              height: 34,
-                              width: 34,
-                              fit: BoxFit.cover,
-                              errorBuilder: (_, __, ___) => _initials(me),
-                            ),
-                          ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
   /// Pinned sheet header: grip + the four coordinator segments.
   Widget _buildSheetHeader(
       ({
@@ -902,88 +974,106 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
                 color: const Color(0xFFEDEFF3),
                 borderRadius: BorderRadius.circular(999),
               ),
-              child: Row(
-                children: [
-                  for (final (tab, icon, label, count) in [
-                    (
-                      CoordinatorTab.ward,
-                      Icons.groups_outlined,
-                      context.tr('Open'),
-                      parts.ward.length
-                    ),
-                    (
-                      CoordinatorTab.mine,
-                      Icons.description_outlined,
-                      context.tr('Assigned'),
-                      parts.mine.length
-                    ),
-                    (
-                      CoordinatorTab.escalated,
-                      Icons.keyboard_double_arrow_up,
-                      context.tr('Escalated'),
-                      parts.escalated.length
-                    ),
-                    (
-                      CoordinatorTab.previous,
-                      Icons.assignment_outlined,
-                      context.tr('Resolved'),
-                      parts.previous.length
-                    ),
-                  ])
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: () {
-                          if (_tab == tab) return;
-                          HapticFeedback.selectionClick();
-                          setState(() => _tab = tab);
-                        },
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 260),
-                          curve: NkMotion.settle,
-                          padding: const EdgeInsets.symmetric(vertical: 6),
-                          decoration: BoxDecoration(
-                            color:
-                                _tab == tab ? Colors.white : Colors.transparent,
-                            borderRadius: BorderRadius.circular(999),
-                            boxShadow: _tab == tab
-                                ? [
-                                    BoxShadow(
-                                      color:
-                                          Colors.black.withValues(alpha: 0.10),
-                                      blurRadius: 6,
-                                      offset: const Offset(0, 2),
-                                    ),
-                                  ]
-                                : null,
-                          ),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(icon,
-                                  size: 13,
-                                  color: _tab == tab
-                                      ? NkColors.slate900
-                                      : NkColors.slate500),
-                              const SizedBox(height: 1),
-                              Text(
-                                '$label ($count)',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w700,
-                                  color: _tab == tab
-                                      ? NkColors.slate900
-                                      : NkColors.slate600,
-                                ),
-                              ),
-                            ],
-                          ),
+              child: LayoutBuilder(builder: (context, box) {
+                // A sliding white pill instead of per-segment
+                // AnimatedContainers — the old treatment faded the capsule
+                // out on the old segment and in on the new, which read as a
+                // blink. One capsule now glides between segments (same 260ms
+                // settle as the rest of this sheet) while the segment labels
+                // swap their colours beneath it.
+                final segW = box.maxWidth / 4;
+                final activeIdx = _tab.index;
+                return Stack(
+                  children: [
+                    AnimatedPositioned(
+                      duration: const Duration(milliseconds: 260),
+                      curve: NkMotion.settle,
+                      left: activeIdx * segW,
+                      top: 0,
+                      bottom: 0,
+                      width: segW,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(999),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.10),
+                              blurRadius: 6,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
                         ),
                       ),
                     ),
-                ],
-              ),
+                    Row(
+                      children: [
+                        for (final (tab, icon, label, count) in [
+                          (
+                            CoordinatorTab.ward,
+                            Icons.groups_outlined,
+                            context.tr('Open'),
+                            parts.ward.length
+                          ),
+                          (
+                            CoordinatorTab.mine,
+                            Icons.description_outlined,
+                            context.tr('Assigned'),
+                            parts.mine.length
+                          ),
+                          (
+                            CoordinatorTab.escalated,
+                            Icons.keyboard_double_arrow_up,
+                            context.tr('Escalated'),
+                            parts.escalated.length
+                          ),
+                          (
+                            CoordinatorTab.previous,
+                            Icons.assignment_outlined,
+                            context.tr('Resolved'),
+                            parts.previous.length
+                          ),
+                        ])
+                          Expanded(
+                            child: GestureDetector(
+                              onTap: () => _selectTab(tab),
+                              child: AnimatedContainer(
+                                duration: const Duration(milliseconds: 160),
+                                curve: NkMotion.settle,
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 6),
+                                decoration: const BoxDecoration(),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(icon,
+                                        size: 13,
+                                        color: _tab == tab
+                                            ? NkColors.slate900
+                                            : NkColors.slate500),
+                                    const SizedBox(height: 1),
+                                    Text(
+                                      '$label ($count)',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w700,
+                                        color: _tab == tab
+                                            ? NkColors.slate900
+                                            : NkColors.slate600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ],
+                );
+              }),
             ),
           ),
           const SizedBox(height: 12),
@@ -1094,7 +1184,11 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
     );
   }
 
-  Widget _buildList(List<Issue> current) {
+  /// Everything above the cards: the error banner, the ward filter, the
+  /// per-segment heading + sort + refresh row. Static — the page-slide rides
+  /// only the cards (see the list sliver in build), so this chrome never
+  /// travels even though its heading text changes per segment.
+  Widget _buildListChrome(List<Issue> current) {
     final scope = _ward.isEmpty
         ? shortAC(_me.constituency)
         : '${context.tr('Ward')} $_ward';
@@ -1104,20 +1198,34 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
       context.tr('Escalated grievances'),
       context.tr('Resolved & closed'),
     ];
-    final empties = [
-      _ward.isEmpty
-          ? 'No unverified grievances in ${shortAC(_me.constituency)}.'
-          : 'No unverified grievances in Ward $_ward.',
-      'Verify grievances from the Open tab to see them here.',
-      'Escalated grievances land here until resolved.',
-      'Closed grievances and false petitions land here.',
-    ];
     final idx = _tab.index;
 
     return Column(
-      key: ValueKey('tab-$idx-sort-$_sort-ward-$_ward'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        if (_error != null)
+          Container(
+            margin: const EdgeInsets.only(bottom: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: NkColors.rose50,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(_error!,
+                      style: const TextStyle(
+                          fontSize: 12, color: NkColors.rose600)),
+                ),
+                GestureDetector(
+                  onTap: () => setState(() => _error = null),
+                  child: const Icon(Icons.close,
+                      size: 14, color: NkColors.rose600),
+                ),
+              ],
+            ),
+          ),
         _buildWardFilter(),
         const SizedBox(height: 10),
         Row(
@@ -1153,66 +1261,62 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
           ],
         ),
         const SizedBox(height: 8),
-        if (current.isEmpty)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 40),
-            child: Column(
-              children: [
-                Icon(
-                  [
-                    Icons.groups_outlined,
-                    Icons.description_outlined,
-                    Icons.keyboard_double_arrow_up,
-                    Icons.assignment_outlined,
-                  ][idx],
-                  size: 32,
-                  color: NkColors.slate300,
-                ),
-                const SizedBox(height: 8),
-                Text(empties[idx],
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                        fontSize: 14, color: NkColors.slate400)),
-              ],
-            ),
-          )
-        else
-          for (final issue in current)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  // Flagged by the duplicate check and not yet ruled on. It
-                  // sits above the card because it is a gate: assigning a
-                  // grievance that is about to be merged wastes the visit.
-                  if (issue.awaitingDuplicateReview) _duplicateRibbon(issue),
-                  _selectableCard(
-                issue,
-                IssueCard(
-                  issue: issue,
-                  expanded: _expandedId == issue.id,
-                  onToggle: () => setState(() =>
-                      _expandedId = _expandedId == issue.id ? null : issue.id),
-                  distanceKm: _distanceKm(issue),
-                  badge: _tab != CoordinatorTab.ward
-                      ? _ActionStatusBadge(
-                          status: issue.status,
-                          rejected: issue.rejectedAt != null)
-                      : null,
-                  actions: switch (_tab) {
-                    CoordinatorTab.ward => _wardActions(issue),
-                    CoordinatorTab.mine => _mineActions(issue),
-                    CoordinatorTab.escalated => _escalatedActions(issue),
-                    CoordinatorTab.previous => const SizedBox.shrink(),
-                  },
-                ),
-              ),
-                ],
-              ),
-            ),
       ],
     );
+  }
+
+  /// The sliding body for the active segment — one memoised card per issue,
+  /// or the segment's empty state (which slides with the page too, so a
+  /// segment without grievances still reads as a page change).
+  List<Widget> _cardsOfTab(List<Issue> current) {
+    final idx = _tab.index;
+    if (current.isEmpty) {
+      final empties = [
+        _ward.isEmpty
+            ? 'No unverified grievances in ${shortAC(_me.constituency)}.'
+            : 'No unverified grievances in Ward $_ward.',
+        'Verify grievances from the Open tab to see them here.',
+        'Escalated grievances land here until resolved.',
+        'Closed grievances and false petitions land here.',
+      ];
+      return [
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 40),
+          child: Column(
+            children: [
+              Icon(
+                [
+                  Icons.groups_outlined,
+                  Icons.description_outlined,
+                  Icons.keyboard_double_arrow_up,
+                  Icons.assignment_outlined,
+                ][idx],
+                size: 32,
+                color: NkColors.slate300,
+              ),
+              const SizedBox(height: 8),
+              Text(empties[idx],
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                      fontSize: 14, color: NkColors.slate400)),
+            ],
+          ),
+        ),
+      ];
+    }
+    return [
+      for (var i = 0; i < current.length; i++)
+        // The first two collapsed cards are wrapped in a height sampler that
+        // sizes the sheet floor so exactly 2 cards show at minimum height
+        // (see _onCardMeasured). The cards themselves stay the memoised
+        // instances — the wrapper sits around them and never rebuilds them.
+        (i < 2)
+            ? _MeasureHeight(
+                onHeight: (h) => _onCardMeasured(idx, h),
+                child: _memoCard(idx, current[i]),
+              )
+            : _memoCard(idx, current[i]),
+    ];
   }
 
   /// Amber strip over a grievance the duplicate check flagged.
@@ -1590,6 +1694,87 @@ class _CoordSheetHeaderDelegate extends SliverPersistentHeaderDelegate {
   @override
   bool shouldRebuild(_CoordSheetHeaderDelegate old) =>
       old.height != height || old.child != child;
+}
+
+/// Sampled height of a single child, reported once per rendered size.
+///
+/// Wraps the sheet's first two cards so the floor can be cut at exactly the
+/// second card's bottom margin (the wrapper's box includes the card's 8px
+/// bottom padding by construction). Reports from a post-frame callback —
+/// during build the render box has no size yet — and re-samples whenever the
+/// child widget changes (payload key changed, or expand/collapse toggled);
+/// the [child] decides in _onCardMeasured when a reading is worth acting on.
+class _MeasureHeight extends StatefulWidget {
+  const _MeasureHeight({required this.onHeight, required this.child});
+
+  final ValueChanged<double> onHeight;
+  final Widget child;
+
+  @override
+  State<_MeasureHeight> createState() => _MeasureHeightState();
+}
+
+class _MeasureHeightState extends State<_MeasureHeight> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _report());
+  }
+
+  @override
+  void didUpdateWidget(covariant _MeasureHeight old) {
+    super.didUpdateWidget(old);
+    if (old.child != widget.child || old.onHeight != widget.onHeight) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _report());
+    }
+  }
+
+  void _report() {
+    if (!mounted) return;
+    final box = context.findRenderObject();
+    if (box is RenderBox && box.hasSize) widget.onHeight(box.size.height);
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
+}
+
+/// Page-slide for a segment change — ported from the citizen home so both
+/// screens read as one system. The whole list translates together over one
+/// controller (each card takes the SAME value from [_NkTabCurve]); settled
+/// builds carry no transform and no opacity layer at all.
+const Curve _nkTabCurve = Curves.easeInOutCubic;
+
+class _TabSlide extends StatelessWidget {
+  const _TabSlide({
+    required this.animation,
+    required this.dx,
+    required this.child,
+  });
+
+  final Animation<double> animation;
+
+  /// +1 arrives from the right, -1 from the left.
+  final double dx;
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: animation,
+      // Built once, not per frame — only the transform changes.
+      child: child,
+      builder: (context, built) {
+        final t = _nkTabCurve.transform(animation.value.clamp(0.0, 1.0));
+        if (t >= 1) return built!; // settled: no transform, no opacity layer
+        return FractionalTranslation(
+          translation: Offset(dx * (1 - t), 0),
+          child: Opacity(opacity: t, child: built),
+        );
+      },
+    );
+  }
 }
 
 /// Floating "🏛 Egmore | Ward (61) 🔒" chip — a solid white capsule with navy
