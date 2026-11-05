@@ -16,16 +16,28 @@ import '../../../domain/status_meta.dart';
 import '../../../domain/ticket.dart';
 import '../../shared/status_chip.dart';
 
-/// Desaturate + WARM matrix for the pale basemap.
+/// Gentle desaturate + LIFT matrix for the basemap.
 ///
-/// Built from the luma weights (0.2126 / 0.7152 / 0.0722) at saturation 0.18 —
-/// enough colour left that parks and water still read, but no full-strength OSM
-/// yellow arterials or green blocks. The offsets then lean the image warm by a
-/// 10-point red-over-blue delta: a subtle paper warmth, not a sepia wash.
+/// Built from the luma weights (0.2126 / 0.7152 / 0.0722) at saturation 0.72:
+/// row = (1 - s) * luma + s * identity, which is only a light pull away from
+/// the tiles' own colour.
+///
+/// It started at 0.18 with a +16/+12/+6 lift, which flattened parks, water and
+/// arterials into one putty tone — the map read as a grey placeholder. 0.40
+/// brought them back but still looked washed. At 0.72 the greens are green and
+/// the arterials are properly yellow, and the brightness lift is what keeps
+/// the whole thing light enough to sit UNDER the pins, the ward boundary and
+/// the white sheet without competing with them. Going further is full-strength
+/// OSM, which does compete.
+///
+/// The lift is deliberately modest (+13/+11/+6, down from +22/+20/+14): every
+/// point of it is added to the street NAMES as well as the paper they sit on,
+/// so a heavy lift buys brightness by washing the labels out. Colour carries
+/// the brightness now; the offsets only take the grey out of the paper.
 const List<double> _kPaleTileMatrix = <double>[
-  0.3543, 0.5865, 0.0592, 0, 16, //
-  0.1743, 0.7665, 0.0592, 0, 12, //
-  0.1743, 0.5865, 0.2392, 0, 6, //
+  0.7795, 0.2003, 0.0202, 0, 13, //
+  0.0595, 0.9203, 0.0202, 0, 11, //
+  0.0595, 0.2003, 0.7402, 0, 6, //
   0, 0, 0, 1, 0, //
 ];
 
@@ -61,6 +73,7 @@ class MapCard extends StatefulWidget {
     this.lockPadding = EdgeInsets.zero,
     this.lockMinZoom = 12,
     this.citizenPins = false,
+    this.onInteract,
   });
 
   final LatLng? center;
@@ -110,6 +123,12 @@ class MapCard extends StatefulWidget {
   /// the camera can never be dragged or zoomed so its edges leave these bounds
   /// (flutter_map's [CameraConstraint.contain]). Panning + zoom stay live
   /// inside it. Null → the map roams freely (coordinator + pre-ward citizen).
+  /// Fired the moment the user starts moving the map themselves (a pan, a
+  /// pinch, a double-tap zoom) — never for a programmatic recenter or the
+  /// opening camera fit. The home screens use it to get the bottom sheet out
+  /// of the way so the map is actually usable.
+  final VoidCallback? onInteract;
+
   final LatLngBounds? lockBounds;
 
   /// Padding applied when fitting [lockBounds], so the boundary lands in the
@@ -200,13 +219,18 @@ class _MapCardState extends State<MapCard> {
             points: part.first,
             holePointsList:
                 part.length > 1 ? part.sublist(1) : null,
+            // The selected ward: a navy edge heavy enough to read over a
+            // coloured basemap, and a LIGHTER fill than before — the fill is
+            // there to say "this one", not to grey out the street names
+            // inside it. Every other ward drops back further than it used to,
+            // so the selected polygon is unmistakably the subject.
             color: isHi
-                ? NkColors.brand.withValues(alpha: 0.22)
-                : base.withValues(alpha: 0.07),
+                ? NkColors.brand.withValues(alpha: 0.14)
+                : base.withValues(alpha: 0.04),
             borderColor: isHi
                 ? NkColors.brand
-                : base.withValues(alpha: 0.5),
-            borderStrokeWidth: isHi ? 2.5 : 0.7,
+                : base.withValues(alpha: 0.28),
+            borderStrokeWidth: isHi ? 3.2 : 0.6,
           ),
         );
       }
@@ -226,8 +250,8 @@ class _MapCardState extends State<MapCard> {
           Polygon(
             points: part.first,
             color: Colors.transparent,
-            borderColor: c.withValues(alpha: 0.8),
-            borderStrokeWidth: 2,
+            borderColor: c.withValues(alpha: 0.95),
+            borderStrokeWidth: 2.6,
           ),
         );
       }
@@ -289,6 +313,12 @@ class _MapCardState extends State<MapCard> {
                 ),
                 onMapReady: () => _mapReady = true,
                 onTap: (_, __) => widget.onSelect(null),
+                // hasGesture is the whole point: a recenter after a GPS fix,
+                // or the initial fit to the ward, must NOT read as the user
+                // reaching for the map.
+                onPositionChanged: (_, hasGesture) {
+                  if (hasGesture) widget.onInteract?.call();
+                },
               ),
               children: [
                 if (widget.paleTiles)

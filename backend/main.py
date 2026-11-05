@@ -34,7 +34,7 @@ from tenancy import current_tenant, decorate as decorate_tenant
 from gemini_service import keyword_department
 from routers import (
     admin, auth, coordinator, coordinators_admin, departments, issues,
-    notifications, servicehub,
+    notifications, servicehub, stories,
 )
 from utils import (
     UPLOAD_DIR,
@@ -336,6 +336,9 @@ def admin_me(
 app.include_router(departments.router)
 app.include_router(notifications.router)
 app.include_router(servicehub.router)
+# Ward stories: the public read, then the coordinator-only write surface.
+app.include_router(stories.public_router)
+app.include_router(stories.router)
 
 
 @app.get("/")

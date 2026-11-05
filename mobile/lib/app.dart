@@ -28,9 +28,26 @@ class NammaKuralApp extends ConsumerWidget {
       // and the search overlay, and for dialogs.
       scrollBehavior: const _NkScrollBehavior(),
       // Carry the current language above every route so `context.tr(...)`
-      // works anywhere and re-translates the whole tree on toggle.
-      builder: (context, child) =>
-          AppL10n(lang: lang, child: child ?? const SizedBox.shrink()),
+      // works anywhere and re-translates the whole tree on toggle, and lift
+      // every text size by [kNkTextScale] on the way through.
+      builder: (context, child) {
+        final media = MediaQuery.of(context);
+        return MediaQuery(
+          data: media.copyWith(
+            textScaler: media.textScaler.clamp(
+              // The app's own floor AND ceiling. The floor is the lift: the
+              // type was set tight for a 360dp phone and reads small on the
+              // taller screens the pilot is actually running on. The ceiling
+              // keeps a device-level accessibility scale from compounding with
+              // it into layouts that cannot hold their strings — Tamil already
+              // runs 40-60% longer than the English it is translated from.
+              minScaleFactor: kNkTextScale,
+              maxScaleFactor: kNkTextScale * 1.2,
+            ),
+          ),
+          child: AppL10n(lang: lang, child: child ?? const SizedBox.shrink()),
+        );
+      },
     );
   }
 }

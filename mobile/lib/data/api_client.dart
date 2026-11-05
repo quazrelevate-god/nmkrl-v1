@@ -7,6 +7,7 @@ import '../domain/models/corporation.dart';
 import '../domain/models/issue.dart';
 import '../domain/models/duplicate_info.dart';
 import '../domain/models/locate_result.dart';
+import '../domain/models/story.dart';
 
 /// Abstract seam over the FastAPI backend (mirrors frontend/lib/api.js
 /// 1:1). Widget/unit tests inject a fake; the app wires [DioApiClient].
@@ -195,6 +196,24 @@ abstract class ApiClient {
     required String subDept,
     required String officer,
   });
+
+  // ── Ward stories (routers/stories.py) ─────────────────────────────────
+
+  /// Active story rings for one ward, newest ring first. Public — a citizen
+  /// reads the same list the coordinator who posted them sees.
+  Future<List<StoryRing>> fetchStories(int wardNo);
+
+  /// Post one story frame. Coordinator session only; the server rejects a
+  /// ward outside the signed-in coordinator's constituency.
+  Future<void> postStory({
+    required File image,
+    required String title,
+    String caption = '',
+    int? ward,
+  });
+
+  /// Take one of your own stories down before it expires.
+  Future<void> deleteStory(String storyId);
 
   // ── Notifications (routers/notifications.py) ──────────────────────────
 

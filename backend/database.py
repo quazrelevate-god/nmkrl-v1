@@ -422,6 +422,32 @@ CREATE TABLE IF NOT EXISTS location_logs (
     assembly_constituency TEXT,
     created_at           TEXT NOT NULL
 );
+
+-- Ward "stories": short-lived photo updates a constituency coordinator posts
+-- for their ward (civic work under way, a cleanup drive, a park revamp).
+-- Citizens read them; only coordinators write them.
+--   title      groups stories into one ring in the app's story rail, exactly
+--              as an Instagram highlight does ("Ward 58 Updates").
+--   expires_at is set at post time (24h by default). Reads filter on it rather
+--              than deleting rows, so an expired story is still auditable.
+CREATE TABLE IF NOT EXISTS stories (
+    id            TEXT PRIMARY KEY,
+    ward_no       INTEGER,
+    corporation   TEXT,
+    constituency  TEXT,
+    title         TEXT NOT NULL,
+    caption       TEXT NOT NULL DEFAULT '',
+    image_url     TEXT NOT NULL,
+    author        TEXT NOT NULL,
+    author_name   TEXT NOT NULL DEFAULT '',
+    created_at    TEXT NOT NULL,
+    expires_at    TEXT NOT NULL
+);
+-- Matches the public read exactly: live corporation, then ward, then the
+-- unexpired filter, ordered newest first. Ward numbers repeat across
+-- corporations, so corporation leads the key.
+CREATE INDEX IF NOT EXISTS idx_stories_feed
+    ON stories (corporation, ward_no, expires_at, created_at DESC);
 """
 
 

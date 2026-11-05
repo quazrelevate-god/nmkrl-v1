@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/i18n.dart';
 import '../../../core/theme.dart';
 import '../../../domain/models/issue.dart';
 import '../../../domain/profile_data.dart';
@@ -13,6 +12,20 @@ import '../../profile/profile_screen.dart';
 import '../../search/search_overlay.dart';
 import '../../shared/notification_bell.dart';
 import '../../shared/wave_mark.dart';
+
+/// Rendered height of the floating app-bar capsule.
+///
+/// The home screens position the masthead around this, so it is a shared
+/// constant rather than a literal repeated in three places; the capsule's own
+/// padding and the round controls inside it add up to exactly this.
+///
+/// Back up from 48 — but the extra 10dp buys SIZE, not air. The bar had a bay
+/// of empty white between the wordmark and the controls, which made both look
+/// undersized in a bar that was mostly nothing; spending that space on the
+/// wordmark and the three round controls is what makes them prominent. It
+/// also costs the map nothing, because the band's height is the sky image's
+/// height and the bar fits inside it either way.
+const double kAppBarHeight = 58;
 
 /// Home app bar (v5) — a SOLID white capsule floating over the full-bleed map.
 ///
@@ -64,14 +77,17 @@ class ProfileHeader extends ConsumerWidget {
         ? (recipientId ?? '')
         : ref.watch(userIdProvider);
     return SolidCapsule(
-      // Tighter on the right: the bell and avatar are round, so they carry
-      // their own optical margin and an equal numeric inset reads as too much.
-      padding: const EdgeInsets.fromLTRB(13, 8, 7, 8),
+      // 7 top and bottom around a 44-tall row of controls = [kAppBarHeight].
+      // Still tighter on the right: the bell and avatar are round, so they
+      // carry their own optical margin and an equal numeric inset reads as
+      // too much.
+      padding: const EdgeInsets.fromLTRB(16, 7, 9, 7),
       child: Row(
         children: [
-          // Every point spent here is a point the placeholder loses, and the
-          // placeholder is what tells a first-time user what can be searched.
-          const BrandLogo(height: 23, onLight: true),
+          // The primary element in the bar. It is a vector wordmark, so size
+          // is the only weight lever there is — the stroke weights are baked
+          // into the asset.
+          const BrandLogo(height: 34, onLight: true),
           if (badge != null) ...[
             const SizedBox(width: 8),
             Container(
@@ -90,31 +106,18 @@ class ProfileHeader extends ConsumerWidget {
                   )),
             ),
           ],
-          const SizedBox(width: 8),
-          // Coordinator mode: a compact icon button for search instead of the
-          // always-visible field — the wordmark + STAFF badge already eat most
-          // of the bar. Citizen mode keeps the real field untouched.
-          if (coordinator != null) ...[
-            _SearchIconButton(
-              onTap: () => SearchOverlay.open(
-                context,
-                issues: searchIssues,
-                onUpvote: onUpvote,
-              ),
+          // Both modes: a standalone search button, so the wordmark is the
+          // only thing competing for the bar's width and the three round
+          // controls read as one family on the right.
+          const Spacer(),
+          _SearchIconButton(
+            onTap: () => SearchOverlay.open(
+              context,
+              issues: searchIssues,
+              onUpvote: onUpvote,
             ),
-            const SizedBox(width: 4),
-          ] else ...[
-            Expanded(
-              child: _SearchField(
-                onTap: () => SearchOverlay.open(
-                  context,
-                  issues: searchIssues,
-                  onUpvote: onUpvote,
-                ),
-              ),
-            ),
-            const SizedBox(width: 4),
-          ],
+          ),
+          const SizedBox(width: 6),
           NotificationBell(
             recipientType: recipientType,
             recipientId: bellId,
@@ -168,53 +171,10 @@ class SolidCapsule extends StatelessWidget {
   }
 }
 
-/// The citizen search entry point: a real field, not a bare icon. It does not take
-/// focus — tapping anywhere on it opens [SearchOverlay], which owns the actual
-/// input — so the placeholder is free to say what can be searched for.
-class _SearchField extends StatelessWidget {
-  const _SearchField({required this.onTap});
-
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: Container(
-        height: 36,
-        padding: const EdgeInsets.symmetric(horizontal: 9),
-        decoration: BoxDecoration(
-          color: const Color(0xFFF1F3F6),
-          borderRadius: BorderRadius.circular(999),
-        ),
-        child: Row(
-          children: [
-            const Icon(Icons.search, size: 16, color: NkColors.slate500),
-            const SizedBox(width: 5),
-            Expanded(
-              child: Text(
-                context.tr('Search location, issue or ward'),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 11,
-                  height: 1.1,
-                  color: NkColors.slate400,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Coordinator search entry point: a compact round button matching the bell's
-/// proportions, so the bar stays one clean row of round controls. Opens the
-/// same [SearchOverlay] the citizen field does.
+/// The search entry point in both apps: a standalone round button matching
+/// the bell's and the avatar's proportions, so the bar stays one clean row of
+/// round controls. Opens [SearchOverlay], which owns the actual input and the
+/// placeholder that says what can be searched for.
 class _SearchIconButton extends StatelessWidget {
   const _SearchIconButton({required this.onTap});
 
@@ -226,17 +186,19 @@ class _SearchIconButton extends StatelessWidget {
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
       child: Container(
-        height: 31,
-        width: 31,
+        height: 42,
+        width: 42,
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          // Same recessed grey as the citizen field, at the avatar's size —
-          // the three right-side controls read as one family.
-          color: const Color(0xFFF1F3F6),
+          // A soft light ground at the avatar's size, so the three right-side
+          // controls read as one family.
+          color: const Color(0xFFEFF2F6),
           shape: BoxShape.circle,
-          border: Border.all(color: const Color(0xFFE8EBEF)),
+          border: Border.all(color: const Color(0xFFE2E7ED)),
         ),
-        child: const Icon(Icons.search, size: 17, color: NkColors.slate500),
+        // Navy, not grey: this is now the only search affordance in the bar,
+        // so it has to look like a control rather than a hint.
+        child: const Icon(Icons.search, size: 22, color: NkColors.brand),
       ),
     );
   }
@@ -266,14 +228,14 @@ class _ProfileAvatar extends StatelessWidget {
         );
       },
       child: Container(
-        padding: const EdgeInsets.all(1.5),
+        padding: const EdgeInsets.all(2.5),
         decoration: const BoxDecoration(
           gradient: nkGoldGradient,
           shape: BoxShape.circle,
         ),
         child: Container(
-          height: 31,
-          width: 31,
+          height: 37,
+          width: 37,
           alignment: Alignment.center,
           clipBehavior: Clip.antiAlias,
           decoration: const BoxDecoration(
@@ -291,8 +253,8 @@ class _ProfileAvatar extends StatelessWidget {
     if (networkPhoto != null) {
       return Image.network(
         networkPhoto!,
-        height: 31,
-        width: 31,
+        height: 37,
+        width: 37,
         fit: BoxFit.cover,
         errorBuilder: (_, __, ___) => _initialsText(),
       );
@@ -300,8 +262,8 @@ class _ProfileAvatar extends StatelessWidget {
     if (avatarPath != null) {
       return Image.file(
         File(avatarPath!),
-        height: 31,
-        width: 31,
+        height: 37,
+        width: 37,
         fit: BoxFit.cover,
         errorBuilder: (_, __, ___) => _initialsText(),
       );
@@ -312,7 +274,7 @@ class _ProfileAvatar extends StatelessWidget {
   Widget _initialsText() => Text(
         initials,
         style: const TextStyle(
-          fontSize: 12,
+          fontSize: 14,
           fontWeight: FontWeight.w900,
           color: NkColors.gold300,
         ),

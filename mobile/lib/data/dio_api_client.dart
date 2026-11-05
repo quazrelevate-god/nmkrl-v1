@@ -11,6 +11,7 @@ import '../domain/models/corporation.dart';
 import '../domain/models/issue.dart';
 import '../domain/models/duplicate_info.dart';
 import '../domain/models/locate_result.dart';
+import '../domain/models/story.dart';
 import 'api_client.dart';
 
 /// Dio-backed [ApiClient]. Maps DioExceptions to friendly [ApiException]s
@@ -589,6 +590,56 @@ class DioApiClient implements ApiClient {
       // A missing contact must not block the dispatch — the sheet falls back
       // to opening WhatsApp without a recipient.
       return (name: '', mobile: '');
+    }
+  }
+
+  // ── Ward stories ──────────────────────────────────────────────────────
+
+  @override
+  Future<List<StoryRing>> fetchStories(int wardNo) => _get(
+        '/api/stories',
+        query: {'ward': wardNo},
+        parse: (d) {
+          final raw = (d as Map<String, dynamic>)['rings'] as List? ?? const [];
+          return [
+            for (final r in raw)
+              StoryRing.fromJson(Map<String, dynamic>.from(r as Map)),
+          ];
+        },
+      );
+
+  @override
+  Future<void> postStory({
+    required File image,
+    required String title,
+    String caption = '',
+    int? ward,
+  }) async {
+    try {
+      await _dio.post<Map<String, dynamic>>(
+        '/api/coordinator/stories',
+        data: FormData.fromMap({
+          'title': title,
+          'caption': caption,
+          if (ward != null) 'ward': '$ward',
+          'image': await MultipartFile.fromFile(
+            image.path,
+            filename: image.uri.pathSegments.last,
+          ),
+        }),
+      );
+    } catch (e) {
+      _friendly(e);
+    }
+  }
+
+  @override
+  Future<void> deleteStory(String storyId) async {
+    try {
+      await _dio.delete<Map<String, dynamic>>(
+          '/api/coordinator/stories/$storyId');
+    } catch (e) {
+      _friendly(e);
     }
   }
 

@@ -11,16 +11,21 @@ import '../../core/theme.dart';
 import '../../core/i18n.dart';
 import '../../domain/constituencies.dart';
 import '../../domain/coordinator_data.dart';
+import '../../domain/demo_stories.dart';
 import '../../domain/geo_utils.dart';
 import '../../domain/models/boundary_data.dart';
 import '../../domain/models/corporation.dart';
 import '../../domain/models/issue.dart';
+import '../../domain/models/story.dart';
 import '../../state/providers.dart';
 import '../home/widgets/issue_card.dart';
 import '../home/widgets/profile_header.dart';
 import '../../domain/models/duplicate_info.dart';
 import '../home/widgets/map_card.dart';
+import '../shared/nature_backdrop.dart';
 import '../shared/notification_banner.dart';
+import '../stories/story_composer.dart';
+import '../stories/story_rail.dart';
 import 'widgets/action_sheets.dart';
 
 /// Coordinator home — map-first treatment for staff:
@@ -33,6 +38,33 @@ import 'widgets/action_sheets.dart';
 /// the landing size AND the minimum, sized to the pinned header plus ~2 cards,
 /// and it is the only resting place below the near-full expanded snap.
 const double _kSheetMax = 0.86;
+
+/// Nature band behind the app bar — identical geometry to the citizen home, so
+/// the two apps open on the same masthead.
+/// Spill BELOW the capsule. At 10 the band was a sliver: the capsule covered
+/// the sky, the Bay was a few pixels and the palms were squeezed against the
+/// top edge. 30 gives the horizon somewhere to sit and the scene reads as a
+/// coast, at the cost of 20dp of map.
+/// Breathing room under the app-bar capsule before the story rail begins.
+const double _kBackdropSpill = 6;
+
+/// Top edge of the app-bar capsule.
+///
+/// Back at the top of the screen. It used to be driven down to the gopuram's
+/// base so the temple in the old coastal photo stood clear above it; the sky
+/// asset has no subject to clear, so the bar reclaims that space and the map
+/// gets it back.
+double kCoordAppBarTop(double topInset) => topInset + 8;
+
+/// The sky band + capsule block, story rail excluded.
+///
+/// At least tall enough for the bar and its spill, and at least as tall as the
+/// image itself so the band is never cut short of its own last row — on a wide
+/// screen the image is the taller of the two.
+double kCoordBackdropHeight(double topInset, double screenWidth) => math.max(
+      kCoordAppBarTop(topInset) + kAppBarHeight + _kBackdropSpill,
+      NatureBackdrop.imageHeight(screenWidth),
+    );
 
 /// Fixed-duration settle, matching the citizen sheet, so a flick and a slow
 /// drag travel at the same speed instead of on a velocity-driven simulation.
@@ -154,7 +186,7 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
   /// The snap list the sheet is handed, rebuilt ONLY when the floor value
   /// moves. DraggableScrollableSheet re-snaps when snapSizes changes
   /// identity — fresh literals every build re-snap on every rebuild.
-  List<double> _snapCache = const [0.28, 0.86];
+  List<double> _snapCache = const [0.14, 0.28, 0.86];
 
   /// Direction the incoming list travels from: +1 when moving toward a
   /// higher-index segment, -1 toward a lower one — the page enters from the
@@ -249,6 +281,76 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
   /// listens, so dragging never rebuilds the map underneath.
   final _sheetExtent = ValueNotifier<double>(0);
 
+  /// Ward stories. The coordinator app both reads AND writes these — the
+  /// "Your Story" tile on the rail is the only difference from the citizen
+  /// app's version of the same strip.
+  List<StoryRing> _storyRings = const [];
+  bool _storiesLoading = true;
+  String? _storyFetchInFlightFor;
+
+  /// Stories for the ward currently filtered to. 'All' (no single ward) falls
+  /// back to the coordinator's home ward, which is the one they post for.
+  int? get _storyWard =>
+      int.tryParse(_ward.trim()) ?? int.tryParse(_me.homeWard.trim());
+
+  Future<void> _loadStories() async {
+    final ward = _storyWard;
+    if (ward == null) {
+      if (mounted) setState(() => _storiesLoading = false);
+      return;
+    }
+    final key = '$ward';
+    if (_storyFetchInFlightFor == key) return;
+    _storyFetchInFlightFor = key;
+    try {
+      final rings = await ref.read(apiClientProvider).fetchStories(ward);
+      if (mounted && _storyFetchInFlightFor == key) {
+        setState(() {
+          // Demo rings stand in ONLY while the ward has none of its own.
+          _storyRings = rings.isEmpty && kUseDemoStories
+              ? demoStoryRings(ward)
+              : rings;
+          _storiesLoading = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          if (kUseDemoStories) _storyRings = demoStoryRings(ward);
+          _storiesLoading = false;
+        });
+      }
+    }
+    _storyFetchInFlightFor = null;
+  }
+
+  /// Open the composer, then refetch so the new frame is on the rail at once.
+  Future<void> _composeStory() async {
+    final posted = await StoryComposer.open(
+      context,
+      api: ref.read(apiClientProvider),
+      ward: _storyWard,
+      existingTitles: [for (final r in _storyRings) r.title],
+    );
+    if (posted && mounted) {
+      setState(() => _storiesLoading = true);
+      _storyFetchInFlightFor = null;
+      await _loadStories();
+      if (mounted) _showToast(context.tr('Story posted.'));
+    }
+  }
+
+  /// Take one of our own stories down, then refetch.
+  Future<void> _removeStory(Story story) async {
+    try {
+      await ref.read(apiClientProvider).deleteStory(story.id);
+    } catch (_) {
+      if (mounted) _showToast(context.tr('Could not remove that story.'));
+    }
+    _storyFetchInFlightFor = null;
+    await _loadStories();
+  }
+
   /// Bounding box the map camera locks to. A single ward's polygon(s) when one
   /// is selected; the union of every ward in the constituency when "All wards"
   /// is selected — so the map follows the ward filter. Null until boundaries
@@ -281,6 +383,35 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
     return (px / parentHeight).clamp(0.28, 0.5);
   }
 
+  /// The MINIMUM snap: the pinned header's tab track and nothing else. The
+  /// sheet drops here the moment the coordinator reaches for the map.
+  double _sheetMiniFraction(double parentHeight) =>
+      (_kSheetHeaderHeight / parentHeight).clamp(0.10, 0.4);
+
+  /// Held for [_collapseForMap], which runs outside build.
+  double _sheetMiniNow = 0.14;
+
+  /// Our own collapse animation is running — see the citizen home for why this
+  /// flag has to exist.
+  bool _collapsing = false;
+
+  /// Parked low because of a map gesture.
+  bool _mapCollapsed = false;
+
+  void _collapseForMap() {
+    if (!_sheetCtrl.isAttached) return;
+    if (_sheetCtrl.size <= _sheetMiniNow + 0.01) return;
+    _mapCollapsed = true;
+    _collapsing = true;
+    _sheetCtrl
+        .animateTo(
+          _sheetMiniNow,
+          duration: _kSheetSnapDuration,
+          curve: Curves.easeInOutCubic,
+        )
+        .whenComplete(() => _collapsing = false);
+  }
+
   /// Web-Mercator zoom at which [b] just fills [viewport] — the zoom floor
   /// while locked, so the user can't pull back past the whole ward.
   static double _fitZoom(LatLngBounds b, Size viewport) {
@@ -296,7 +427,10 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
     if (yFrac <= 0 || xFrac <= 0) return 12;
     final zx = math.log(viewport.width / (worldPx * xFrac)) / math.ln2;
     final zy = math.log(viewport.height / (worldPx * yFrac)) / math.ln2;
-    return (math.min(zx, zy) - 0.15).clamp(1.0, 18.0);
+    // 0.04, not 0.15: the larger backoff was a sixth of a zoom level of
+    // slack around the ward on every open, which left it floating in its
+    // surroundings rather than being the subject.
+    return (math.min(zx, zy) - 0.04).clamp(1.0, 18.0);
   }
 
   Coordinator get _me =>
@@ -320,6 +454,7 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
     );
     _loadBoundaries();
     _loadConstituency();
+    _loadStories();
     _refreshProfile();
   }
 
@@ -461,7 +596,10 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
       _ward = ward;
       _expandedId = null;
       _selected = null;
+      _storiesLoading = true;
     });
+    _storyFetchInFlightFor = null;
+    _loadStories();
     _recenter();
   }
 
@@ -690,22 +828,44 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
     final topInset = MediaQuery.paddingOf(context).top;
     final screenH = MediaQuery.sizeOf(context).height;
     final sheetFloor = _sheetFloorFraction(screenH);
-    // Identity-stable snap list: refreshed only when the measured floor
-    // actually moves (first sample landing, tab with a different ribbon).
-    if (_snapCache[0] != sheetFloor || _snapCache[1] != _kSheetMax) {
-      _snapCache = [sheetFloor, _kSheetMax];
+    final sheetMini = _sheetMiniFraction(screenH);
+    _sheetMiniNow = sheetMini;
+    // The masthead: nature band + story rail. The coordinator always has the
+    // composer tile, so the rail never collapses to nothing here.
+    final screenW = MediaQuery.sizeOf(context).width;
+    final barTop = kCoordAppBarTop(topInset);
+    final backdropH = kCoordBackdropHeight(topInset, screenW);
+    final railH = storyRailHeight(
+      canPost: true,
+      hasRings: _storyRings.isNotEmpty,
+      loading: _storiesLoading,
+    );
+    // One picture behind the app bar AND the stories. See the citizen home.
+    final mastheadH = backdropH + railH;
+    // The expanded snap must leave the masthead uncovered — a pulled-up sheet
+    // may never hide the stories.
+    final sheetMax = ((screenH - (backdropH + railH + 18)) / screenH)
+        .clamp(sheetFloor + 0.06, _kSheetMax);
+    // Identity-stable snap list: refreshed only when a measured stop actually
+    // moves (first sample landing, tab with a different ribbon, rail arriving).
+    if (_snapCache[0] != sheetMini ||
+        _snapCache[1] != sheetFloor ||
+        _snapCache[2] != sheetMax) {
+      _snapCache = [sheetMini, sheetFloor, sheetMax];
     }
 
     // Lock the map to the selected ward, fitting it into the band that stays
     // visible above the sheet at its floor.
     final lockBounds = _wardBounds;
     final lockPadding = EdgeInsets.only(
-      // Clear of the floating app-bar capsule + the ward chip. Same clearance
+      // Clear of the nature band and the story rail under it. Same clearance
       // the citizen map lock uses for its identical chrome stack.
-      top: topInset + 96,
+      top: mastheadH + 12,
       bottom: sheetFloor * screenH + 16,
-      left: 28,
-      right: 28,
+      // Halved, so the fit fills the band with the selected ward rather than
+      // its neighbours. Same change as the citizen map.
+      left: 14,
+      right: 14,
     );
     final lockMinZoom = lockBounds == null
         ? 12.0
@@ -718,7 +878,10 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
           );
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
-      // Dark glyphs — the pale basemap runs up under the status bar.
+      // DARK glyphs again. They were flipped to light for the coast photo,
+      // whose top-left was near-black palm foliage; the sky asset is pale
+      // right across the top, so white glyphs would now be the ones that
+      // disappear. The scrim that used to carry that contrast went with it.
       value: SystemUiOverlayStyle.dark,
       child: Scaffold(
         resizeToAvoidBottomInset: false,
@@ -745,6 +908,45 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
                 lockBounds: lockBounds,
                 lockPadding: lockPadding,
                 lockMinZoom: lockMinZoom,
+                // Reaching for the map drops the sheet to its tab track.
+                onInteract: _collapseForMap,
+              ),
+            ),
+
+            // ── 1b. Nature band + the ward's story rail, with the "Your
+            // Story" composer tile that only staff get. ──
+            Positioned(
+              key: const ValueKey('coord-masthead'),
+              top: 0,
+              left: 0,
+              right: 0,
+              child: MastheadCard(
+                child: SizedBox(
+                  height: mastheadH,
+                  child: Stack(
+                    children: [
+                      Positioned.fill(
+                        child: NatureBackdrop(height: mastheadH),
+                      ),
+                      // The rail rides ON the photograph's washed lower half,
+                      // not on a white strip below it.
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        height: railH,
+                        child: StoryRail(
+                          rings: _storyRings,
+                          loading: _storiesLoading,
+                          canPost: true,
+                          onAdd: _composeStory,
+                          onDelete: _removeStory,
+                          ownerUsername: _me.username,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ),
 
@@ -755,7 +957,8 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
             // the edges — identical geometry to the citizen's.
             Positioned(
               key: const ValueKey('coord-appbar'),
-              top: topInset + 8,
+              // Parked at the temple's base so it stands whole above the bar.
+              top: barTop,
               left: 14,
               right: 14,
               child: ProfileHeader(
@@ -786,7 +989,7 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
             ValueListenableBuilder<double>(
               valueListenable: _sheetExtent,
               builder: (context, extent, child) {
-                final t = ((extent - sheetFloor) / (_kSheetMax - sheetFloor))
+                final t = ((extent - sheetFloor) / (sheetMax - sheetFloor))
                     .clamp(0.0, 1.0);
                 final opacity = 1.0 - t;
                 return Positioned(
@@ -812,13 +1015,20 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
               child: NotificationListener<DraggableScrollableNotification>(
                 onNotification: (n) {
                   _sheetExtent.value = n.extent;
+                  // Pulling the sheet back up out of the mini snap ends the
+                  // map-collapsed state.
+                  if (_mapCollapsed &&
+                      !_collapsing &&
+                      n.extent > _sheetMiniNow + 0.04) {
+                    _mapCollapsed = false;
+                  }
                   return false;
                 },
                 child: DraggableScrollableSheet(
                 controller: _sheetCtrl,
                 initialChildSize: sheetFloor,
-                minChildSize: sheetFloor,
-                maxChildSize: _kSheetMax,
+                minChildSize: sheetMini,
+                maxChildSize: sheetMax,
                 snap: true,
                 snapSizes: _snapCache,
                 snapAnimationDuration: _kSheetSnapDuration,

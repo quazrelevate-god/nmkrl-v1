@@ -4,6 +4,13 @@ import 'package:flutter/material.dart';
 /// Design tokens ported 1:1 from the web app's tailwind.config.js +
 /// globals.css. Deep royal navy is the brand, warm gold the accent — white
 /// stays the dominant surface (WCAG-AA on white).
+/// App-wide type lift, applied once in [NammaKuralApp]'s builder.
+///
+/// Every font size in the app is a literal at its call site, tuned originally
+/// against a 360dp phone; rather than touch several hundred of them this
+/// scales the lot. Raise it here to make the whole app read larger.
+const double kNkTextScale = 1.08;
+
 class NkColors {
   NkColors._();
 

@@ -146,12 +146,15 @@ class _NotificationBellState extends ConsumerState<NotificationBell> {
       onTap: _open,
       behavior: HitTestBehavior.opaque,
       child: SizedBox(
-        width: 40,
-        height: 40,
+        width: 42,
+        height: 42,
         child: Stack(
           alignment: Alignment.center,
           children: [
-            Icon(Icons.notifications_none_rounded, size: 22, color: glyph),
+            // Sized with the search button and the avatar beside it: the three
+            // controls carry the right-hand side of the bar together, so they
+            // grow and shrink as one.
+            Icon(Icons.notifications_none_rounded, size: 25, color: glyph),
             if (_unread > 0)
               Positioned(
                 top: 6,

@@ -13,13 +13,17 @@ import '../../core/env.dart';
 import '../../core/theme.dart';
 import '../../core/i18n.dart';
 import '../../domain/constituencies.dart';
+import '../../domain/demo_stories.dart';
 import '../../domain/models/boundary_data.dart';
 import '../../domain/models/corporation.dart';
 import '../../domain/models/issue.dart';
 import '../../domain/models/locate_result.dart';
+import '../../domain/models/story.dart';
 import '../../state/providers.dart';
 import '../report/report_sheet.dart';
+import '../shared/nature_backdrop.dart';
 import '../shared/notification_banner.dart';
+import '../stories/story_rail.dart';
 import '../upvote/upvote_sheet.dart';
 import 'widgets/grievance_card.dart';
 import 'widgets/ward_dropdown.dart';
@@ -41,16 +45,34 @@ enum _WardScope { all, supports }
 /// Ordering of the ward feed, chosen from the same dropdown.
 enum _WardSort { recent, priority }
 
-/// Sheet snap fractions. The FLOOR (min == landing) is computed per-device so
-/// it shows the pinned pills+tabs header plus exactly ~2 grievance cards, and
-/// the user can never collapse below it — see [_sheetFloorFraction]. There are
-/// exactly two resting places: that floor and the expanded snap, which is
-/// computed per-device by [_sheetMaxFraction] rather than fixed.
+/// Sheet snap fractions. The FLOOR (the landing size) is computed per-device
+/// so it shows the pinned pills+tabs header plus exactly ~2 grievance cards —
+/// see [_sheetFloorFraction]. Below it sits the mini snap a map gesture drops
+/// to, and above it the expanded snap, computed per-device by
+/// [_sheetMaxFraction] rather than fixed.
 
-/// What the expanded snap must leave uncovered, measured down from the status
-/// bar: the app bar (8 gap + 56 tall), the ward pill (10 gap + 32 tall) and a
-/// breathing gap under it. Below this the sheet would swallow both chips.
-const double _kAppBarBlockHeight = 8 + 56 + 10 + 32;
+/// Breathing room under the app-bar capsule before the story rail begins.
+const double _kBackdropSpill = 6;
+
+/// Top edge of the app-bar capsule.
+///
+/// Back at the top of the screen. It used to be driven down to the gopuram's
+/// base so the temple in the old coastal photo stood clear above it; the sky
+/// asset has no subject to clear, so the bar reclaims that space and the map
+/// gets it back.
+double kAppBarTop(double topInset) => topInset + 8;
+
+/// The sky band + capsule block, story rail excluded.
+///
+/// At least tall enough for the bar and its spill, and at least as tall as the
+/// image itself so the band is never cut short of its own last row — on a wide
+/// screen the image is the taller of the two.
+double kBackdropHeight(double topInset, double screenWidth) => math.max(
+      kAppBarTop(topInset) + kAppBarHeight + _kBackdropSpill,
+      NatureBackdrop.imageHeight(screenWidth),
+    );
+
+/// Breathing gap left under the ward pill when the sheet is fully expanded.
 const double _kExpandedTopGap = 18;
 
 /// Breathing room under the last card, inside the sheet.
@@ -160,6 +182,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   List<Issue> _wardIssues = [];
   List<Issue> _history = [];
 
+  /// Ward stories. Citizens read them only — there is no composer tile here;
+  /// posting lives in the coordinator app (see coordinator_home_screen).
+  List<StoryRing> _storyRings = const [];
+  bool _storiesLoading = true;
+  int? _storyFetchInFlightFor;
+
   bool _histLoading = true;
   Issue? _selected;
   final Map<String, GlobalKey> _cardKeys = {};
@@ -221,10 +249,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     return LatLngBounds.fromPoints(pts);
   }
 
-  /// Sheet floor fraction: the pinned header + ~2 grievance cards clear of the
-  /// floating nav bar, as a fraction of the sheet's parent height. This is BOTH
-  /// the landing size and the minimum — the sheet can be pulled up but never
-  /// collapsed below it.
+  /// Sheet floor fraction: the pinned header + TWO grievance cards clear of
+  /// the floating nav bar, as a fraction of the sheet's parent height. This is
+  /// the LANDING size — the resting place the sheet opens at and returns to.
+  ///
+  /// Two, as it always was. A single card was tried while the masthead grew,
+  /// but one card does not read as a list — it reads as a detail panel, and
+  /// the second card is what tells you there is more underneath. The map gets
+  /// its room from the mini snap instead, which a touch on the map triggers.
   double _sheetFloorFraction(double parentHeight, double bottomObstruction) {
     // Sized off the BASE header, so the floor clears exactly two cards in BOTH
     // destinations. It deliberately does NOT account for the ward's revealed
@@ -234,6 +266,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     final px =
         _kSheetHeaderBase + 8 + 2 * _kCardFootprint + bottomObstruction;
     return (px / parentHeight).clamp(0.28, 0.62);
+  }
+
+  /// The MINIMUM snap: the pinned header's status pills and nothing else,
+  /// clear of the nav bar. The sheet drops here the moment the user reaches
+  /// for the map — the filters stay readable (and tappable) while the map is
+  /// handed as much of the screen as it can have.
+  double _sheetMiniFraction(double parentHeight, double bottomObstruction) {
+    final px = _kSheetHeaderBase + bottomObstruction;
+    return (px / parentHeight).clamp(0.12, 0.42);
   }
 
   /// Expanded snap: the tallest the sheet may get while still leaving the app
@@ -249,16 +290,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   /// nothing to expand into, so the snap stops at the content's own height.
   static double _sheetMaxFraction(
     double parentHeight,
-    double topInset,
     int cards,
     double headerHeight,
     double bottomObstruction,
     double floor,
+    double mastheadHeight,
   ) {
-    final ceiling =
-        ((parentHeight - (topInset + _kAppBarBlockHeight + _kExpandedTopGap)) /
-                parentHeight)
-            .clamp(0.5, 0.9);
+    // Leave the whole masthead uncovered, plus the ward pill under it (10 gap
+    // + 32 tall) and a breathing gap. The stories have no other entry point in
+    // the app, so a pulled-up sheet may never hide them.
+    final ceiling = ((parentHeight -
+                (mastheadHeight + 10 + 32 + _kExpandedTopGap)) /
+            parentHeight)
+        .clamp(0.4, 0.9);
     final contentPx = headerHeight +
         8 +
         cards * _kCardFootprint +
@@ -287,13 +331,48 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   /// post-frame re-snap whenever it differs — a fresh literal every build would
   /// re-snap the sheet on every unrelated setState and cancel the lift below.
   List<double>? _snapCache;
-  List<double> _snapSizes(double floor, double max) {
+  List<double> _snapSizes(double mini, double floor, double max) {
     final cached = _snapCache;
-    if (cached != null && cached.first == floor && cached.last == max) {
+    if (cached != null &&
+        cached.length == 3 &&
+        cached[0] == mini &&
+        cached[1] == floor &&
+        cached[2] == max) {
       return cached;
     }
-    return _snapCache = [floor, max];
+    return _snapCache = [mini, floor, max];
   }
+
+  /// The minimum snap as of the last build, so the map-interaction collapse
+  /// has a valid target without recomputing the whole geometry.
+  double _sheetMiniNow = 0.2;
+
+  /// Drop the sheet to [_sheetMiniNow] — only the status pills left — because
+  /// the user has started moving the map. Already low, or being dragged by the
+  /// user right now, means leave it alone.
+  void _collapseForMap() {
+    if (!_sheetCtrl.isAttached) return;
+    if (_sheetCtrl.size <= _sheetMiniNow + 0.01) return;
+    _mapCollapsed = true;
+    _collapsing = true;
+    _sheetCtrl
+        .animateTo(
+          _sheetMiniNow,
+          duration: _kSheetSnapDuration,
+          curve: _kTabCurve,
+        )
+        .whenComplete(() => _collapsing = false);
+  }
+
+  /// Our own collapse animation is running. Without this the extent it travels
+  /// THROUGH on the way down would read as the user pulling the sheet back up
+  /// and clear [_mapCollapsed] on the very first frame.
+  bool _collapsing = false;
+
+  /// True while the sheet is parked at the mini snap because of a map gesture.
+  /// It stops [_syncSheetLift] hauling the sheet back to the floor on the next
+  /// unrelated rebuild; the user pulling the sheet up themselves clears it.
+  bool _mapCollapsed = false;
 
   /// Hold the resting sheet at exactly two clear cards. The ward's revealed
   /// filters need [_sheetLiftFraction] more height; everything else sits on the
@@ -301,6 +380,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   /// has pulled up to the max snap is left exactly where they put it.
   void _syncSheetLift() {
     if (!_sheetCtrl.isAttached) return;
+    // Parked low for the map: the user asked for the map, so an unrelated
+    // rebuild must not haul the sheet back over it.
+    if (_mapCollapsed) return;
     final parentH = MediaQuery.sizeOf(context).height;
     final navCover = _kNavBarHeight +
         _kNavBarBottomGap * 2 +
@@ -312,6 +394,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             .clamp(floor, _sheetMaxNow);
     // Above the low band means the user dragged it there. Not ours to move.
     if (_sheetCtrl.size > floor + lift + 0.02) return;
+    // Below the floor is the mini snap — also deliberate. Leave it.
+    if (_sheetCtrl.size < floor - 0.01) return;
     if ((_sheetCtrl.size - target).abs() < 0.001) return;
     _sheetCtrl.animateTo(
       target,
@@ -378,7 +462,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     final zx = math.log(viewport.width / (worldPx * xFrac)) / math.ln2;
     final zy = math.log(viewport.height / (worldPx * yFrac)) / math.ln2;
     // A hair below the exact fit so the opening (whole-ward) view is valid.
-    return (math.min(zx, zy) - 0.15).clamp(1.0, 18.0);
+    // 0.04, not 0.15: the larger backoff was a sixth of a zoom level of
+    // slack around the ward on every open, which left it floating in its
+    // surroundings rather than being the subject.
+    return (math.min(zx, zy) - 0.04).clamp(1.0, 18.0);
   }
 
   /// Drives the destination change: the outgoing cards slide out while the
@@ -436,7 +523,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     if (state != AppLifecycleState.resumed) return;
     _loadHistory();
     final w = _currentWard;
-    if (w != null) _loadWard(w);
+    if (w != null) {
+      _loadWard(w);
+      _loadStories(w);
+    }
     // Location was read once at start-up, so a grievance filed later in the
     // day was filed where the app was first opened. Re-read it on return —
     // quietly: never re-prompt for a permission the citizen declined.
@@ -591,9 +681,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         _locating = false;
       });
       final w = r.inside ? r.wardNumber : null;
-      if (w != null) _loadWard(w);
+      if (w != null) {
+        _loadWard(w);
+        _loadStories(w);
+      } else {
+        _loadStories(null);
+      }
     } catch (_) {
-      if (mounted) setState(() => _locating = false);
+      if (mounted) {
+        setState(() {
+          _locating = false;
+          _storiesLoading = false;
+        });
+      }
     }
   }
 
@@ -619,6 +719,47 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       }
     }
     return true;
+  }
+
+  /// Ward stories for [ward]. Failures are silent: the rail is an extra, and
+  /// an error banner over a missing story strip would be worse than no strip.
+  Future<void> _loadStories(int? ward) async {
+    // No ward — the device is outside the corporation. There are no ward
+    // stories to fetch, but the rail should not vanish either: collapsing it
+    // left the map butted straight against the app bar. The demo rings stand
+    // in, exactly as they do for a ward that has posted none of its own.
+    if (ward == null) {
+      if (mounted) {
+        setState(() {
+          if (kUseDemoStories) _storyRings = demoStoryRings(null);
+          _storiesLoading = false;
+        });
+      }
+      return;
+    }
+    if (_storyFetchInFlightFor == ward) return;
+    _storyFetchInFlightFor = ward;
+    try {
+      final rings = await ref.read(apiClientProvider).fetchStories(ward);
+      if (mounted && _storyFetchInFlightFor == ward) {
+        setState(() {
+          // Demo rings stand in ONLY while the ward has none of its own; one
+          // real story and they are gone. See domain/demo_stories.dart.
+          _storyRings = rings.isEmpty && kUseDemoStories
+              ? demoStoryRings(ward)
+              : rings;
+          _storiesLoading = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          if (kUseDemoStories) _storyRings = demoStoryRings(ward);
+          _storiesLoading = false;
+        });
+      }
+    }
+    _storyFetchInFlightFor = null;
   }
 
   Future<void> _loadWard(int ward) async {
@@ -999,7 +1140,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           );
       await _loadHistory();
       final w = _currentWard;
-      if (w != null) await _loadWard(w);
+      if (w != null) {
+        await _loadWard(w);
+        _loadStories(w);
+      }
     } catch (e) {
       setState(() => _error = '$e');
     } finally {
@@ -1040,7 +1184,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         _loadHistory();
         _pollHistoryWhileProcessing();
         final w = _currentWard;
-        if (w != null) _loadWard(w);
+        if (w != null) {
+          _loadWard(w);
+          _loadStories(w);
+        }
       },
     );
   }
@@ -1143,26 +1290,47 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     // The solid nav bar occupies this whole strip at the bottom of the screen.
     final navCover = _kNavBarHeight + _kNavBarBottomGap * 2 + bottomInset;
     final sheetFloor = _sheetFloorFraction(sheetParentH, navCover);
+    final sheetMini = _sheetMiniFraction(sheetParentH, navCover);
+    // The nature band and, under it, the story rail. The citizen app never
+    // shows the composer tile, so an empty ward collapses the rail to nothing
+    // and the map simply starts higher.
+    final screenW = MediaQuery.sizeOf(context).width;
+    final barTop = kAppBarTop(topInset);
+    final backdropH = kBackdropHeight(topInset, screenW);
+    final railH = storyRailHeight(
+      canPost: false,
+      hasRings: _storyRings.isNotEmpty,
+      loading: _storiesLoading,
+    );
+    // The photo runs behind the app bar AND the stories as one picture; the
+    // backdrop lands it in white before its own last row, wherever that falls.
+    final mastheadH = backdropH + railH;
     final sheetMax = _sheetMaxFraction(
       sheetParentH,
-      topInset,
       _applyStatusFilter(_tabIssues).length,
       _sheetHeaderHeight,
       navCover,
       sheetFloor,
+      mastheadH,
     );
     // Held for [_syncSheetLift], which must not animate past the live cap.
     _sheetMaxNow = sheetMax;
+    // Held for [_collapseForMap].
+    _sheetMiniNow = sheetMini;
 
     // Everything the sheet covers at its floor, used to bias the ward fit into
     // the band that stays visible above it.
     final lockBounds = _wardBounds;
     final sheetCoverPx = sheetFloor * sheetParentH;
     final lockPadding = EdgeInsets.only(
-      top: topInset + 96,
+      // Clear of the masthead and the ward pill under it.
+      top: mastheadH + 42,
       bottom: sheetCoverPx + 16,
-      left: 28,
-      right: 28,
+      // 14, not 28: this padding is slack reserved AROUND the ward when the
+      // camera fits to it, so halving it fills the band with Ward 58 instead
+      // of its neighbours.
+      left: 14,
+      right: 14,
     );
     // Zoom-out floor = the ward filling the band visible above the sheet.
     final lockMinZoom = lockBounds == null
@@ -1176,7 +1344,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           );
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
-      // Dark glyphs — the pale basemap now runs right up under the status bar.
+      // DARK glyphs again. They were flipped to light for the coast photo,
+      // whose top-left was near-black palm foliage; the sky asset is pale
+      // right across the top, so white glyphs would now be the ones that
+      // disappear. The scrim that used to carry that contrast went with it.
       value: SystemUiOverlayStyle.dark,
       child: Scaffold(
         // The map is the background — never let the keyboard or the sheet
@@ -1216,13 +1387,53 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 lockBounds: lockBounds,
                 lockPadding: lockPadding,
                 lockMinZoom: lockMinZoom,
+                // Reaching for the map collapses the sheet to its status
+                // pills, so the map the user just grabbed is actually there.
+                onInteract: _collapseForMap,
               ),
             ),
 
-            // ── 2. Frosted app-bar capsule floating over the map ──
+            // ── 1b. The Tamil Nadu coast, painted behind the app bar, and
+            // the ward's story rail directly under it. Together they are the
+            // screen's masthead: the map now begins below them rather than
+            // running up under the status bar. ──
+            Positioned(
+              key: const ValueKey('home-masthead'),
+              top: 0,
+              left: 0,
+              right: 0,
+              child: MastheadCard(
+                child: SizedBox(
+                  height: mastheadH,
+                  child: Stack(
+                    children: [
+                      Positioned.fill(
+                        child: NatureBackdrop(height: mastheadH),
+                      ),
+                      // The rail rides ON the photograph's washed lower half,
+                      // not on a white strip below it.
+                      if (railH > 0)
+                        Positioned(
+                          left: 0,
+                          right: 0,
+                          bottom: 0,
+                          height: railH,
+                          child: StoryRail(
+                            rings: _storyRings,
+                            loading: _storiesLoading,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
+            // ── 2. App-bar capsule floating over the nature band ──
             Positioned(
               key: const ValueKey('home-appbar'),
-              top: topInset + 8,
+              // Parked at the temple's base so it stands whole above the bar.
+              top: barTop,
               left: 14,
               right: 14,
               child: ProfileHeader(
@@ -1240,7 +1451,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             // the picker takes its fixed width, the pill takes what is left. ──
             Positioned(
               key: const ValueKey('home-maprow'),
-              top: topInset + 8 + 56 + 10,
+              top: backdropH + railH + 10,
               left: 14,
               right: 14,
               child: Row(
@@ -1288,18 +1499,31 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               right: 0,
               top: 0,
               bottom: 0,
-              child: DraggableScrollableSheet(
+              child: NotificationListener<DraggableScrollableNotification>(
+                // The user pulling the sheet back up out of the mini snap ends
+                // the map-collapsed state, so the floor logic owns it again.
+                onNotification: (n) {
+                  if (_mapCollapsed &&
+                      !_collapsing &&
+                      n.extent > _sheetMiniNow + 0.04) {
+                    _mapCollapsed = false;
+                  }
+                  return false;
+                },
+                child: DraggableScrollableSheet(
                 controller: _sheetCtrl,
                 // Landing == floor == minimum: opens showing the header + ~2
                 // grievance cards and can never be collapsed below that.
                 initialChildSize: sheetFloor,
-                minChildSize: sheetFloor,
+                // The MINIMUM is now the status-pills-only snap, which the map
+                // gesture drops to; the floor stays the landing size.
+                minChildSize: sheetMini,
                 maxChildSize: sheetMax,
                 snap: true,
                 // Exactly two stops, and the SAME list instance every build —
                 // see [_snapSizes]. The ward's filter lift rides on top of this
                 // as a resting offset; it does not add a stop.
-                snapSizes: _snapSizes(sheetFloor, sheetMax),
+                snapSizes: _snapSizes(sheetMini, sheetFloor, sheetMax),
                 snapAnimationDuration: _kSheetSnapDuration,
                 builder: (context, scrollController) {
                   _sheetScrollCtrl = scrollController;
@@ -1408,6 +1632,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 );
                 },
               ),
+              ),
             ),
 
             // ── 5. Solid nav plate: a white bar attached to the bottom edge
@@ -1475,7 +1700,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 onAnyNotification: () {
                   _loadHistory();
                   final w = _currentWard;
-                  if (w != null) _loadWard(w);
+                  if (w != null) {
+                    _loadWard(w);
+                    _loadStories(w);
+                  }
                 },
               ),
             ),
