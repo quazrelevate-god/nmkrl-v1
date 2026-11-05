@@ -260,6 +260,10 @@ class _UpvoteSheetState extends ConsumerState<UpvoteSheet> {
               busy: _busy,
               resetToken: _resetToken,
               onConfirm: _confirm,
+              // Same glowing emerald fill the report sheet's swipe uses — the
+              // support action is the mirror of a submission, and the two
+              // confirmed-at-the-swipe controls should read as one component.
+              fillGradient: kNkEmeraldGlowFill,
             ),
           ],
         ),

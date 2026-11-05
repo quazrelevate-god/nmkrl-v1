@@ -418,20 +418,9 @@ class _ReportSheetState extends ConsumerState<ReportSheet>
               thumbIconColor: NkColors.refBlue,
               labelColor: const Color(0xFF8B90A0),
               hintColor: const Color(0xFF8B90A0),
-              // Full-strength emerald fill with a glow tip: deep at the
-              // track's start, brightening to a lighter emerald right where
-              // it meets the thumb — the leading edge reads as glowing as it
-              // sweeps.
-              fillGradient: const LinearGradient(
-                begin: Alignment.centerLeft,
-                end: Alignment.centerRight,
-                stops: [0.0, 0.72, 1.0],
-                colors: [
-                  NkColors.emerald600,
-                  NkColors.emerald500,
-                  Color(0xFF34D399),
-                ],
-              ),
+              // Full-strength emerald fill with a glow tip (shared with the
+              // support sheet's swipe — see kNkEmeraldGlowFill).
+              fillGradient: kNkEmeraldGlowFill,
                   ),
                 ],
               ),

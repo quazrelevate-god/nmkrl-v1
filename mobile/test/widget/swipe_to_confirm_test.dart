@@ -2,6 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:namma_kural/features/report/widgets/swipe_to_confirm.dart';
 
+// The swipe control paints its label TWICE — a grey base copy and a white
+// twin clipped to the advancing fill — so every label assertion here matches
+// "at least one" rather than exactly one.
+/// The knob carries a stable key; its GLYPH is presentational (a chevron that
+/// becomes a tick on confirm), so targeting the key keeps these drags working
+/// across icon changes.
+final knobFinder = find.byKey(const ValueKey('swipe-knob'));
+
 void main() {
   Widget harness(Widget child) => MaterialApp(
         home: Scaffold(
@@ -19,16 +27,16 @@ void main() {
       ),
     ));
 
-    expect(find.text('Swipe to submit grievance'), findsOneWidget);
+    expect(find.text('Swipe to submit grievance'), findsAtLeastNWidgets(1));
 
-    final knob = find.byIcon(Icons.keyboard_double_arrow_right);
+    final knob = knobFinder;
     expect(knob, findsOneWidget);
 
     await tester.drag(knob, const Offset(900, 0));
     await tester.pump(const Duration(milliseconds: 400));
 
     expect(confirmed, 1);
-    expect(find.text('Confirmed'), findsOneWidget);
+    expect(find.text('Confirmed'), findsAtLeastNWidgets(1));
   });
 
   testWidgets('short drag springs back without confirming', (tester) async {
@@ -37,12 +45,11 @@ void main() {
       SwipeToConfirm(label: 'Swipe to support', onConfirm: () => confirmed++),
     ));
 
-    await tester.drag(
-        find.byIcon(Icons.keyboard_double_arrow_right), const Offset(40, 0));
+    await tester.drag(knobFinder, const Offset(40, 0));
     await tester.pump(const Duration(milliseconds: 400));
 
     expect(confirmed, 0);
-    expect(find.text('Swipe to support'), findsOneWidget);
+    expect(find.text('Swipe to support'), findsAtLeastNWidgets(1));
   });
 
   testWidgets('knob tracks the finger 1:1 and eases back to the start',
@@ -51,7 +58,7 @@ void main() {
       SwipeToConfirm(label: 'Swipe', onConfirm: () {}),
     ));
 
-    final knob = find.byIcon(Icons.keyboard_double_arrow_right);
+    final knob = knobFinder;
     final before = tester.getTopLeft(knob);
 
     final gesture = await tester.startGesture(tester.getCenter(knob));
@@ -87,13 +94,12 @@ void main() {
       ),
     ));
 
-    await tester.drag(
-        find.byIcon(Icons.keyboard_double_arrow_right), const Offset(900, 0));
+    await tester.drag(knobFinder, const Offset(900, 0));
     await tester.pump(const Duration(milliseconds: 400));
-    expect(find.text('Confirmed'), findsOneWidget);
+    expect(find.text('Confirmed'), findsAtLeastNWidgets(1));
 
     setOuterState(() => token++);
     await tester.pump(const Duration(milliseconds: 400));
-    expect(find.text('Swipe'), findsOneWidget);
+    expect(find.text('Swipe'), findsAtLeastNWidgets(1));
   });
 }
