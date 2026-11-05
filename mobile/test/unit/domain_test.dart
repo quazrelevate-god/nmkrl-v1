@@ -26,8 +26,12 @@ void main() {
       expect(statusMeta('FORWARDED').label, 'In Progress');
       expect(statusMeta('IN_PROGRESS').label, 'In Progress');
       // Distinct from SUBMITTED's 'Pending Verification' (pilot audit M11).
-      expect(statusMeta('PENDING_VERIFICATION').label,
-          'Resolved — awaiting confirmation');
+      expect(
+          statusMeta('PENDING_VERIFICATION').label,
+          // PENDING_VERIFICATION reads "Resolved" like CLOSED does and is
+          // told apart by the amber fill and the ! glyph: the full phrase ran
+          // to 58 characters in Tamil and overran the card.
+          'Resolved');
       expect(statusMeta('CLOSED').label, 'Resolved');
       expect(statusMeta('FALSE').label, 'Marked as false petition');
       // Merged reports had no entry and fell back to 'Assigned' (audit H7).

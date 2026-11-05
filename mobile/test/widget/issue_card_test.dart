@@ -1,9 +1,22 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:namma_kural/domain/models/issue.dart';
 import 'package:namma_kural/features/home/widgets/issue_card.dart';
+import 'package:namma_kural/state/providers.dart';
 
 void main() {
+  // The expanded card's support button reads supportedIssuesProvider through
+  // a Consumer, so the card needs a real ProviderScope — and that provider
+  // chain bottoms out at SharedPreferences.
+  late SharedPreferences prefs;
+
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({});
+    prefs = await SharedPreferences.getInstance();
+  });
+
   final issue = Issue.fromJson(<String, dynamic>{
     'id': 'fae06b9f-bd12-45dc-9c07-65c21b2e3640',
     'title': 'Sewage overflow on the street',
@@ -23,15 +36,20 @@ void main() {
     VoidCallback? onToggle,
     ValueChanged<Issue>? onUpvote,
   }) =>
-      MaterialApp(
-        home: Scaffold(
-          body: SingleChildScrollView(
-            child: IssueCard(
-              issue: issue,
-              expanded: expanded,
-              onToggle: onToggle ?? () {},
-              distanceKm: 0.333,
-              onUpvote: onUpvote,
+      ProviderScope(
+        overrides: [
+          sharedPreferencesProvider.overrideWithValue(prefs),
+        ],
+        child: MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: IssueCard(
+                issue: issue,
+                expanded: expanded,
+                onToggle: onToggle ?? () {},
+                distanceKm: 0.333,
+                onUpvote: onUpvote,
+              ),
             ),
           ),
         ),
@@ -53,8 +71,8 @@ void main() {
   testWidgets('tap toggles; expanded shows ticket, AI summary and lifecycle',
       (tester) async {
     var toggles = 0;
-    await tester.pumpWidget(
-        harness(expanded: false, onToggle: () => toggles++));
+    await tester
+        .pumpWidget(harness(expanded: false, onToggle: () => toggles++));
     await tester.tap(find.text('Sewage overflow on the street'));
     expect(toggles, 1);
 
@@ -64,8 +82,7 @@ void main() {
     expect(find.text('FMS-FAE06B9F'), findsOneWidget);
     expect(find.text('Ward no: 108'), findsOneWidget);
     expect(find.text('AI SUMMARY'), findsOneWidget);
-    expect(
-        find.text('"Sewage water is flooding the road"'), findsOneWidget);
+    expect(find.text('"Sewage water is flooding the road"'), findsOneWidget);
     expect(find.text('Support this grievance'), findsOneWidget);
     // Lifecycle tracker labels
     expect(find.text('Submitted'), findsOneWidget);
