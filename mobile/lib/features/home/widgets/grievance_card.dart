@@ -151,7 +151,10 @@ class GrievanceCard extends StatelessWidget {
             GrievanceDialog.open(context, issue: issue, onUpvote: onUpvote);
           },
           child: Padding(
-            padding: const EdgeInsets.all(10),
+            // Roomier than the 10 it was: the thumbnail, the title block and
+            // the status column were all touching the card's edge, which is
+            // what made a list of these read as cramped.
+            padding: const EdgeInsets.all(12),
             child: Row(
               children: [
                 ClipRRect(
@@ -159,14 +162,14 @@ class GrievanceCard extends StatelessWidget {
                   child: image != null
                       ? Image(
                           image: image,
-                          height: 64,
-                          width: 64,
+                          height: 66,
+                          width: 66,
                           fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => _thumbFallback(64, 24),
+                          errorBuilder: (_, __, ___) => _thumbFallback(66, 25),
                         )
-                      : _thumbFallback(64, 24),
+                      : _thumbFallback(66, 25),
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -177,13 +180,13 @@ class GrievanceCard extends StatelessWidget {
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
-                          fontSize: 13,
+                          fontSize: 13.5,
                           fontWeight: FontWeight.w800,
                           height: 1.25,
                           color: _kInk,
                         ),
                       ),
-                      const SizedBox(height: 3),
+                      const SizedBox(height: 4),
                       Text(
                         _ticketOf(issue),
                         maxLines: 1,
@@ -219,8 +222,11 @@ class GrievanceCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
                       _SupportPill(count: issue.upvotes),
-                      const SizedBox(height: 6),
-                      StatusChip(status: issue.status, fontSize: 10),
+                      const SizedBox(height: 7),
+                      // Up from 10: the status is the thing a reader scans a
+                      // list of reports FOR, and at 10 it was the smallest
+                      // type on the card.
+                      StatusChip(status: issue.status, fontSize: 10.5),
                     ],
                   ),
                 ),

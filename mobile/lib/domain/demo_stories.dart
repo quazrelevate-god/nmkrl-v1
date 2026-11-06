@@ -79,5 +79,20 @@ List<StoryRing> demoStoryRings(int? ward) {
         ),
       ],
     ),
+    StoryRing(
+      title: 'Park Revamp',
+      cover: '/community/community-13.jpg',
+      ward: ward,
+      authorName: 'Ward Office',
+      updatedAt: '',
+      items: [
+        const Story(
+          id: 'demo-park-1',
+          imageUrl: '/community/community-13.jpg',
+          caption: 'New benches and lighting at the Vepery children\'s park.',
+          authorName: 'Ward Office',
+        ),
+      ],
+    ),
   ];
 }
