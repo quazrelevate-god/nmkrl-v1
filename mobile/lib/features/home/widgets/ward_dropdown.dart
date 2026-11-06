@@ -42,54 +42,91 @@ class ConstituencyWardDropdown extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final groups = groupWardsByConstituency(wards);
-    Text wardLabel(String w) =>
-        Text('${context.tr('Ward')} $w', overflow: TextOverflow.ellipsis);
+    final selected = _selected(groups);
 
-    return DropdownButtonHideUnderline(
-      child: DropdownButton<String>(
-        value: _selected(groups),
-        isDense: true,
-        isExpanded: true,
-        // Wide enough for "18 · Chepauk-Thiruvallikeni"; the closed button is
-        // sized by its parent and stays compact.
-        menuWidth: 250,
-        menuMaxHeight: 420,
-        hint: Text(context.tr('Ward'),
-            style: const TextStyle(fontSize: 12, color: NkColors.slate500)),
-        icon: const Icon(Icons.expand_more, size: 14, color: NkColors.slate500),
-        style: const TextStyle(
-            fontSize: 12, fontWeight: FontWeight.w700, color: NkColors.slate700),
-        borderRadius: BorderRadius.circular(12),
-        // One entry per item, in the same order as [items]. Headings can never
-        // be the selected value, so they render nothing here.
-        selectedItemBuilder: (context) => [
-          for (final g in groups) ...[
-            const SizedBox.shrink(),
-            for (final w in g.wards) wardLabel(w),
-          ],
-        ],
-        items: [
-          for (final g in groups) ...[
-            DropdownMenuItem<String>(
-              value: '#${g.key}',
-              enabled: false,
-              child: _Heading(group: g),
-            ),
-            for (final w in g.wards)
-              DropdownMenuItem<String>(
-                value: _itemValue(g, w),
-                child: Padding(
-                  padding: const EdgeInsets.only(left: 10),
-                  child: wardLabel(w),
+    // A [MenuAnchor], not a DropdownButton.
+    //
+    // Material's DropdownButton positions its menu so the SELECTED item lands
+    // on the button — which is why it opened upward and downward at once,
+    // covering the app bar and the stories above the control. With sixty-odd
+    // wards and a selection somewhere in the middle, that is most of the
+    // screen. A menu anchored under its trigger is what a dropdown is
+    // supposed to do, and it leaves everything above the control alone.
+    return MenuAnchor(
+      alignmentOffset: const Offset(0, 6),
+      style: MenuStyle(
+        backgroundColor: const WidgetStatePropertyAll(Colors.white),
+        surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
+        // Wide enough for "18 · Chepauk-Thiruvallikeni", and capped so the
+        // list scrolls rather than running off the bottom of the screen.
+        minimumSize: const WidgetStatePropertyAll(Size(250, 0)),
+        maximumSize: const WidgetStatePropertyAll(Size(250, 420)),
+        padding: const WidgetStatePropertyAll(
+            EdgeInsets.symmetric(vertical: 6)),
+        shape: WidgetStatePropertyAll(
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        ),
+      ),
+      builder: (context, controller, _) => GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => controller.isOpen ? controller.close() : controller.open(),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Expanded(
+              child: Text(
+                ward == null
+                    ? context.tr('Ward')
+                    : '${context.tr('Ward')} $ward',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: ward == null ? NkColors.slate500 : NkColors.slate700,
                 ),
               ),
+            ),
+            const Icon(Icons.expand_more, size: 14, color: NkColors.slate500),
           ],
-        ],
-        onChanged: (value) {
-          if (value == null || !value.contains('|')) return;
-          onChanged(value.split('|').last);
-        },
+        ),
       ),
+      menuChildren: [
+        for (final g in groups) ...[
+          // Headings are not selectable, so they are plain widgets rather
+          // than disabled buttons — a disabled MenuItemButton still takes a
+          // focus stop on the way down the list.
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
+            child: _Heading(group: g),
+          ),
+          for (final w in g.wards)
+            MenuItemButton(
+              onPressed: () => onChanged(w),
+              style: ButtonStyle(
+                backgroundColor: WidgetStatePropertyAll(
+                  _itemValue(g, w) == selected
+                      ? NkColors.brand50
+                      : Colors.transparent,
+                ),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.only(left: 10),
+                child: Text(
+                  '${context.tr('Ward')} $w',
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: _itemValue(g, w) == selected
+                        ? FontWeight.w800
+                        : FontWeight.w600,
+                    color: NkColors.slate700,
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ],
     );
   }
 }

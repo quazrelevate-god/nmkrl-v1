@@ -80,10 +80,6 @@ const double _kSheetHeaderHeight = 88;
 /// The one corner radius in the composition — it belongs to the white sheet.
 const double _kSheetCornerRadius = 22;
 
-/// Rendered height of the ward chip — the status legend is lifted by this so
-/// the chip can sit directly beneath it.
-const double _kWardPillHeight = 38;
-
 class CoordinatorHomeScreen extends ConsumerStatefulWidget {
   const CoordinatorHomeScreen({super.key});
 
@@ -375,13 +371,33 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
   /// parent height. Card and chrome heights are runtime measurements (see
   /// [_onCardMeasured]/[_onChromeMeasured]) — the coordinator chrome is
   /// much taller than the citizen's, so a copied constant hides the second
-  /// card entirely. 0 means "not measured yet".
+  /// card entirely.
+  ///
+  /// It reads the measurements ACROSS ALL TABS, not the active one's. Per-tab
+  /// figures gave every segment its own floor, so switching to a tab whose
+  /// cards were a few px taller — or to an empty one, which has no cards to
+  /// measure and fell back to the constant — resized the sheet mid-change.
+  /// That is the bump: the list slides sideways while the whole sheet jumps
+  /// under it. One floor for all four segments means the only thing that
+  /// moves on a tab change is the content.
   double _sheetFloorFraction(double parentHeight) {
-    final card = _cardFootprintByTab[_tab.index] ?? _kCardFootprint;
-    final chrome = _chromeFootprintByTab[_tab.index] ?? 0.0;
+    final card = _commonCardFootprint;
+    final chrome = _commonChromeFootprint;
     final px = _kSheetHeaderHeight + chrome + 2 * card;
     return (px / parentHeight).clamp(0.28, 0.5);
   }
+
+  /// The tallest card footprint any tab has reported, so two cards always fit
+  /// whichever segment is showing. An empty tab contributes nothing and
+  /// inherits the rest.
+  double get _commonCardFootprint => _cardFootprintByTab.values.isEmpty
+      ? _kCardFootprint
+      : _cardFootprintByTab.values.reduce(math.max);
+
+  /// Likewise for the list chrome above the cards.
+  double get _commonChromeFootprint => _chromeFootprintByTab.values.isEmpty
+      ? 0.0
+      : _chromeFootprintByTab.values.reduce(math.max);
 
   /// The MINIMUM snap: the pinned header's tab track and nothing else. The
   /// sheet drops here the moment the coordinator reaches for the map.
@@ -971,38 +987,49 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
               ),
             ),
 
-            // ── 3. Constituency · ward chip, parked directly under the
-            // status legend at the bottom-left of the map. ──
-            Positioned(
-              key: const ValueKey('coord-wardpill'),
-              bottom: sheetFloor * screenH + 12,
-              left: 14,
-              child: _CoordWardPill(
-                constituency: compactAC(_me.constituency),
-                ward: _ward.isEmpty ? context.tr('All') : _ward,
-              ),
-            ),
-
-            // ── 3b. Status legend, bottom-left of the map. Fades out as the
-            // sheet is pulled up and back in as it is pushed down; at zero
-            // opacity it must not swallow map touches. ──
+            // ── 3. Constituency · ward chip and the status legend above it,
+            // both parked just clear of the sheet's resting edge.
+            //
+            // They fade out in BOTH directions, not just upward. Their
+            // position is pinned to the FLOOR, so once the sheet leaves it
+            // they are no longer sitting above anything: pulled up, the sheet
+            // slides over them; dropped to the mini snap, they are left
+            // stranded in the middle of a map with the sheet far below. One
+            // fade keyed on distance from the floor covers both — they are
+            // visible exactly when they are in the right place. ──
             ValueListenableBuilder<double>(
               valueListenable: _sheetExtent,
               builder: (context, extent, child) {
-                final t = ((extent - sheetFloor) / (sheetMax - sheetFloor))
+                final up = ((extent - sheetFloor) / (sheetMax - sheetFloor))
                     .clamp(0.0, 1.0);
-                final opacity = 1.0 - t;
+                final down = sheetFloor <= sheetMini
+                    ? 0.0
+                    : ((sheetFloor - extent) / (sheetFloor - sheetMini))
+                        .clamp(0.0, 1.0);
+                // Away from the floor in either direction hides them; the
+                // steeper of the two wins.
+                final opacity = 1.0 - math.max(up, down);
                 return Positioned(
                   left: 14,
-                  // Lifted to make room for the ward pill beneath it.
-                  bottom: sheetFloor * screenH + 12 + _kWardPillHeight + 8,
+                  bottom: sheetFloor * screenH + 12,
                   child: IgnorePointer(
                     ignoring: opacity < 0.02,
                     child: Opacity(opacity: opacity, child: child),
                   ),
                 );
               },
-              child: const MapStatusLegend(),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const MapStatusLegend(),
+                  const SizedBox(height: 8),
+                  _CoordWardPill(
+                    constituency: compactAC(_me.constituency),
+                    ward: _ward.isEmpty ? context.tr('All') : _ward,
+                  ),
+                ],
+              ),
             ),
 
             // ── 4. The draggable content sheet ──
