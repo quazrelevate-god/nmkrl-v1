@@ -16,28 +16,45 @@ import '../../../domain/status_meta.dart';
 import '../../../domain/ticket.dart';
 import '../../shared/status_chip.dart';
 
-/// Gentle desaturate + LIFT matrix for the basemap.
+/// Gold for the selected ward's outer stroke. Brighter than the brand golds,
+/// which are tuned for type on white and go muddy as a line over a map.
+const Color _kWardGold = Color(0xFFE8A91C);
+
+/// Fill inside the selected ward: a light blue at 20% — inside the 15–25%
+/// the spec calls for, and light enough that the street names under it stay
+/// readable, which a saturated fill at the same opacity would not be.
+const Color _kWardFill = Color(0x338FB8DE);
+
+/// The user's own position. A green ring with a white core, deliberately NOT
+/// the teardrop the grievance pins use: it is a different kind of thing, and
+/// at this size a second teardrop would read as another report.
+const Color _kHereGreen = NkColors.emerald600;
+
+/// Desaturate + LIFT matrix for the basemap: a clean, light off-white map.
 ///
-/// Built from the luma weights (0.2126 / 0.7152 / 0.0722) at saturation 0.72:
-/// row = (1 - s) * luma + s * identity, which is only a light pull away from
-/// the tiles' own colour.
+/// Saturation 0.45 with an even +20/+20/+18 lift. It has moved twice: 0.18
+/// (parks, water and arterials collapsed into one putty tone — a grey
+/// placeholder, not a map), then 0.72 (colour back, but loud enough to
+/// compete with the ward and the pins sitting on it). 0.45 keeps a park
+/// green and an arterial warm while letting the ward boundary be the
+/// brightest thing on screen, and the near-neutral lift takes the paper to
+/// off-white rather than the warm cream the old offsets gave it.
 ///
-/// It started at 0.18 with a +16/+12/+6 lift, which flattened parks, water and
-/// arterials into one putty tone — the map read as a grey placeholder. 0.40
-/// brought them back but still looked washed. At 0.72 the greens are green and
-/// the arterials are properly yellow, and the brightness lift is what keeps
-/// the whole thing light enough to sit UNDER the pins, the ward boundary and
-/// the white sheet without competing with them. Going further is full-strength
-/// OSM, which does compete.
-///
-/// The lift is deliberately modest (+13/+11/+6, down from +22/+20/+14): every
-/// point of it is added to the street NAMES as well as the paper they sit on,
-/// so a heavy lift buys brightness by washing the labels out. Colour carries
-/// the brightness now; the offsets only take the grey out of the paper.
+/// LIMITATION, and it is the governing one for this whole surface: these are
+/// RASTER tiles from openstreetmap.org. Road colours, label sizes, label
+/// weights, which labels appear and where they sit are all baked into the PNG
+/// before it reaches us. A colour matrix can shift the whole image's hue,
+/// saturation and brightness; it cannot restyle one layer of it. So secondary
+/// street names cannot be made smaller or greyer than landmark names, label
+/// collisions cannot be resolved, and major roads cannot be darkened
+/// independently of minor ones. Those need vector tiles with a style sheet
+/// (MapLibre) or a pre-styled raster basemap such as CARTO Positron, either
+/// of which is a change of tile provider and of attribution, not a change of
+/// filter.
 const List<double> _kPaleTileMatrix = <double>[
-  0.7795, 0.2003, 0.0202, 0, 13, //
-  0.0595, 0.9203, 0.0202, 0, 11, //
-  0.0595, 0.2003, 0.7402, 0, 6, //
+  0.5669, 0.3934, 0.0397, 0, 20, //
+  0.1169, 0.8434, 0.0397, 0, 20, //
+  0.1169, 0.3934, 0.4897, 0, 18, //
   0, 0, 0, 1, 0, //
 ];
 
@@ -214,23 +231,43 @@ class _MapCardState extends State<MapCard> {
       final base = _zoneColor(f.zone);
       for (final part in f.parts) {
         if (part.isEmpty) continue;
+        final holes = part.length > 1 ? part.sublist(1) : null;
+        if (isHi) {
+          // The selected ward gets TWO strokes of the same outline: a wide
+          // bright-gold one first, then a narrower navy one over it. Drawn in
+          // that order the gold survives only where the navy does not cover
+          // it, which reads as a gold halo outside a navy edge — the ward's
+          // two brand colours doing the work of one boundary, and legible
+          // over a basemap that is now properly coloured.
+          out.add(
+            Polygon(
+              points: part.first,
+              holePointsList: holes,
+              color: Colors.transparent,
+              borderColor: _kWardGold,
+              borderStrokeWidth: 4.0,
+            ),
+          );
+          out.add(
+            Polygon(
+              points: part.first,
+              holePointsList: holes,
+              color: _kWardFill,
+              borderColor: NkColors.brand,
+              borderStrokeWidth: 2.0,
+            ),
+          );
+          continue;
+        }
         out.add(
           Polygon(
             points: part.first,
-            holePointsList:
-                part.length > 1 ? part.sublist(1) : null,
-            // The selected ward: a navy edge heavy enough to read over a
-            // coloured basemap, and a LIGHTER fill than before — the fill is
-            // there to say "this one", not to grey out the street names
-            // inside it. Every other ward drops back further than it used to,
-            // so the selected polygon is unmistakably the subject.
-            color: isHi
-                ? NkColors.brand.withValues(alpha: 0.14)
-                : base.withValues(alpha: 0.04),
-            borderColor: isHi
-                ? NkColors.brand
-                : base.withValues(alpha: 0.28),
-            borderStrokeWidth: isHi ? 3.2 : 0.6,
+            holePointsList: holes,
+            // Every other ward drops right back, so the selected polygon is
+            // unmistakably the subject.
+            color: base.withValues(alpha: 0.04),
+            borderColor: base.withValues(alpha: 0.28),
+            borderStrokeWidth: 0.6,
           ),
         );
       }
@@ -337,15 +374,38 @@ class _MapCardState extends State<MapCard> {
                     userAgentPackageName: 'com.nammakural.app',
                   ),
                 PolygonLayer(polygons: [..._wardPolygons(), ..._zonePolygons()]),
-                // "You are here" dot
-                CircleLayer(
-                  circles: [
-                    CircleMarker(
+                // "You are here" — first in the marker hierarchy after the
+                // ward itself, so it is the largest thing on the map at 40dp
+                // against the grievance pins' 26. A ring with a white core
+                // and a soft halo rather than a teardrop: the pins are
+                // teardrops, and another one here would read as a report.
+                MarkerLayer(
+                  markers: [
+                    Marker(
                       point: center,
-                      radius: 6,
-                      color: NkColors.brand,
-                      borderColor: Colors.white,
-                      borderStrokeWidth: 2,
+                      width: 40,
+                      height: 40,
+                      child: IgnorePointer(
+                        child: Center(
+                          child: Container(
+                            height: 22,
+                            width: 22,
+                            decoration: BoxDecoration(
+                              color: _kHereGreen,
+                              shape: BoxShape.circle,
+                              border:
+                                  Border.all(color: Colors.white, width: 3.5),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: _kHereGreen.withValues(alpha: 0.35),
+                                  blurRadius: 0,
+                                  spreadRadius: 7,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
                     ),
                   ],
                 ),

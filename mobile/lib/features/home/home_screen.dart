@@ -462,10 +462,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     final zx = math.log(viewport.width / (worldPx * xFrac)) / math.ln2;
     final zy = math.log(viewport.height / (worldPx * yFrac)) / math.ln2;
     // A hair below the exact fit so the opening (whole-ward) view is valid.
-    // 0.04, not 0.15: the larger backoff was a sixth of a zoom level of
-    // slack around the ward on every open, which left it floating in its
-    // surroundings rather than being the subject.
-    return (math.min(zx, zy) - 0.04).clamp(1.0, 18.0);
+    // 0.02, not the 0.15 this started at: the larger backoff was a sixth of
+    // a zoom level of slack around the ward on every open, which left it
+    // floating in its surroundings rather than being the subject.
+    return (math.min(zx, zy) - 0.02).clamp(1.0, 18.0);
   }
 
   /// Drives the destination change: the outgoing cards slide out while the
@@ -1326,11 +1326,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       // Clear of the masthead and the ward pill under it.
       top: mastheadH + 42,
       bottom: sheetCoverPx + 16,
-      // 14, not 28: this padding is slack reserved AROUND the ward when the
-      // camera fits to it, so halving it fills the band with Ward 58 instead
-      // of its neighbours.
-      left: 14,
-      right: 14,
+      // Slack reserved AROUND the ward when the camera fits to it. Trimmed
+      // again so the polygon takes 55-70% of the visible map rather than
+      // floating among its neighbours — the ward is first in the map's
+      // visual hierarchy, so it gets the room.
+      left: 10,
+      right: 10,
     );
     // Zoom-out floor = the ward filling the band visible above the sheet.
     final lockMinZoom = lockBounds == null
@@ -2795,9 +2796,9 @@ class _TestLocationPicker extends StatelessWidget {
               },
         behavior: HitTestBehavior.opaque,
         child: Container(
-          margin: const EdgeInsets.only(left: 4),
-          width: 22,
-          height: 22,
+          margin: const EdgeInsets.only(left: 5),
+          width: 26,
+          height: 26,
           alignment: Alignment.center,
           decoration: BoxDecoration(
             color: on ? NkColors.refBlue : const Color(0xFFF1F3F7),
@@ -2816,12 +2817,14 @@ class _TestLocationPicker extends StatelessWidget {
     }
 
     return SolidCapsule(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      // 10 top and bottom around the 26 toggles puts this at ~46, level with
+      // the constituency pill on the other side of the row.
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(Icons.science_outlined,
-              size: 14, color: active ? NkColors.gold300 : NkColors.slate500),
+              size: 16, color: active ? NkColors.gold300 : NkColors.slate500),
           const SizedBox(width: 6),
           SizedBox(
             // The picker is a testing affordance and was taking half the width
@@ -2951,13 +2954,14 @@ class _WardPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SolidCapsule(
-      // Even inset both sides — the trailing space used to seat the ward
-      // number, which no longer renders here.
-      padding: const EdgeInsets.fromLTRB(12, 7, 13, 7),
+      // 12 top and bottom around a ~22 row puts the pill at ~46 tall —
+      // inside the 44-52 a map control needs to be comfortably tappable, and
+      // matching the ward picker beside it.
+      padding: const EdgeInsets.fromLTRB(14, 12, 15, 12),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.account_balance, size: 15, color: NkColors.refBlue),
+          const Icon(Icons.account_balance, size: 17, color: NkColors.refBlue),
           const SizedBox(width: 8),
           // Trimmed: a whitespace-only name must not reserve the divider.
           if (constituency.trim().isNotEmpty)
@@ -2969,7 +2973,7 @@ class _WardPill extends StatelessWidget {
               maxLines: 1,
               softWrap: false,
               style: const TextStyle(
-                fontSize: 12.5,
+                fontSize: 13.5,
                 fontWeight: FontWeight.w700,
                 color: NkColors.slate900,
               ),
