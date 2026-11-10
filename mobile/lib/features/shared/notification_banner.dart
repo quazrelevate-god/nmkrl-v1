@@ -285,6 +285,14 @@ class NotificationBanner extends StatelessWidget {
         return (Icons.call_merge_rounded, NkColors.brand, 'COMBINED');
       case 'merge_received':
         return (Icons.call_merge_rounded, NkColors.brand, 'DUPLICATE MERGED');
+      // The MLA office's verdict on a ward story. Approval is the good news
+      // and takes the same emerald as a resolved grievance; a rejection is
+      // not an error, so it takes amber rather than the rose used for a
+      // flagged petition.
+      case 'story_approved':
+        return (Icons.campaign_outlined, NkColors.emerald600, 'STORY LIVE');
+      case 'story_rejected':
+        return (Icons.campaign_outlined, NkColors.amber700, 'STORY NOT APPROVED');
       default:
         return (Icons.notifications_none, NkColors.slate600, 'UPDATE');
     }

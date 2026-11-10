@@ -18,7 +18,10 @@ import { usePathname, useRouter } from "next/navigation";
 import { LayoutDashboard, Ticket, ClipboardCheck, Megaphone, Users, Landmark, LogOut, FolderTree, Network, Loader2 } from "lucide-react";
 import { useAdminData } from "./AdminDataProvider";
 import { listCoordinatorsRemote } from "@/lib/coordinators";
-import { listPending, MODERATION_EVENT } from "@/lib/postModeration";
+import {
+  listPending, MODERATION_EVENT, LOCAL_KINDS_ENABLED,
+} from "@/lib/postModeration";
+import { pendingCount as pendingStoryCount } from "@/lib/storyModeration";
 import { adminLogout, getAdminUser, switchCorporation } from "@/lib/adminAuth";
 import { fetchAdminCorporation } from "@/lib/api";
 
@@ -138,16 +141,34 @@ export default function AdminSidebar() {
     };
   }, []);
 
-  // Live pending-post count, refreshes on approve/reject or new coordinator posts.
+  // Live count of everything waiting in Post Review.
+  //
+  // It used to read localStorage alone, so a coordinator's story — which
+  // lives in the backend — never reached the badge: the office had no way of
+  // knowing a post was waiting short of opening the page. It now asks the API
+  // as well, and counts the local kinds only while they are a live feature,
+  // so the badge and the page always agree about what is in the queue.
   const [pendingPosts, setPendingPosts] = useState(0);
   useEffect(() => {
-    const sync = () => setPendingPosts(listPending().length);
+    let alive = true;
+    const sync = async () => {
+      const local = LOCAL_KINDS_ENABLED ? listPending().length : 0;
+      let stories = 0;
+      try {
+        stories = await pendingStoryCount();
+      } catch {
+        // Signed out, or the backend is unreachable. Fall back to the local
+        // count rather than blanking a badge that may be telling the truth.
+      }
+      if (alive) setPendingPosts(local + stories);
+    };
     sync();
     window.addEventListener(MODERATION_EVENT, sync);
-    // Post creation happens on other tabs / coordinator side — poll every 5s
-    // to catch new pending submissions when this sidebar isn't the focus.
+    // Submissions arrive from the coordinator app and from other tabs, so
+    // poll rather than wait for an event this window will never see.
     const iv = setInterval(sync, 5000);
     return () => {
+      alive = false;
       window.removeEventListener(MODERATION_EVENT, sync);
       clearInterval(iv);
     };

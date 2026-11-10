@@ -188,6 +188,50 @@ def emit_to_coordinator(conn, issue_row, kind: str, message: str) -> None:
     )
 
 
+def emit_story_review(conn, story_row, status: str, note: str = "") -> None:
+    """Tell the coordinator what the MLA office decided about their story.
+
+    Posting a story is the one coordinator action whose outcome is decided by
+    somebody else, and until this existed the only signal was the post quietly
+    appearing on the rail — or quietly not. A rejection was invisible unless
+    they opened the composer and read the strip.
+
+    The notification doubles as the refresh trigger: both home screens reload
+    the rail on any notification, so an approval lands on the ward's rail
+    without the coordinator touching anything.
+
+    `issue_id` carries the STORY id. The column is NOT NULL and named for
+    grievances, which is the older of the two features; nothing reads it as a
+    foreign key, and the story id is also in `data` under its own name.
+    """
+    author = (story_row["author"] or "").strip() if story_row else ""
+    if not author:
+        return
+    approved = status == "APPROVED"
+    title = story_row["title"] or "Ward story"
+    if approved:
+        message = f"Your story is live in Ward {story_row['ward_no']}."
+    elif note:
+        message = f"Not approved: {note}"
+    else:
+        message = "Your story was not approved."
+    _insert(
+        conn,
+        recipient_type="coordinator",
+        recipient_id=author,
+        kind="story_approved" if approved else "story_rejected",
+        issue_id=story_row["id"],
+        title=title,
+        message=message,
+        data={
+            "story_id": story_row["id"],
+            "status": status,
+            "ward_no": story_row["ward_no"],
+            "review_note": note or "",
+        },
+    )
+
+
 def emit_new_grievance(conn, issue_row) -> None:
     """Notify every coordinator whose home_ward matches the new grievance."""
     ward_no = issue_row["ward_no"]

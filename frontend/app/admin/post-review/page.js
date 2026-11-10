@@ -11,9 +11,15 @@
  *   • One-click Accept, or Reject with a preset reason or custom note
  *   • A short-lived toast with Undo so mis-clicks are recoverable
  *
- * State is client-side (localStorage via lib/coordinators.js), so the demo
- * loop — coordinator writes → admin approves → coordinator sees badge flip —
- * works end-to-end without a backend.
+ * STORIES are the live case. A coordinator posts one from the mobile app, it
+ * lands PENDING in the backend, and it reaches citizens only once this page
+ * approves it — see lib/storyModeration.js, which maps the API onto the same
+ * item shape posts and polls use.
+ *
+ * Posts and polls are a localStorage demo loop and the product does not use
+ * them yet, so they are HIDDEN here rather than deleted: the code, the type
+ * filter and the sample seeder are all still in place behind [SHOW_LOCAL_KINDS]
+ * for whenever that feature lands.
  */
 
 import { useEffect, useMemo, useState } from "react";
@@ -25,8 +31,13 @@ import {
 import { COORDINATORS, listCoordinators } from "@/lib/coordinators";
 import {
   listAll, approve, reject, revertToPending,
-  MODERATION_EVENT, REJECT_PRESETS, seedDemoPosts,
+  MODERATION_EVENT, REJECT_PRESETS, seedDemoPosts, LOCAL_KINDS_ENABLED,
 } from "@/lib/postModeration";
+import {
+  listStories, approveStory, rejectStory, revertStory, canRevert,
+} from "@/lib/storyModeration";
+
+const SHOW_LOCAL_KINDS = LOCAL_KINDS_ENABLED;
 
 const TABS = [
   { key: "pending",  label: "Pending",  icon: Clock,        tone: "text-amber-600" },
@@ -35,7 +46,8 @@ const TABS = [
 ];
 
 const TYPE_TABS = [
-  { key: "",     label: "All" },
+  { key: "",      label: "All" },
+  { key: "story", label: "Stories" },
   { key: "post", label: "Posts" },
   { key: "poll", label: "Polls" },
 ];
@@ -48,7 +60,27 @@ export default function PostReviewPage() {
   const [query, setQuery] = useState("");
   const [toast, setToast] = useState(null);
 
-  function refresh() { setAll(listAll()); }
+  const [loadError, setLoadError] = useState("");
+
+  // Stories come from the API; posts and polls from localStorage. Merged
+  // here rather than in either module, so neither has to know about the
+  // other's storage.
+  async function refresh() {
+    const local = SHOW_LOCAL_KINDS ? listAll() : [];
+    try {
+      const stories = await listStories();
+      setLoadError("");
+      setAll([...stories, ...local].sort((a, b) =>
+        String(b.submittedAt || "").localeCompare(String(a.submittedAt || ""))));
+    } catch (err) {
+      // Say so rather than showing an empty queue: "nothing to review" and
+      // "could not reach the server" look identical otherwise, and only one
+      // of them means there is nothing to do.
+      setLoadError(err.message || "Could not load stories");
+      setAll(local);
+    }
+  }
+
   useEffect(() => {
     refresh();
     window.addEventListener(MODERATION_EVENT, refresh);
@@ -90,25 +122,59 @@ export default function PostReviewPage() {
       });
   }, [all, tab, typeFilter, authorFilter, query]);
 
+  async function act(item, run, toast) {
+    try {
+      await run();
+      setToast(toast);
+      await refresh();
+    } catch (err) {
+      setToast({ kind: "err", msg: err.message || "That did not work",
+                 undo: null });
+    }
+  }
+
   function handleApprove(item) {
-    approve(item.id, item.kind);
-    setToast({
-      kind: "ok",
-      msg: `Approved · ${itemHeadline(item)}`,
-      undo: () => revertToPending(item.id, item.kind),
-    });
+    // No Undo on an approval. The story is on the ward's rail the moment
+    // this returns, and the backend refuses to un-publish it — offering a
+    // button that would 409 is worse than not offering one.
+    return act(
+      item,
+      () => item.kind === "story"
+        ? approveStory(item.id)
+        : approve(item.id, item.kind),
+      { kind: "ok", msg: `Approved · ${itemHeadline(item)}`, undo: null },
+    );
   }
+
   function handleReject(item, reason) {
-    reject(item.id, item.kind, { reason });
-    setToast({
-      kind: "err",
-      msg: `Rejected · ${itemHeadline(item)}`,
-      undo: () => revertToPending(item.id, item.kind),
-    });
+    return act(
+      item,
+      () => item.kind === "story"
+        ? rejectStory(item.id, { reason })
+        : reject(item.id, item.kind, { reason }),
+      {
+        kind: "err",
+        msg: `Rejected · ${itemHeadline(item)}`,
+        // A rejection was never public, so this one is safe to take back.
+        undo: () => handleRevert({ ...item, status: "rejected" }),
+      },
+    );
   }
+
   function handleRevert(item) {
-    revertToPending(item.id, item.kind);
-    setToast({ kind: "neutral", msg: `Moved back to pending`, undo: null });
+    if (item.kind === "story" && !canRevert(item)) {
+      setToast({ kind: "neutral",
+                 msg: "Published stories cannot be moved back — delete it instead",
+                 undo: null });
+      return;
+    }
+    return act(
+      item,
+      () => item.kind === "story"
+        ? revertStory(item.id)
+        : revertToPending(item.id, item.kind),
+      { kind: "neutral", msg: "Moved back to pending", undo: null },
+    );
   }
 
   return (
@@ -122,12 +188,12 @@ export default function PostReviewPage() {
           <div>
             <h1 className="text-xl font-extrabold tracking-tight">Post Review</h1>
             <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-              Approve coordinator posts and polls before they reach citizens
+              Approve coordinator stories before they reach citizens
             </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button
+          {SHOW_LOCAL_KINDS && <button
             onClick={() => {
               const { added } = seedDemoPosts();
               setToast(added
@@ -138,7 +204,7 @@ export default function PostReviewPage() {
             className="glass-panel flex items-center gap-1.5 rounded-xl px-3 py-2 text-[11.5px] font-bold text-slate-600 hover:text-slate-800"
           >
             <Sparkles size={13} className="text-brand" /> Load samples
-          </button>
+          </button>}
           {counts.pending > 0 && (
             <span className="glass-panel flex items-center gap-2 rounded-xl px-3 py-2 text-[12px] font-bold text-amber-700 ring-1 ring-amber-200">
               <span className="h-2 w-2 animate-pulse rounded-full bg-amber-500" />
@@ -205,7 +271,7 @@ export default function PostReviewPage() {
             ))}
           </select>
 
-          <div className="glass-panel flex items-center gap-1 rounded-xl p-1">
+          {SHOW_LOCAL_KINDS && <div className="glass-panel flex items-center gap-1 rounded-xl p-1">
             {TYPE_TABS.map((t) => (
               <button
                 key={t.key}
@@ -219,8 +285,16 @@ export default function PostReviewPage() {
                 {t.label}
               </button>
             ))}
-          </div>
+          </div>}
         </div>
+
+        {/* The queue is empty and the queue is unreachable look identical
+            without this, and only one of them means there is nothing to do. */}
+        {loadError && (
+          <div className="mb-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-[12px] font-semibold text-rose-700">
+            {loadError}
+          </div>
+        )}
 
         {/* List */}
         {filtered.length ? (
@@ -239,12 +313,12 @@ export default function PostReviewPage() {
           <EmptyState
             tab={tab}
             allEmpty={all.length === 0}
-            onLoadSamples={() => {
+            onLoadSamples={SHOW_LOCAL_KINDS ? () => {
               const { added } = seedDemoPosts();
               setToast(added
                 ? { kind: "neutral", msg: `Loaded ${added} demo posts and polls`, undo: null }
                 : { kind: "neutral", msg: "Demo posts already loaded", undo: null });
-            }}
+            } : null}
           />
         )}
       </div>
@@ -256,8 +330,13 @@ export default function PostReviewPage() {
 
 /* ── Review card ─────────────────────────────────────────────────────────── */
 function ReviewCard({ item, onApprove, onReject, onRevert }) {
-  const author = COORDINATORS.find((c) => c.username === item.author) || {
-    name: item.author, avatar: null, constituency: "", initials: (item.author || "?").slice(0, 2).toUpperCase(),
+  // Stories carry their author's real name from the backend; posts and polls
+  // are demo data keyed on a username in COORDINATORS.
+  const lookup = item.kind === "story" ? item.authorUsername : item.author;
+  const shown = item.author || lookup || "?";
+  const author = COORDINATORS.find((c) => c.username === lookup) || {
+    name: shown, avatar: null, constituency: "",
+    initials: String(shown).slice(0, 2).toUpperCase(),
   };
   const isPending  = item.status === "pending";
   const isApproved = item.status === "approved";
@@ -277,7 +356,11 @@ function ReviewCard({ item, onApprove, onReject, onRevert }) {
                 {author.constituency}
               </span>
             )}
-            {item.kind === "poll" ? (
+            {item.kind === "story" ? (
+              <span className="flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700">
+                <Megaphone size={10} /> STORY{item.ward ? ` · WARD ${item.ward}` : ""}
+              </span>
+            ) : item.kind === "poll" ? (
               <span className="flex items-center gap-1 rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-bold text-violet-700">
                 <BarChart3 size={10} /> POLL
               </span>
@@ -296,7 +379,34 @@ function ReviewCard({ item, onApprove, onReject, onRevert }) {
 
       {/* Content preview */}
       <div className="mt-3 rounded-xl border border-slate-200/70 bg-white/60 p-3">
-        {item.kind === "post" ? (
+        {item.kind === "story" ? (
+          <>
+            {item.title && (
+              <h3 className="text-[14px] font-extrabold leading-snug text-slate-900">{item.title}</h3>
+            )}
+            {item.body && (
+              <p className="mt-1 whitespace-pre-line text-[13px] leading-relaxed text-slate-700">
+                {item.body}
+              </p>
+            )}
+            {item.media && (
+              // The photograph as the citizen will see it. object-contain,
+              // not cover: a reviewer deciding whether this should go out
+              // needs the whole frame, not a crop of it.
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={item.media}
+                alt="story photograph"
+                className="mt-2 max-h-72 w-full rounded-xl bg-slate-100 object-contain"
+              />
+            )}
+            {item.reviewNote && (
+              <p className="mt-2 rounded-lg bg-slate-100 px-2.5 py-1.5 text-[11.5px] italic text-slate-600">
+                {item.reviewedBy ? `${item.reviewedBy}: ` : ""}{item.reviewNote}
+              </p>
+            )}
+          </>
+        ) : item.kind === "post" ? (
           <>
             {item.title && (
               <h3 className="text-[14px] font-extrabold leading-snug text-slate-900">{item.title}</h3>
@@ -464,23 +574,23 @@ function EmptyState({ tab, allEmpty, onLoadSamples }) {
       icon: CheckCircle2,
       title: allEmpty ? "Nothing in the queue yet" : "All caught up",
       body: allEmpty
-        ? "Load a batch of realistic sample posts to walk through the moderation flow."
-        : "No posts waiting for review. New coordinator submissions land here in real time.",
+        ? "Nothing is waiting for review. Coordinator stories land here the moment they are posted."
+        : "No stories waiting for review. New coordinator submissions land here in real time.",
     },
     approved: {
       icon: Megaphone,
       title: "Nothing approved yet",
-      body: "Accept a pending post to see it here.",
+      body: "Approve a pending story to see it here. It goes live on the ward's rail straight away.",
     },
     rejected: {
       icon: XCircle,
       title: "No rejections",
-      body: "Rejected posts and their reasons will appear here for the record.",
+      body: "Rejected stories and their reasons appear here, and the coordinator sees the reason in their app.",
     },
   };
   const m = messages[tab];
   const Icon = m.icon;
-  const showSamplesCTA = tab === "pending" && allEmpty;
+  const showSamplesCTA = tab === "pending" && allEmpty && !!onLoadSamples;
   return (
     <div className="glass-panel flex flex-col items-center justify-center gap-2 rounded-2xl py-14 text-center">
       <Icon size={34} className="text-slate-300" />

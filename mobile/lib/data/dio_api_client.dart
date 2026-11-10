@@ -634,6 +634,19 @@ class DioApiClient implements ApiClient {
   }
 
   @override
+  Future<List<Story>> fetchMyStories() => _get(
+        '/api/coordinator/stories/mine',
+        parse: (d) {
+          final raw =
+              (d as Map<String, dynamic>)['stories'] as List? ?? const [];
+          return [
+            for (final r in raw)
+              Story.fromJson(Map<String, dynamic>.from(r as Map)),
+          ];
+        },
+      );
+
+  @override
   Future<void> deleteStory(String storyId) async {
     try {
       await _dio.delete<Map<String, dynamic>>(

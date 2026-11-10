@@ -336,9 +336,12 @@ def admin_me(
 app.include_router(departments.router)
 app.include_router(notifications.router)
 app.include_router(servicehub.router)
-# Ward stories: the public read, then the coordinator-only write surface.
+# Ward stories: the public read, the coordinator write surface, and the MLA
+# office's review queue — which carries the tenant guard the rest of the admin
+# console does, so one office can only ever see its own wards' posts.
 app.include_router(stories.public_router)
 app.include_router(stories.router)
+app.include_router(stories.admin_router, dependencies=[Depends(current_tenant)])
 
 
 @app.get("/")

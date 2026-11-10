@@ -52,25 +52,36 @@ enum _WardSort { recent, priority }
 /// [_sheetMaxFraction] rather than fixed.
 
 /// Breathing room under the app-bar capsule before the story rail begins.
-const double _kBackdropSpill = 6;
+/// How far the app-bar capsule overlaps the banner's bottom edge. It floats
+/// ON the banner rather than under it, which is what separates the two from
+/// the single welded slab this used to be.
+const double _kBarOverlap = 26;
 
-/// Top edge of the app-bar capsule.
-///
-/// Back at the top of the screen. It used to be driven down to the gopuram's
-/// base so the temple in the old coastal photo stood clear above it; the sky
-/// asset has no subject to clear, so the bar reclaims that space and the map
-/// gets it back.
-double kAppBarTop(double topInset) => topInset + 8;
+/// Gap between the floating bar and the floating story panel.
+const double _kPanelGap = 12;
 
-/// The sky band + capsule block, story rail excluded.
-///
-/// At least tall enough for the bar and its spill, and at least as tall as the
-/// image itself so the band is never cut short of its own last row — on a wide
-/// screen the image is the taller of the two.
-double kBackdropHeight(double topInset, double screenWidth) => math.max(
-      kAppBarTop(topInset) + kAppBarHeight + _kBackdropSpill,
-      NatureBackdrop.imageHeight(screenWidth),
-    );
+/// Top edge of the app-bar capsule: low enough on the banner that the
+/// wordmark centred above it is clear, high enough that the bar still
+/// overlaps the artwork's foot.
+double kAppBarTop(double topInset, double screenWidth) {
+  // Two constraints, and the bar has to honour BOTH:
+  //   * sit low enough on the banner that the wordmark above it is whole —
+  //     that floor is the status bar plus [kWordmarkBand], and it is the one
+  //     that was missing, so on a phone with a tall status bar the bar rode
+  //     up over the mark;
+  //   * still overlap the artwork's foot, so the two read as layered.
+  // Against the SCENE's foot, not the asset's: the asset now carries a
+  // transparent dissolve below the scene, and hanging the bar off that would
+  // park it in mid-fade.
+  final overlapping = bannerSolidHeight(screenWidth) - _kBarOverlap;
+  final clearOfWordmark = topInset + kWordmarkBand;
+  return overlapping > clearOfWordmark ? overlapping : clearOfWordmark;
+}
+
+/// The banner plus the floating bar hanging off its foot — story panel
+/// excluded.
+double kBackdropHeight(double topInset, double screenWidth) =>
+    kAppBarTop(topInset, screenWidth) + kAppBarHeight + _kPanelGap;
 
 /// Breathing gap left under the ward pill when the sheet is fully expanded.
 const double _kExpandedTopGap = 18;
@@ -161,8 +172,13 @@ class HomeScreen extends ConsumerStatefulWidget {
   ConsumerState<HomeScreen> createState() => _HomeScreenState();
 }
 
+// TickerProviderStateMixin, not the Single- variant: this state drives TWO
+// AnimationControllers (the destination slide and the pinned header's height
+// — see [_tabAnimCtrl] and [_headerAnimCtrl]). SingleTicker asserts on the
+// second vsync, and that assert is compiled out of a release build, so the
+// mismatch rode along invisibly until someone ran a debug build.
 class _HomeScreenState extends ConsumerState<HomeScreen>
-    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   // Location
   LatLng? _geoCoords;
   LatLng? _override; // testing: overrides device GPS to a chosen ward + spot
@@ -1295,7 +1311,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     // shows the composer tile, so an empty ward collapses the rail to nothing
     // and the map simply starts higher.
     final screenW = MediaQuery.sizeOf(context).width;
-    final barTop = kAppBarTop(topInset);
+    final barTop = kAppBarTop(topInset, screenW);
     final backdropH = kBackdropHeight(topInset, screenW);
     final railH = storyRailHeight(
       canPost: false,
@@ -1345,11 +1361,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           );
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
-      // DARK glyphs again. They were flipped to light for the coast photo,
-      // whose top-left was near-black palm foliage; the sky asset is pale
-      // right across the top, so white glyphs would now be the ones that
-      // disappear. The scrim that used to carry that contrast went with it.
-      value: SystemUiOverlayStyle.dark,
+      // LIGHT glyphs. The banner is deep navy right across its top edge, so
+      // the dark glyphs the pale sky plate needed would now be invisible.
+      value: SystemUiOverlayStyle.light,
       child: Scaffold(
         // The map is the background — never let the keyboard or the sheet
         // resize it out from under the stack.
@@ -1403,29 +1417,45 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               top: 0,
               left: 0,
               right: 0,
-              child: MastheadCard(
-                child: SizedBox(
-                  height: mastheadH,
-                  child: Stack(
-                    children: [
-                      Positioned.fill(
-                        child: NatureBackdrop(height: mastheadH),
+              // Three pieces, not one card: the banner runs full-bleed to the
+              // screen edges, and the bar and the story panel float over it
+              // and over the map with their own shadows.
+              child: SizedBox(
+                height: mastheadH,
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Positioned(
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      child: NatureBackdrop(
+                        // Clamped to the panel's foot: on a wide screen the
+                        // band grows faster than the fixed-height panel, and
+                        // an unclamped fade would end in open map. The excess
+                        // comes off the bottom of the dissolve, where the
+                        // artwork is already transparent.
+                        height: math.min(
+                          bannerHeight(screenW),
+                          mastheadH,
+                        ),
+                        topInset: topInset,
                       ),
-                      // The rail rides ON the photograph's washed lower half,
-                      // not on a white strip below it.
-                      if (railH > 0)
-                        Positioned(
-                          left: 0,
-                          right: 0,
-                          bottom: 0,
-                          height: railH,
+                    ),
+                    if (railH > 0)
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        height: railH,
+                        child: StoryPanel(
                           child: StoryRail(
                             rings: _storyRings,
                             loading: _storiesLoading,
                           ),
                         ),
-                    ],
-                  ),
+                      ),
+                  ],
                 ),
               ),
             ),
@@ -1435,8 +1465,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               key: const ValueKey('home-appbar'),
               // Parked at the temple's base so it stands whole above the bar.
               top: barTop,
-              left: 14,
-              right: 14,
+              // Same inset as the story panel below it. They were 14 and
+              // 12: two floating cards whose edges did not line up, which is
+              // what made the masthead look mangled rather than layered.
+              left: kStoryPanelInset,
+              right: kStoryPanelInset,
               child: ProfileHeader(
                 searchIssues: [..._wardIssues, ..._history],
                 onUpvote: _upvoteOthers,
@@ -1453,8 +1486,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             Positioned(
               key: const ValueKey('home-maprow'),
               top: backdropH + railH + 10,
-              left: 14,
-              right: 14,
+              left: kStoryPanelInset,
+              right: kStoryPanelInset,
               child: Row(
                 children: [
                   Expanded(
@@ -2796,9 +2829,9 @@ class _TestLocationPicker extends StatelessWidget {
               },
         behavior: HitTestBehavior.opaque,
         child: Container(
-          margin: const EdgeInsets.only(left: 5),
-          width: 26,
-          height: 26,
+          margin: const EdgeInsets.only(left: 4),
+          width: 22,
+          height: 22,
           alignment: Alignment.center,
           decoration: BoxDecoration(
             color: on ? NkColors.refBlue : const Color(0xFFF1F3F7),
@@ -2817,15 +2850,15 @@ class _TestLocationPicker extends StatelessWidget {
     }
 
     return SolidCapsule(
-      // 10 top and bottom around the 26 toggles puts this at ~46, level with
+      // 8 top and bottom around the 22 toggles puts this at ~38, level with
       // the constituency pill on the other side of the row.
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 8),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(Icons.science_outlined,
-              size: 16, color: active ? NkColors.gold300 : NkColors.slate500),
-          const SizedBox(width: 6),
+              size: 14, color: active ? NkColors.gold300 : NkColors.slate500),
+          const SizedBox(width: 5),
           SizedBox(
             // The picker is a testing affordance and was taking half the width
             // of a 360lp phone, starving the ward pill beside it.
@@ -2954,15 +2987,15 @@ class _WardPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SolidCapsule(
-      // 12 top and bottom around a ~22 row puts the pill at ~46 tall —
-      // inside the 44-52 a map control needs to be comfortably tappable, and
-      // matching the ward picker beside it.
-      padding: const EdgeInsets.fromLTRB(14, 12, 15, 12),
+      // 8 top and bottom around a ~22 row puts the pill at ~38 tall. It was
+      // 46, which read as oversized against the trimmed masthead; 38 is still
+      // a comfortable target and matches the ward picker beside it.
+      padding: const EdgeInsets.fromLTRB(12, 8, 13, 8),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.account_balance, size: 17, color: NkColors.refBlue),
-          const SizedBox(width: 8),
+          const Icon(Icons.account_balance, size: 15, color: NkColors.refBlue),
+          const SizedBox(width: 6),
           // Trimmed: a whitespace-only name must not reserve the divider.
           if (constituency.trim().isNotEmpty)
             // Plain Text: the pill is measured unbounded and scaled to fit
@@ -2973,7 +3006,7 @@ class _WardPill extends StatelessWidget {
               maxLines: 1,
               softWrap: false,
               style: const TextStyle(
-                fontSize: 13.5,
+                fontSize: 12.5,
                 fontWeight: FontWeight.w700,
                 color: NkColors.slate900,
               ),

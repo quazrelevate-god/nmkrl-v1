@@ -45,26 +45,24 @@ const double _kSheetMax = 0.86;
 /// the sky, the Bay was a few pixels and the palms were squeezed against the
 /// top edge. 30 gives the horizon somewhere to sit and the scene reads as a
 /// coast, at the cost of 20dp of map.
-/// Breathing room under the app-bar capsule before the story rail begins.
-const double _kBackdropSpill = 6;
+/// Same masthead geometry as the citizen home — banner, a floating bar over
+/// its foot, then the floating story panel. See the citizen screen for why.
+const double _kBarOverlap = 26;
+const double _kPanelGap = 12;
 
-/// Top edge of the app-bar capsule.
-///
-/// Back at the top of the screen. It used to be driven down to the gopuram's
-/// base so the temple in the old coastal photo stood clear above it; the sky
-/// asset has no subject to clear, so the bar reclaims that space and the map
-/// gets it back.
-double kCoordAppBarTop(double topInset) => topInset + 8;
+double kCoordAppBarTop(double topInset, double screenWidth) {
+  // Mirrors the citizen screen: never ride up over the wordmark, whatever the
+  // device's status bar costs.
+  // Against the SCENE's foot, not the asset's: the asset now carries a
+  // transparent dissolve below the scene, and hanging the bar off that would
+  // park it in mid-fade.
+  final overlapping = bannerSolidHeight(screenWidth) - _kBarOverlap;
+  final clearOfWordmark = topInset + kWordmarkBand;
+  return overlapping > clearOfWordmark ? overlapping : clearOfWordmark;
+}
 
-/// The sky band + capsule block, story rail excluded.
-///
-/// At least tall enough for the bar and its spill, and at least as tall as the
-/// image itself so the band is never cut short of its own last row — on a wide
-/// screen the image is the taller of the two.
-double kCoordBackdropHeight(double topInset, double screenWidth) => math.max(
-      kCoordAppBarTop(topInset) + kAppBarHeight + _kBackdropSpill,
-      NatureBackdrop.imageHeight(screenWidth),
-    );
+double kCoordBackdropHeight(double topInset, double screenWidth) =>
+    kCoordAppBarTop(topInset, screenWidth) + kAppBarHeight + _kPanelGap;
 
 /// Fixed-duration settle, matching the citizen sheet, so a flick and a slow
 /// drag travel at the same speed instead of on a velocity-driven simulation.
@@ -332,7 +330,10 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
       setState(() => _storiesLoading = true);
       _storyFetchInFlightFor = null;
       await _loadStories();
-      if (mounted) _showToast(context.tr('Story posted.'));
+      // Not "posted": it is not on anyone's rail yet. Saying so here is the
+      // difference between a coordinator thinking the app swallowed their
+      // post and knowing it is with the office.
+      if (mounted) _showToast(context.tr('Sent to the MLA office for approval.'));
     }
   }
 
@@ -497,6 +498,11 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
     if (state == AppLifecycleState.resumed) {
       _loadConstituency();
       _refreshProfile();
+      // The rail was missing from this list, so an approval made while the
+      // app was away stayed invisible until the process was killed — the
+      // citizen screen had always reloaded it here.
+      _storyFetchInFlightFor = null;
+      _loadStories();
       ref.read(corporationProvider.notifier).refresh();
     }
   }
@@ -849,7 +855,7 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
     // The masthead: nature band + story rail. The coordinator always has the
     // composer tile, so the rail never collapses to nothing here.
     final screenW = MediaQuery.sizeOf(context).width;
-    final barTop = kCoordAppBarTop(topInset);
+    final barTop = kCoordAppBarTop(topInset, screenW);
     final backdropH = kCoordBackdropHeight(topInset, screenW);
     final railH = storyRailHeight(
       canPost: true,
@@ -894,11 +900,9 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
           );
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
-      // DARK glyphs again. They were flipped to light for the coast photo,
-      // whose top-left was near-black palm foliage; the sky asset is pale
-      // right across the top, so white glyphs would now be the ones that
-      // disappear. The scrim that used to carry that contrast went with it.
-      value: SystemUiOverlayStyle.dark,
+      // LIGHT glyphs. The banner is deep navy right across its top edge, so
+      // the dark glyphs the pale sky plate needed would now be invisible.
+      value: SystemUiOverlayStyle.light,
       child: Scaffold(
         resizeToAvoidBottomInset: false,
         body: Stack(
@@ -936,21 +940,34 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
               top: 0,
               left: 0,
               right: 0,
-              child: MastheadCard(
-                child: SizedBox(
-                  height: mastheadH,
-                  child: Stack(
-                    children: [
-                      Positioned.fill(
-                        child: NatureBackdrop(height: mastheadH),
+              child: SizedBox(
+                height: mastheadH,
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Positioned(
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      child: NatureBackdrop(
+                        // Clamped to the panel's foot: on a wide screen the
+                        // band grows faster than the fixed-height panel, and
+                        // an unclamped fade would end in open map. The excess
+                        // comes off the bottom of the dissolve, where the
+                        // artwork is already transparent.
+                        height: math.min(
+                          bannerHeight(screenW),
+                          mastheadH,
+                        ),
+                        topInset: topInset,
                       ),
-                      // The rail rides ON the photograph's washed lower half,
-                      // not on a white strip below it.
-                      Positioned(
-                        left: 0,
-                        right: 0,
-                        bottom: 0,
-                        height: railH,
+                    ),
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      height: railH,
+                      child: StoryPanel(
                         child: StoryRail(
                           rings: _storyRings,
                           loading: _storiesLoading,
@@ -960,8 +977,8 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
                           ownerUsername: _me.username,
                         ),
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -975,8 +992,11 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
               key: const ValueKey('coord-appbar'),
               // Parked at the temple's base so it stands whole above the bar.
               top: barTop,
-              left: 14,
-              right: 14,
+              // Same inset as the story panel below it. They were 14 and
+              // 12: two floating cards whose edges did not line up, which is
+              // what made the masthead look mangled rather than layered.
+              left: kStoryPanelInset,
+              right: kStoryPanelInset,
               child: ProfileHeader(
                 searchIssues: _allIssues,
                 // Over the whole constituency feed, matching the old bar.
@@ -1010,7 +1030,7 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
                 // steeper of the two wins.
                 final opacity = 1.0 - math.max(up, down);
                 return Positioned(
-                  left: 14,
+                  left: kStoryPanelInset,
                   bottom: sheetFloor * screenH + 12,
                   child: IgnorePointer(
                     ignoring: opacity < 0.02,
@@ -1150,7 +1170,11 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
                 // action. Reload on all of them — reloading only for arrivals
                 // is what left a closed ticket reading "Pending verification"
                 // until the app was force-quit.
-                onAnyNotification: _loadConstituency,
+                onAnyNotification: () {
+                  _loadConstituency();
+                  _storyFetchInFlightFor = null;
+                  _loadStories();
+                },
               ),
             ),
 

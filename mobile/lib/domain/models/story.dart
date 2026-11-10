@@ -13,6 +13,8 @@ class Story {
     this.authorName = '',
     this.createdAt = '',
     this.expiresAt = '',
+    this.status = 'APPROVED',
+    this.reviewNote = '',
   });
 
   final String id;
@@ -28,6 +30,18 @@ class Story {
   final String createdAt;
   final String expiresAt;
 
+  /// Review state: PENDING, APPROVED or REJECTED. The public rail only ever
+  /// carries approved stories, so this is only meaningful on the
+  /// coordinator's own list — it defaults to APPROVED for anything that came
+  /// back from a read where approval was already the filter.
+  final String status;
+
+  /// Why the office turned it down, when they said.
+  final String reviewNote;
+
+  bool get isPending => status == 'PENDING';
+  bool get isRejected => status == 'REJECTED';
+
   factory Story.fromJson(Map<String, dynamic> json) => Story(
         id: '${json['id']}',
         imageUrl: '${json['image_url'] ?? ''}',
@@ -36,6 +50,8 @@ class Story {
         authorName: '${json['author_name'] ?? ''}',
         createdAt: '${json['created_at'] ?? ''}',
         expiresAt: '${json['expires_at'] ?? ''}',
+        status: '${json['status'] ?? 'APPROVED'}',
+        reviewNote: '${json['review_note'] ?? ''}',
       );
 
   /// "2h ago" / "Just now" — the stamp under the ring title in the viewer.

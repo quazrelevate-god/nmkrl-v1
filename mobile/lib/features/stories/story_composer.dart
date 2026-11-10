@@ -7,6 +7,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../core/i18n.dart';
 import '../../core/theme.dart';
 import '../../data/api_client.dart';
+import '../../domain/models/story.dart';
 
 /// Coordinator-only: post a story to the ward currently on screen.
 ///
@@ -63,12 +64,31 @@ class _StoryComposerState extends State<StoryComposer> {
   bool _posting = false;
   String? _error;
 
+  /// The coordinator's own submissions that are NOT on the rail — waiting on
+  /// the office, or turned down. Approved ones are left out: those are
+  /// already visible as rings, and repeating them here would bury the two
+  /// states that actually need explaining.
+  List<Story> _unpublished = const [];
+
   @override
   void initState() {
     super.initState();
     _title.text = widget.existingTitles.isNotEmpty
         ? widget.existingTitles.first
         : 'Ward ${widget.ward ?? ''} Updates'.trim();
+    _loadMine();
+  }
+
+  /// Silent on failure. This strip explains what happened to earlier posts;
+  /// an error banner about it would sit above the form the coordinator came
+  /// here to use, which is the wrong thing to interrupt them with.
+  Future<void> _loadMine() async {
+    try {
+      final mine = await widget.api.fetchMyStories();
+      if (!mounted) return;
+      setState(() => _unpublished =
+          mine.where((s) => s.isPending || s.isRejected).toList());
+    } catch (_) {/* leave the strip out */}
   }
 
   @override
@@ -167,9 +187,11 @@ class _StoryComposerState extends State<StoryComposer> {
               const SizedBox(height: 3),
               Text(
                 widget.ward == null
-                    ? context
-                        .tr('Visible to everyone in your ward for 24 hours.')
-                    : '${context.tr('Visible to everyone in Ward')} ${widget.ward} '
+                    ? context.tr(
+                        'Goes to the MLA office for approval, then shows in '
+                        'your ward for 24 hours.')
+                    : '${context.tr('Goes to the MLA office for approval, then '
+                        'shows in Ward')} ${widget.ward} '
                         '${context.tr('for 24 hours.')}',
                 style: const TextStyle(
                   fontSize: 11.5,
@@ -177,6 +199,10 @@ class _StoryComposerState extends State<StoryComposer> {
                   fontWeight: FontWeight.w500,
                 ),
               ),
+              if (_unpublished.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                _ReviewStrip(stories: _unpublished),
+              ],
               const SizedBox(height: 14),
 
               // ── Photo ──
@@ -462,6 +488,112 @@ class _MiniButton extends StatelessWidget {
           shape: BoxShape.circle,
         ),
         child: Icon(icon, size: 16, color: Colors.white),
+      ),
+    );
+  }
+}
+
+
+/// What happened to the coordinator's earlier posts.
+///
+/// Without this the review step is invisible from the app: a story is posted,
+/// never appears on the rail, and nothing says whether it is waiting or was
+/// turned down. It sits at the top of the composer because that is where a
+/// coordinator already comes to post — no new screen to find.
+class _ReviewStrip extends StatelessWidget {
+  const _ReviewStrip({required this.stories});
+
+  final List<Story> stories;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      decoration: BoxDecoration(
+        color: NkColors.slate50,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: NkColors.slate200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            context.tr('Your recent posts'),
+            style: const TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.3,
+              color: NkColors.slate600,
+            ),
+          ),
+          const SizedBox(height: 8),
+          for (final s in stories.take(4)) _ReviewRow(story: s),
+        ],
+      ),
+    );
+  }
+}
+
+class _ReviewRow extends StatelessWidget {
+  const _ReviewRow({required this.story});
+
+  final Story story;
+
+  @override
+  Widget build(BuildContext context) {
+    final rejected = story.isRejected;
+    final tone = rejected ? NkColors.rose600 : NkColors.amber700;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 7),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(rejected ? Icons.cancel_outlined : Icons.schedule,
+              size: 15, color: tone),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  rejected
+                      ? context.tr('Not approved')
+                      : context.tr('Waiting for approval'),
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w800,
+                    color: tone,
+                  ),
+                ),
+                Text(
+                  story.caption.isEmpty ? story.age : story.caption,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: NkColors.slate600,
+                  ),
+                ),
+                // The office's reason, when they left one — the whole point
+                // of showing a rejection rather than just hiding the post.
+                if (rejected && story.reviewNote.isNotEmpty)
+                  Text(
+                    story.reviewNote,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      height: 1.25,
+                      fontStyle: FontStyle.italic,
+                      color: NkColors.slate500,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

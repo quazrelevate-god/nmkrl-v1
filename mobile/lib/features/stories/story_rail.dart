@@ -15,7 +15,14 @@ import 'story_viewer.dart';
 /// circle-to-label gap, then to 92 by bringing the circles themselves in from
 /// 62 to [_kRingSize]. They are still circles with gradient rings and labels;
 /// there is simply less air around them.
-const double kStoryRailHeight = 92;
+const double kStoryRailHeight = 84;
+
+/// Corner radius of the floating panel the rail sits in — the same 22 the
+/// bottom sheet and the masthead card use.
+const double kStoryPanelRadius = 18;
+
+/// Inset of that panel from the screen edges.
+const double kStoryPanelInset = 12;
 
 /// What the rail will actually occupy for this state — [kStoryRailHeight], or
 /// zero when a citizen's ward has no stories and there is no composer tile to
@@ -29,7 +36,16 @@ double storyRailHeight({
     (canPost || hasRings || loading) ? kStoryRailHeight : 0;
 
 /// The circle's painted diameter (ring included).
-const double _kRingSize = 56;
+///
+/// Sized so the common case FITS the floating panel rather than running past
+/// its edge: five tiles (the coordinator's composer plus four rings) at this
+/// width, with [_kRingGap] between them and the rail's own padding, come to
+/// about 350dp inside a 387dp panel on a 411dp screen. At 56 the fifth tile
+/// was sliced in half by the panel's edge.
+const double _kRingSize = 46;
+
+/// Space between tiles. Tighter than the 12 it was, for the same reason.
+const double _kRingGap = 9;
 
 /// The horizontal story rail that opens both home screens.
 ///
@@ -72,16 +88,23 @@ class StoryRail extends StatelessWidget {
     if (!canPost && rings.isEmpty && !showPlaceholders) {
       return const SizedBox.shrink();
     }
-    return SizedBox(
+    return ClipRRect(
+      // A scrolling ring would otherwise run out past the panel's rounded
+      // corners — the panel clips its background, not its children.
+      borderRadius: BorderRadius.circular(kStoryPanelRadius),
+      child: SizedBox(
       height: kStoryRailHeight,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.fromLTRB(14, 5, 14, 4),
+        // The panel's own inner margin. Clipping alone would cut a ring in
+        // half at the rounded corner; this keeps the first and last rings
+        // clear of the edge so nothing is ever sliced by it.
+        padding: const EdgeInsets.fromLTRB(12, 5, 12, 4),
         physics: const ClampingScrollPhysics(
           parent: AlwaysScrollableScrollPhysics(),
         ),
         itemCount: (canPost ? 1 : 0) + (showPlaceholders ? 4 : rings.length),
-        separatorBuilder: (_, __) => const SizedBox(width: 12),
+        separatorBuilder: (_, __) => const SizedBox(width: _kRingGap),
         itemBuilder: (context, i) {
           if (canPost && i == 0) {
             return _AddTile(onTap: onAdd);
@@ -104,6 +127,38 @@ class StoryRail extends StatelessWidget {
           );
         },
       ),
+      ),
+    );
+  }
+}
+
+/// The white panel the rail floats in.
+///
+/// The rail used to sit on a full-width strip welded to the banner above it.
+/// A separate inset panel with its own shadow is what makes the masthead read
+/// as two floating pieces over the map rather than one slab.
+class StoryPanel extends StatelessWidget {
+  const StoryPanel({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: kStoryPanelInset),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(kStoryPanelRadius),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.14),
+            blurRadius: 18,
+            offset: const Offset(0, 6),
+            spreadRadius: -4,
+          ),
+        ],
+      ),
+      child: child,
     );
   }
 }
@@ -123,7 +178,7 @@ class _RingTile extends StatelessWidget {
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
       child: SizedBox(
-        width: _kRingSize + 12,
+        width: _kRingSize + 8,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -202,7 +257,7 @@ class _AddTile extends StatelessWidget {
             },
       behavior: HitTestBehavior.opaque,
       child: SizedBox(
-        width: _kRingSize + 12,
+        width: _kRingSize + 8,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -243,7 +298,7 @@ class _SkeletonTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: _kRingSize + 12,
+      width: _kRingSize + 8,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [

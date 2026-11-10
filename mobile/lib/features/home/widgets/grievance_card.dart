@@ -151,10 +151,9 @@ class GrievanceCard extends StatelessWidget {
             GrievanceDialog.open(context, issue: issue, onUpvote: onUpvote);
           },
           child: Padding(
-            // Roomier than the 10 it was: the thumbnail, the title block and
-            // the status column were all touching the card's edge, which is
-            // what made a list of these read as cramped.
-            padding: const EdgeInsets.all(12),
+            // 10, not the 12 it was: with the masthead trimmed, a column of
+            // these at 12 was the heaviest thing on the screen.
+            padding: const EdgeInsets.all(10),
             child: Row(
               children: [
                 ClipRRect(
@@ -162,14 +161,14 @@ class GrievanceCard extends StatelessWidget {
                   child: image != null
                       ? Image(
                           image: image,
-                          height: 66,
-                          width: 66,
+                          height: 56,
+                          width: 56,
                           fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => _thumbFallback(66, 25),
+                          errorBuilder: (_, __, ___) => _thumbFallback(56, 22),
                         )
-                      : _thumbFallback(66, 25),
+                      : _thumbFallback(56, 22),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 10),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,

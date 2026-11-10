@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/i18n.dart';
 import '../../../core/theme.dart';
 import '../../../domain/models/issue.dart';
 import '../../../domain/profile_data.dart';
@@ -11,7 +12,6 @@ import '../../../state/providers.dart';
 import '../../profile/profile_screen.dart';
 import '../../search/search_overlay.dart';
 import '../../shared/notification_bell.dart';
-import '../../shared/wave_mark.dart';
 
 /// Rendered height of the floating app-bar capsule.
 ///
@@ -19,13 +19,10 @@ import '../../shared/wave_mark.dart';
 /// constant rather than a literal repeated in three places; the capsule's own
 /// padding and the round controls inside it add up to exactly this.
 ///
-/// Back up from 48 — but the extra 10dp buys SIZE, not air. The bar had a bay
-/// of empty white between the wordmark and the controls, which made both look
-/// undersized in a bar that was mostly nothing; spending that space on the
-/// wordmark and the three round controls is what makes them prominent. It
-/// also costs the map nothing, because the band's height is the sky image's
-/// height and the bar fits inside it either way.
-const double kAppBarHeight = 58;
+/// 52: 6 of padding either side of a 40-tall row. The bar lost its wordmark
+/// to the banner above it, so it no longer has to be tall enough to carry a
+/// mark AND a row of controls — the search field sets the height now.
+const double kAppBarHeight = 46;
 
 /// Home app bar (v5) — a SOLID white capsule floating over the full-bleed map.
 ///
@@ -77,19 +74,15 @@ class ProfileHeader extends ConsumerWidget {
         ? (recipientId ?? '')
         : ref.watch(userIdProvider);
     return SolidCapsule(
-      // 7 top and bottom around a 44-tall row of controls = [kAppBarHeight].
-      // Still tighter on the right: the bell and avatar are round, so they
-      // carry their own optical margin and an equal numeric inset reads as
-      // too much.
-      padding: const EdgeInsets.fromLTRB(16, 7, 9, 7),
+      // 5 top and bottom around a 36-tall row = [kAppBarHeight].
+      padding: const EdgeInsets.fromLTRB(8, 5, 8, 5),
       child: Row(
         children: [
-          // The primary element in the bar. It is a vector wordmark, so size
-          // is the only weight lever there is — the stroke weights are baked
-          // into the asset.
-          const BrandLogo(height: 34, onLight: true),
+          // No wordmark here any more: it is centred on the banner above, and
+          // repeating it in the bar made two of the same mark a thumb apart.
+          // The search field takes the space it used to.
           if (badge != null) ...[
-            const SizedBox(width: 8),
+            const SizedBox(width: 6),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
@@ -105,19 +98,21 @@ class ProfileHeader extends ConsumerWidget {
                     color: NkColors.gold200,
                   )),
             ),
+            const SizedBox(width: 6),
           ],
-          // Both modes: a standalone search button, so the wordmark is the
-          // only thing competing for the bar's width and the three round
-          // controls read as one family on the right.
-          const Spacer(),
-          _SearchIconButton(
-            onTap: () => SearchOverlay.open(
-              context,
-              issues: searchIssues,
-              onUpvote: onUpvote,
+          // A real field again, filling the bar. With the wordmark gone there
+          // is room for the placeholder, which is the only thing in the app
+          // that says what can be searched for.
+          Expanded(
+            child: _SearchField(
+              onTap: () => SearchOverlay.open(
+                context,
+                issues: searchIssues,
+                onUpvote: onUpvote,
+              ),
             ),
           ),
-          const SizedBox(width: 6),
+          const SizedBox(width: 4),
           NotificationBell(
             recipientType: recipientType,
             recipientId: bellId,
@@ -171,12 +166,14 @@ class SolidCapsule extends StatelessWidget {
   }
 }
 
-/// The search entry point in both apps: a standalone round button matching
-/// the bell's and the avatar's proportions, so the bar stays one clean row of
-/// round controls. Opens [SearchOverlay], which owns the actual input and the
-/// placeholder that says what can be searched for.
-class _SearchIconButton extends StatelessWidget {
-  const _SearchIconButton({required this.onTap});
+/// The search entry point: a real field filling the bar.
+///
+/// It does not take focus — tapping anywhere on it opens [SearchOverlay],
+/// which owns the actual input — so the placeholder is free to say what can be
+/// searched for, which is the whole reason it earns the space the wordmark
+/// used to hold.
+class _SearchField extends StatelessWidget {
+  const _SearchField({required this.onTap});
 
   final VoidCallback onTap;
 
@@ -186,19 +183,31 @@ class _SearchIconButton extends StatelessWidget {
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
       child: Container(
-        height: 42,
-        width: 42,
-        alignment: Alignment.center,
+        height: 36,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: BoxDecoration(
-          // A soft light ground at the avatar's size, so the three right-side
-          // controls read as one family.
-          color: const Color(0xFFEFF2F6),
-          shape: BoxShape.circle,
-          border: Border.all(color: const Color(0xFFE2E7ED)),
+          color: const Color(0xFFF2F4F7),
+          borderRadius: BorderRadius.circular(999),
         ),
-        // Navy, not grey: this is now the only search affordance in the bar,
-        // so it has to look like a control rather than a hint.
-        child: const Icon(Icons.search, size: 22, color: NkColors.brand),
+        child: Row(
+          children: [
+            const Icon(Icons.search, size: 18, color: NkColors.slate500),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                context.tr('Search location, issue...'),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 12.5,
+                  height: 1.1,
+                  color: NkColors.slate400,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

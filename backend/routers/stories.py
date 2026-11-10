@@ -4,9 +4,19 @@ routers/stories.py
 Ward stories — short-lived photo updates the constituency coordinator posts for
 their ward, read by every citizen in that ward.
 
-  GET    /api/stories?ward=58          → active rings for one ward (public)
-  POST   /api/coordinator/stories      → post one (coordinator session only)
+A post is NOT public when it is made. A coordinator writes in the MLA
+office's name to everyone in a ward, so the office reviews it first: a new
+story lands as PENDING and only an APPROVED one is ever served to citizens.
+
+  GET    /api/stories?ward=58          → approved rings for one ward (public)
+  POST   /api/coordinator/stories      → post one, PENDING (coordinator)
+  GET    /api/coordinator/stories/mine → own posts and their review state
   DELETE /api/coordinator/stories/{id} → take one down (its author only)
+
+  GET    /api/admin/stories            → the office's review queue
+  POST   /api/admin/stories/{id}/approve
+  POST   /api/admin/stories/{id}/reject
+  POST   /api/admin/stories/{id}/revert  → undo a REJECTION, never a publish
 
 Shape of a ring (one circle in the app's story rail):
 
@@ -25,12 +35,22 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 
 import corporations
+from admin_auth import require_admin
 from database import get_db
+from routers.notifications import emit_story_review
 from session_auth import coordinator_session
+from tenancy import current_tenant
 from utils import new_id, now_iso, save_upload
 
 public_router = APIRouter(prefix="/api/stories", tags=["stories"])
 router = APIRouter(prefix="/api/coordinator/stories", tags=["stories"])
+admin_router = APIRouter(prefix="/api/admin/stories", tags=["stories"])
+
+#: Review states. A story is PENDING from the moment it is posted; the MLA
+#: office moves it to one of the other two and it never moves again.
+PENDING = "PENDING"
+APPROVED = "APPROVED"
+REJECTED = "REJECTED"
 
 #: How long a story stays on the rail. Instagram's 24 hours — long enough that
 #: a morning post is still there for the evening commute, short enough that the
@@ -101,7 +121,12 @@ def list_stories(
     ward: int | None = Query(default=None),
     conn=Depends(get_db),
 ):
-    """Active stories for one ward of the LIVE corporation.
+    """APPROVED, unexpired stories for one ward of the LIVE corporation.
+
+    The approval filter is the whole point of the review flow and it lives
+    HERE, on the only read citizens can reach — not in the app, which could be
+    an old build, and not on the write, which cannot know what a reviewer will
+    decide later. A pending or rejected story is simply not in this result.
 
     Scoped by corporation, not ward alone: ward numbers are per-corporation, so
     "ward 1" exists in Tambaram and in Chennai and the two must never see each
@@ -117,8 +142,8 @@ def list_stories(
     """
     now = now_iso()
     corp = corporations.active_id(conn)
-    params: list = [corp, now]
-    where = "corporation = ? AND expires_at > ?"
+    params: list = [corp, APPROVED, now]
+    where = "corporation = ? AND status = ? AND expires_at > ?"
     if ward is not None:
         where += " AND ward_no = ?"
         params.append(ward)
@@ -183,10 +208,13 @@ async def post_story(
         datetime.now(timezone.utc) + timedelta(hours=STORY_TTL_HOURS)
     ).isoformat()
     story_id = new_id()
+    # PENDING, always. There is no path that posts straight to a ward — the
+    # status is set here rather than taken from the request, so a crafted
+    # client cannot publish itself.
     conn.execute(
         "INSERT INTO stories (id, ward_no, corporation, constituency, title, "
-        "caption, image_url, author, author_name, created_at, expires_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "caption, image_url, author, author_name, created_at, expires_at, "
+        "status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             story_id,
             ward_no,
@@ -199,6 +227,7 @@ async def post_story(
             me["name"] or "",
             created,
             expires,
+            PENDING,
         ),
     )
     conn.commit()
@@ -212,7 +241,47 @@ async def post_story(
         "author_name": me["name"] or "",
         "created_at": created,
         "expires_at": expires,
+        "status": PENDING,
     }
+
+
+def _serialize(row) -> dict:
+    """One story with its review state, for the coordinator and the office."""
+    return {
+        "id": row["id"],
+        "ward": row["ward_no"],
+        "title": row["title"],
+        "caption": row["caption"] or "",
+        "image_url": row["image_url"],
+        "author": row["author"],
+        "author_name": row["author_name"] or "",
+        "created_at": row["created_at"],
+        "expires_at": row["expires_at"],
+        "status": row["status"] or PENDING,
+        "reviewed_by": row["reviewed_by"] or "",
+        "reviewed_at": row["reviewed_at"] or "",
+        "review_note": row["review_note"] or "",
+    }
+
+
+@router.get("/mine")
+def my_stories(
+    session_username: str = Depends(coordinator_session),
+    conn=Depends(get_db),
+):
+    """The coordinator's own posts, whatever state they are in.
+
+    Without this a coordinator posts into silence: their story is not on the
+    rail (it is not approved yet) and nothing tells them why. This is the only
+    read that returns PENDING and REJECTED rows, and only ever the caller's
+    own.
+    """
+    rows = conn.execute(
+        "SELECT * FROM stories WHERE author = ? "
+        "ORDER BY created_at DESC LIMIT ?",
+        (session_username, MAX_ROWS_PER_READ),
+    ).fetchall()
+    return {"stories": [_serialize(r) for r in rows]}
 
 
 @router.delete("/{story_id}")
@@ -230,3 +299,161 @@ def delete_story(
     conn.execute("DELETE FROM stories WHERE id = ?", (story_id,))
     conn.commit()
     return {"ok": True}
+
+
+# ── The MLA office's review queue ─────────────────────────────────────────
+#
+# Mounted under /api/admin, so it inherits the admin token guard and the
+# tenant dependency the rest of the console uses. Every query here is scoped
+# to the signed-in office's own wards and corporation: one office must never
+# see, let alone approve, another constituency's posts.
+
+
+def _office_scope(tenant: dict) -> tuple[str, list]:
+    """SQL fragment limiting stories to this office's wards."""
+    wards = tenant["wards"]
+    placeholders = ",".join("?" for _ in wards)
+    return (
+        f"(corporation = ? AND CAST(ward_no AS TEXT) IN ({placeholders}))",
+        [tenant["corporation"], *wards],
+    )
+
+
+def _load_for_office(conn, story_id: str, tenant: dict):
+    scope, params = _office_scope(tenant)
+    row = conn.execute(
+        f"SELECT * FROM stories WHERE id = ? AND {scope}", (story_id, *params)
+    ).fetchone()
+    if row is None:
+        # Deliberately the same answer whether the story does not exist or
+        # belongs to another office: a 403 here would confirm that an id is
+        # real to someone with no business knowing.
+        raise HTTPException(status_code=404, detail="Story not found.")
+    return row
+
+
+@admin_router.get("")
+def review_queue(
+    status: str = Query(default=PENDING),
+    ward: int | None = Query(default=None),
+    conn=Depends(get_db),
+    tenant: dict = Depends(current_tenant),
+    _admin: str = Depends(require_admin),
+):
+    """Stories awaiting review, or those already decided.
+
+    Defaults to PENDING — the queue. `status=ALL` returns every state, which
+    is what the console's history view wants.
+
+    Expired stories are INCLUDED. A post that sat unreviewed past its 24 hours
+    still has to be closed out, and hiding it would leave the queue quietly
+    wrong; the serialized row carries `expires_at` so the console can mark it
+    as lapsed.
+    """
+    scope, params = _office_scope(tenant)
+    where = scope
+    if status and status.upper() != "ALL":
+        where += " AND status = ?"
+        params.append(status.upper())
+    if ward is not None:
+        where += " AND ward_no = ?"
+        params.append(ward)
+    rows = conn.execute(
+        f"SELECT * FROM stories WHERE {where} "
+        "ORDER BY created_at ASC LIMIT ?",
+        (*params, MAX_ROWS_PER_READ),
+    ).fetchall()
+    pending = conn.execute(
+        f"SELECT COUNT(*) FROM stories WHERE {scope} AND status = ?",
+        (*_office_scope(tenant)[1], PENDING),
+    ).fetchone()
+    return {
+        "stories": [_serialize(r) for r in rows],
+        # The badge count for the console's nav, so it does not have to fetch
+        # the whole queue to know whether anything is waiting.
+        "pending": pending[0] if pending else 0,
+    }
+
+
+def _decide(conn, story_id: str, tenant: dict, admin: str, status: str,
+            note: str) -> dict:
+    row = _load_for_office(conn, story_id, tenant)
+    current = row["status"] or PENDING
+    if current != PENDING:
+        # Reviews are one-way. Letting an approved story be un-approved would
+        # mean a post could vanish from a ward's rail hours after people saw
+        # it; taking one down is what DELETE is for, and it leaves a trace.
+        raise HTTPException(
+            status_code=409,
+            detail=f"That story has already been {current.lower()}.",
+        )
+    conn.execute(
+        "UPDATE stories SET status = ?, reviewed_by = ?, reviewed_at = ?, "
+        "review_note = ? WHERE id = ?",
+        (status, admin, now_iso(), (note or "").strip(), story_id),
+    )
+    decided = _load_for_office(conn, story_id, tenant)
+    # Tell the coordinator, and in doing so refresh their rail: both home
+    # screens reload stories on any notification, so an approval reaches the
+    # ward without anyone reopening the app. Emitted before the commit so the
+    # decision and its notification land together or not at all.
+    emit_story_review(conn, decided, status, (note or "").strip())
+    conn.commit()
+    return _serialize(decided)
+
+
+@admin_router.post("/{story_id}/approve")
+def approve_story(
+    story_id: str,
+    note: str = Form(""),
+    conn=Depends(get_db),
+    tenant: dict = Depends(current_tenant),
+    admin: str = Depends(require_admin),
+):
+    """Publish it. From here it is on the ward's rail until it expires."""
+    return _decide(conn, story_id, tenant, admin, APPROVED, note)
+
+
+@admin_router.post("/{story_id}/reject")
+def reject_story(
+    story_id: str,
+    note: str = Form(""),
+    conn=Depends(get_db),
+    tenant: dict = Depends(current_tenant),
+    admin: str = Depends(require_admin),
+):
+    """Turn it down. The row stays, so the coordinator can see the reason."""
+    return _decide(conn, story_id, tenant, admin, REJECTED, note)
+
+
+@admin_router.post("/{story_id}/revert")
+def revert_story(
+    story_id: str,
+    conn=Depends(get_db),
+    tenant: dict = Depends(current_tenant),
+    admin: str = Depends(require_admin),
+):
+    """Put a REJECTED story back in the queue — the console's Undo.
+
+    Rejected only, and that asymmetry is the point. A rejection was never
+    public, so undoing one costs nothing. An approval may already be on a
+    ward's rail and in front of citizens; pulling it back would make a post
+    they have seen vanish with no trace, which is what DELETE is for. So
+    approve stays final and reject does not.
+    """
+    row = _load_for_office(conn, story_id, tenant)
+    current = row["status"] or PENDING
+    if current == PENDING:
+        return _serialize(row)
+    if current == APPROVED:
+        raise HTTPException(
+            status_code=409,
+            detail="That story is already published. Delete it instead.",
+        )
+    conn.execute(
+        "UPDATE stories SET status = ?, reviewed_by = NULL, reviewed_at = NULL, "
+        "review_note = '' WHERE id = ?",
+        (PENDING, story_id),
+    )
+    conn.commit()
+    return _serialize(_load_for_office(conn, story_id, tenant))

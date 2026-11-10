@@ -8,8 +8,10 @@ import 'package:flutter/material.dart';
 ///
 /// Every font size in the app is a literal at its call site, tuned originally
 /// against a 360dp phone; rather than touch several hundred of them this
-/// scales the lot. Raise it here to make the whole app read larger.
-const double kNkTextScale = 1.08;
+/// scales the lot. It sat at 1.08 for a while and made the app read heavy —
+/// the lift compounded with the components that had grown alongside it. Back
+/// at 1.0 the type is the size each screen was designed at.
+const double kNkTextScale = 0.94;
 
 class NkColors {
   NkColors._();

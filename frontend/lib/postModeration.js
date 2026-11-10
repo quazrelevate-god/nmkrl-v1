@@ -20,6 +20,17 @@ import { loadFeed, saveFeed } from "./coordinators";
 /** Change event that both the sidebar badge and the review page listen to. */
 export const MODERATION_EVENT = "fms:post-moderation-changed";
 
+/**
+ * Are posts and polls a live feature?
+ *
+ * They are a localStorage demo loop and the product does not use them, so the
+ * review page hides them and the sidebar badge must not count them — a badge
+ * promising work that the page then refuses to show is worse than no badge.
+ * Both read this one constant so they cannot drift apart. Flip to true to
+ * bring the whole thing back.
+ */
+export const LOCAL_KINDS_ENABLED = false;
+
 function emit() {
   if (typeof window === "undefined") return;
   try { window.dispatchEvent(new CustomEvent(MODERATION_EVENT)); } catch { /* noop */ }

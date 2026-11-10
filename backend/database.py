@@ -430,6 +430,10 @@ CREATE TABLE IF NOT EXISTS location_logs (
 --              as an Instagram highlight does ("Ward 58 Updates").
 --   expires_at is set at post time (24h by default). Reads filter on it rather
 --              than deleting rows, so an expired story is still auditable.
+--   status     PENDING on post, then APPROVED or REJECTED by the MLA office.
+--              Citizens are only ever served APPROVED: a coordinator's post is
+--              a public broadcast in the office's name, so it is reviewed
+--              before it reaches a ward rather than taken down afterwards.
 CREATE TABLE IF NOT EXISTS stories (
     id            TEXT PRIMARY KEY,
     ward_no       INTEGER,
@@ -441,14 +445,23 @@ CREATE TABLE IF NOT EXISTS stories (
     author        TEXT NOT NULL,
     author_name   TEXT NOT NULL DEFAULT '',
     created_at    TEXT NOT NULL,
-    expires_at    TEXT NOT NULL
+    expires_at    TEXT NOT NULL,
+    status        TEXT NOT NULL DEFAULT 'PENDING',
+    reviewed_by   TEXT,
+    reviewed_at   TEXT,
+    review_note   TEXT NOT NULL DEFAULT ''
 );
--- Matches the public read exactly: live corporation, then ward, then the
--- unexpired filter, ordered newest first. Ward numbers repeat across
--- corporations, so corporation leads the key.
-CREATE INDEX IF NOT EXISTS idx_stories_feed
-    ON stories (corporation, ward_no, expires_at, created_at DESC);
+-- The stories indexes are NOT here: they name `status`, which arrives via the
+-- ALTERs in init_db, and CREATE TABLE IF NOT EXISTS is a no-op on a file that
+-- already has the table. SCHEMA would then try to index a column that does
+-- not exist yet and the whole script would fail on startup.
 """
+
+
+#: Stories created before this went straight to the ward with no review step,
+#: so the migration treats them as already approved. Anything posted after it
+#: has been through the new flow.
+_STORY_REVIEW_EPOCH = "2026-11-06T00:00:00+00:00"
 
 
 def _add_column(conn, table: str, col: str, defn: str) -> None:
@@ -645,6 +658,42 @@ def init_db() -> None:
             _add_column(conn, "otp_codes", col, defn)
         # location_logs gains the primary Assembly Constituency for the lookup.
         _add_column(conn, "location_logs", "assembly_constituency", "TEXT")
+        # Stories gain the review workflow. A table created before review
+        # existed holds posts that were already public, so they are backfilled
+        # to APPROVED rather than left on the column default — a review queue
+        # suddenly full of live stories would be wrong, and so would pulling
+        # them off every ward's rail the moment this deploys.
+        for col, defn in [
+            ("status", "TEXT NOT NULL DEFAULT 'PENDING'"),
+            ("reviewed_by", "TEXT"),
+            ("reviewed_at", "TEXT"),
+            ("review_note", "TEXT NOT NULL DEFAULT ''"),
+        ]:
+            _add_column(conn, "stories", col, defn)
+        conn.execute(
+            "UPDATE stories SET status = 'APPROVED' "
+            "WHERE status = 'PENDING' AND reviewed_at IS NULL "
+            "AND created_at < ?",
+            (_STORY_REVIEW_EPOCH,),
+        )
+        # Now that `status` exists, the stories indexes can be built. The feed
+        # index is DROPPED first: an earlier deploy created one without
+        # `status` in the key, and CREATE INDEX IF NOT EXISTS would leave that
+        # stale definition in place while the query it serves has changed.
+        conn.executescript(
+            """
+            DROP INDEX IF EXISTS idx_stories_feed;
+            -- Matches the citizen read exactly: live corporation, then ward,
+            -- then the approved and unexpired filters, newest first. Ward
+            -- numbers repeat across corporations, so corporation leads.
+            CREATE INDEX IF NOT EXISTS idx_stories_feed
+                ON stories (corporation, ward_no, status, expires_at,
+                            created_at DESC);
+            -- The office's review queue: everything waiting, oldest first.
+            CREATE INDEX IF NOT EXISTS idx_stories_review
+                ON stories (corporation, status, created_at);
+            """
+        )
         # Indexes for the hot issue lookups. The only index issues had was its
         # primary key, so every ward feed, history and coordinator queue was a
         # full table scan — ~840 ms each at 1M rows, 0.1–90 ms with these.

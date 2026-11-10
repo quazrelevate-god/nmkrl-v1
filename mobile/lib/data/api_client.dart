@@ -215,6 +215,13 @@ abstract class ApiClient {
   /// Take one of your own stories down before it expires.
   Future<void> deleteStory(String storyId);
 
+  /// The signed-in coordinator's own posts in EVERY review state.
+  ///
+  /// The public rail only carries approved stories, so without this a
+  /// coordinator posts into silence: nothing of theirs appears and nothing
+  /// says why. Returns newest first.
+  Future<List<Story>> fetchMyStories();
+
   // ── Notifications (routers/notifications.py) ──────────────────────────
 
   /// Poll for unseen notifications strictly newer than [since] (ISO ts).
