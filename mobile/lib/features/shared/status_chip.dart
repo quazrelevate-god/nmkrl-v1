@@ -72,20 +72,26 @@ class _StatusChipState extends State<StatusChip>
             Icon(m.icon, size: widget.fontSize * 1.15, color: m.badgeFg),
             SizedBox(width: widget.fontSize * 0.3),
           ],
-          // FittedBox scale-down: in an unconstrained context the chip keeps
-          // its intrinsic size (every other screen is unchanged), but when a
-          // parent caps the chip's width — long localized strings in a card
-          // row — the label shrinks to fit instead of pushing its neighbours.
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            child: Text(
-              context.tr(m.label),
-              maxLines: 1,
-              style: TextStyle(
-                fontSize: widget.fontSize,
-                fontWeight: FontWeight.w600,
-                color: m.badgeFg,
-                height: 1.2,
+          // The FittedBox alone never scaled: RenderFlex hands a NON-flexible
+          // child unbounded width on the main axis, so the box always got its
+          // intrinsic size and the Row simply overflowed its parent — which is
+          // how "Marked as false petition" ran off the edge of a card.
+          // Flexible is what bounds it, and only then can the box scale down.
+          // Where nothing caps the chip the incoming max is still infinite, so
+          // every other screen keeps the chip at its natural size.
+          Flexible(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(
+                context.tr(m.label),
+                maxLines: 1,
+                style: TextStyle(
+                  fontSize: widget.fontSize,
+                  fontWeight: FontWeight.w600,
+                  color: m.badgeFg,
+                  height: 1.2,
+                ),
               ),
             ),
           ),

@@ -55,7 +55,7 @@ enum _WardSort { recent, priority }
 /// How far the app-bar capsule overlaps the banner's bottom edge. It floats
 /// ON the banner rather than under it, which is what separates the two from
 /// the single welded slab this used to be.
-const double _kBarOverlap = 26;
+const double _kBarOverlap = 34;
 
 /// Gap between the floating bar and the floating story panel.
 const double _kPanelGap = 12;
@@ -82,6 +82,21 @@ double kAppBarTop(double topInset, double screenWidth) {
 /// excluded.
 double kBackdropHeight(double topInset, double screenWidth) =>
     kAppBarTop(topInset, screenWidth) + kAppBarHeight + _kPanelGap;
+
+/// The stops the content sheet may snap to.
+///
+/// [allowMini] is false unless a map gesture put the sheet down there. The
+/// mini stop is a RESPONSE to the map, not somewhere a downward drag should
+/// be able to land — pulling or scrolling the sheet down bottoms out at the
+/// floor, and only touching the map takes it below that.
+@visibleForTesting
+List<double> sheetSnapStops({
+  required double mini,
+  required double floor,
+  required double max,
+  required bool allowMini,
+}) =>
+    allowMini ? [mini, floor, max] : [floor, max];
 
 /// Breathing gap left under the ward pill when the sheet is fully expanded.
 const double _kExpandedTopGap = 18;
@@ -347,37 +362,58 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   /// post-frame re-snap whenever it differs — a fresh literal every build would
   /// re-snap the sheet on every unrelated setState and cancel the lift below.
   List<double>? _snapCache;
-  List<double> _snapSizes(double mini, double floor, double max) {
+
+  List<double> _snapSizes(double mini, double floor, double max,
+      {required bool allowMini}) {
+    final want = sheetSnapStops(
+        mini: mini, floor: floor, max: max, allowMini: allowMini);
     final cached = _snapCache;
-    if (cached != null &&
-        cached.length == 3 &&
-        cached[0] == mini &&
-        cached[1] == floor &&
-        cached[2] == max) {
-      return cached;
+    if (cached != null && cached.length == want.length) {
+      var same = true;
+      for (var i = 0; i < want.length; i++) {
+        if (cached[i] != want[i]) {
+          same = false;
+          break;
+        }
+      }
+      if (same) return cached;
     }
-    return _snapCache = [mini, floor, max];
+    return _snapCache = want;
   }
 
   /// The minimum snap as of the last build, so the map-interaction collapse
   /// has a valid target without recomputing the whole geometry.
   double _sheetMiniNow = 0.2;
 
+  /// The floor as of the last build, so the map-collapse logic can tell when
+  /// the sheet is back at its resting size.
+  double _sheetFloorNow = 0.4;
+
   /// Drop the sheet to [_sheetMiniNow] — only the status pills left — because
   /// the user has started moving the map. Already low, or being dragged by the
   /// user right now, means leave it alone.
   void _collapseForMap() {
     if (!_sheetCtrl.isAttached) return;
+    if (_collapsing || _mapCollapsed) return;
     if (_sheetCtrl.size <= _sheetMiniNow + 0.01) return;
-    _mapCollapsed = true;
+    // The mini stop does not exist while the user owns the sheet — minChildSize
+    // sits at the floor. Raise the flag and let that frame land FIRST, or the
+    // controller clamps this animation back up to the floor.
     _collapsing = true;
-    _sheetCtrl
-        .animateTo(
-          _sheetMiniNow,
-          duration: _kSheetSnapDuration,
-          curve: _kTabCurve,
-        )
-        .whenComplete(() => _collapsing = false);
+    setState(() => _mapCollapsed = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_sheetCtrl.isAttached) {
+        _collapsing = false;
+        return;
+      }
+      _sheetCtrl
+          .animateTo(
+            _sheetMiniNow,
+            duration: _kSheetSnapDuration,
+            curve: _kTabCurve,
+          )
+          .whenComplete(() => _collapsing = false);
+    });
   }
 
   /// Our own collapse animation is running. Without this the extent it travels
@@ -1333,6 +1369,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _sheetMaxNow = sheetMax;
     // Held for [_collapseForMap].
     _sheetMiniNow = sheetMini;
+    _sheetFloorNow = sheetFloor;
 
     // Everything the sheet covers at its floor, used to bias the ward fit into
     // the band that stays visible above it.
@@ -1430,15 +1467,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                       left: 0,
                       right: 0,
                       child: NatureBackdrop(
-                        // Clamped to the panel's foot: on a wide screen the
-                        // band grows faster than the fixed-height panel, and
-                        // an unclamped fade would end in open map. The excess
-                        // comes off the bottom of the dissolve, where the
-                        // artwork is already transparent.
-                        height: math.min(
-                          bannerHeight(screenW),
-                          mastheadH,
-                        ),
+                        // Ends at the story panel's MIDDLE, which is the look
+                        // being chased: banner and map converge behind the
+                        // panel, so the join is never visible. It used to be
+                        // clamped to the panel's foot and only landed near the
+                        // middle by accident at one screen width.
+                        //
+                        // With no rail there is no panel to hide a join behind,
+                        // so the fade is left to run its full length and finish
+                        // softly in open map instead of being cut at the bar.
+                        height: railH > 0
+                            ? math.min(
+                                bannerHeight(screenW),
+                                backdropH + railH / 2,
+                              )
+                            : bannerHeight(screenW),
                         topInset: topInset,
                       ),
                     ),
@@ -1534,13 +1577,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               top: 0,
               bottom: 0,
               child: NotificationListener<DraggableScrollableNotification>(
-                // The user pulling the sheet back up out of the mini snap ends
-                // the map-collapsed state, so the floor logic owns it again.
+                // Back at the floor: the map's hold on the sheet is over, so
+                // the mini stop goes away again. Waiting for the FLOOR rather
+                // than a nudge off the mini snap matters now that clearing the
+                // flag raises minChildSize — doing it mid-drag would fight the
+                // finger that is lifting the sheet.
                 onNotification: (n) {
                   if (_mapCollapsed &&
                       !_collapsing &&
-                      n.extent > _sheetMiniNow + 0.04) {
-                    _mapCollapsed = false;
+                      n.extent >= _sheetFloorNow - 0.004) {
+                    // Fired during the sheet's own layout; setState has to wait.
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (mounted && _mapCollapsed && !_collapsing) {
+                        setState(() => _mapCollapsed = false);
+                      }
+                    });
                   }
                   return false;
                 },
@@ -1549,15 +1600,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 // Landing == floor == minimum: opens showing the header + ~2
                 // grievance cards and can never be collapsed below that.
                 initialChildSize: sheetFloor,
-                // The MINIMUM is now the status-pills-only snap, which the map
-                // gesture drops to; the floor stays the landing size.
-                minChildSize: sheetMini,
+                // The floor is the minimum a DRAG can reach. Only a map
+                // gesture opens the mini snap below it.
+                minChildSize: _mapCollapsed ? sheetMini : sheetFloor,
                 maxChildSize: sheetMax,
                 snap: true,
                 // Exactly two stops, and the SAME list instance every build —
                 // see [_snapSizes]. The ward's filter lift rides on top of this
                 // as a resting offset; it does not add a stop.
-                snapSizes: _snapSizes(sheetMini, sheetFloor, sheetMax),
+                snapSizes: _snapSizes(sheetMini, sheetFloor, sheetMax,
+                    allowMini: _mapCollapsed),
                 snapAnimationDuration: _kSheetSnapDuration,
                 builder: (context, scrollController) {
                   _sheetScrollCtrl = scrollController;
@@ -2830,8 +2882,8 @@ class _TestLocationPicker extends StatelessWidget {
         behavior: HitTestBehavior.opaque,
         child: Container(
           margin: const EdgeInsets.only(left: 4),
-          width: 22,
-          height: 22,
+          width: 20,
+          height: 20,
           alignment: Alignment.center,
           decoration: BoxDecoration(
             color: on ? NkColors.refBlue : const Color(0xFFF1F3F7),
@@ -2840,7 +2892,7 @@ class _TestLocationPicker extends StatelessWidget {
           child: Text(
             s == 0 ? 'A' : 'B',
             style: TextStyle(
-              fontSize: 11,
+              fontSize: 10.5,
               fontWeight: FontWeight.w800,
               color: on ? Colors.white : NkColors.slate500,
             ),
@@ -2850,19 +2902,33 @@ class _TestLocationPicker extends StatelessWidget {
     }
 
     return SolidCapsule(
-      // 8 top and bottom around the 22 toggles puts this at ~38, level with
+      // 7 top and bottom around the 20 toggles puts this at ~34, level with
       // the constituency pill on the other side of the row.
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(Icons.science_outlined,
-              size: 14, color: active ? NkColors.gold300 : NkColors.slate500),
-          const SizedBox(width: 5),
+              size: 13, color: active ? NkColors.gold300 : NkColors.slate500),
+          const SizedBox(width: 4),
           SizedBox(
             // The picker is a testing affordance and was taking half the width
             // of a 360lp phone, starving the ward pill beside it.
-            width: MediaQuery.sizeOf(context).width < 390 ? 68 : 96,
+            //
+            // Tamil gets more: "வார்டு 58" is wider than "Ward 58" at the same
+            // point size, and at the English width it truncated to "வார்...".
+            // The word is already the short form, so the box is what gives.
+            // The pill beside it is in a FittedBox, so it scales rather than
+            // being squeezed off.
+            width: switch ((
+              MediaQuery.sizeOf(context).width < 390,
+              context.lang == AppLang.ta,
+            )) {
+              (true, true) => 86,
+              (true, false) => 68,
+              (false, true) => 116,
+              (false, false) => 96,
+            },
             child: ConstituencyWardDropdown(
               wards: wards,
               ward: ward,
@@ -2987,15 +3053,15 @@ class _WardPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SolidCapsule(
-      // 8 top and bottom around a ~22 row puts the pill at ~38 tall. It was
-      // 46, which read as oversized against the trimmed masthead; 38 is still
-      // a comfortable target and matches the ward picker beside it.
-      padding: const EdgeInsets.fromLTRB(12, 8, 13, 8),
+      // 7 top and bottom around a ~20 row puts the pill at ~34 tall — down
+      // from 46, then 38. Still a usable target, and it no longer competes
+      // with the masthead above it. Matches the ward picker beside it.
+      padding: const EdgeInsets.fromLTRB(11, 7, 12, 7),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.account_balance, size: 15, color: NkColors.refBlue),
-          const SizedBox(width: 6),
+          const Icon(Icons.account_balance, size: 14, color: NkColors.refBlue),
+          const SizedBox(width: 5),
           // Trimmed: a whitespace-only name must not reserve the divider.
           if (constituency.trim().isNotEmpty)
             // Plain Text: the pill is measured unbounded and scaled to fit
@@ -3006,7 +3072,7 @@ class _WardPill extends StatelessWidget {
               maxLines: 1,
               softWrap: false,
               style: const TextStyle(
-                fontSize: 12.5,
+                fontSize: 12,
                 fontWeight: FontWeight.w700,
                 color: NkColors.slate900,
               ),

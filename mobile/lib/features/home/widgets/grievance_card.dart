@@ -101,12 +101,23 @@ class _SupportPill extends StatelessWidget {
         children: [
           const Icon(Icons.arrow_upward, size: 11, color: _kInk),
           const SizedBox(width: 3),
-          Text(
-            '$count ${context.tr('Support')}',
-            style: const TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w700,
-              color: _kInk,
+          // Same reason as StatusChip: a bare Text in a Row gets unbounded
+          // main-axis constraints, so a capped parent made the Row overflow
+          // rather than the label shrink. Ellipsis would read as "0 Suppo…",
+          // so this scales instead — and only ever when something caps it.
+          Flexible(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(
+                '$count ${context.tr('Support')}',
+                maxLines: 1,
+                style: const TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  color: _kInk,
+                ),
+              ),
             ),
           ),
         ],
@@ -154,82 +165,97 @@ class GrievanceCard extends StatelessWidget {
             // 10, not the 12 it was: with the masthead trimmed, a column of
             // these at 12 was the heaviest thing on the screen.
             padding: const EdgeInsets.all(10),
-            child: Row(
-              children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: image != null
-                      ? Image(
-                          image: image,
-                          height: 56,
-                          width: 56,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => _thumbFallback(56, 22),
-                        )
-                      : _thumbFallback(56, 22),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        issue.title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 13.5,
-                          fontWeight: FontWeight.w800,
-                          height: 1.25,
-                          color: _kInk,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        _ticketOf(issue),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 11,
-                          color: _kMuted,
-                        ),
-                      ),
-                      if (issue.createdAt != null)
-                        Text(
-                          formatShortDate(issue.createdAt!),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 11,
-                            color: _kMuted,
+            child: LayoutBuilder(
+              builder: (context, c) {
+                // The chip column is capped rather than flexed. As a Flexible
+                // sharing flex 1 with the title's Expanded it was promised
+                // half the free width and took only what it needed — and a
+                // Row hands leftover space to its mainAxisAlignment, which is
+                // start. That slack piled up AFTER the chips, which is why
+                // they floated short of the card's right edge instead of
+                // sitting against it.
+                const thumb = 56.0, gapL = 10.0, gapR = 8.0;
+                final free = c.maxWidth - thumb - gapL - gapR;
+                // Enough for "Marked as false petition" at a readable scale,
+                // while the title keeps the clear majority of the row.
+                final chipCap = free * 0.44;
+                return Row(
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: image != null
+                          ? Image(
+                              image: image,
+                              height: 56,
+                              width: 56,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) =>
+                                  _thumbFallback(56, 22),
+                            )
+                          : _thumbFallback(56, 22),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            issue.title,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.w800,
+                              height: 1.25,
+                              color: _kInk,
+                            ),
                           ),
-                        ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 8),
-                // Bounded now via Flexible — the chip column used to take its
-                // intrinsic width, so a long localized status string
-                // (Tamil "marked as false") squeezed the title column to
-                // almost nothing. The Column keeps hugging the chip, but it
-                // shares the remaining space and the chip auto-scales
-                // (see StatusChip) instead of stealing it from the title.
-                Flexible(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      _SupportPill(count: issue.upvotes),
-                      const SizedBox(height: 7),
-                      // Up from 10: the status is the thing a reader scans a
-                      // list of reports FOR, and at 10 it was the smallest
-                      // type on the card.
-                      StatusChip(status: issue.status, fontSize: 10.5),
-                    ],
-                  ),
-                ),
-              ],
+                          const SizedBox(height: 4),
+                          Text(
+                            _ticketOf(issue),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: _kMuted,
+                            ),
+                          ),
+                          if (issue.createdAt != null)
+                            Text(
+                              formatShortDate(issue.createdAt!),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 11,
+                                color: _kMuted,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    // Capped, not flexed: takes its intrinsic width up to
+                    // [chipCap], so the title's Expanded absorbs every remaining
+                    // pixel and the chips end flush with the card's padding.
+                    ConstrainedBox(
+                      constraints: BoxConstraints(maxWidth: chipCap),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          _SupportPill(count: issue.upvotes),
+                          const SizedBox(height: 7),
+                          // Up from 10: the status is the thing a reader scans a
+                          // list of reports FOR, and at 10 it was the smallest
+                          // type on the card.
+                          StatusChip(status: issue.status, fontSize: 10.5),
+                        ],
+                      ),
+                    ),
+                  ],
+                );
+              },
             ),
           ),
         ),
@@ -312,10 +338,10 @@ class GrievanceDialog extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final image = mediaImage(issue.imageUrl);
     final maxH = MediaQuery.sizeOf(context).height * 0.9;
-    final summary = context.lang == AppLang.ta &&
-            (issue.transcriptTa?.isNotEmpty ?? false)
-        ? issue.transcriptTa!
-        : (issue.transcript ?? '');
+    final summary =
+        context.lang == AppLang.ta && (issue.transcriptTa?.isNotEmpty ?? false)
+            ? issue.transcriptTa!
+            : (issue.transcript ?? '');
 
     return Center(
       child: Padding(
@@ -416,16 +442,15 @@ class GrievanceDialog extends ConsumerWidget {
                           issue.createdAt != null
                               ? formatShortDate(issue.createdAt!)
                               : '—',
-                          style: const TextStyle(
-                              fontSize: 11, color: _kMuted),
+                          style: const TextStyle(fontSize: 11, color: _kMuted),
                         ),
                         Flexible(
                           child: Text(
                             '${context.tr('Ticket')}: ${_ticketOf(issue)}',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                                fontSize: 11, color: _kMuted),
+                            style:
+                                const TextStyle(fontSize: 11, color: _kMuted),
                           ),
                         ),
                       ],
@@ -442,7 +467,8 @@ class GrievanceDialog extends ConsumerWidget {
                             .tr('Your report {ticket} was combined with this grievance — '
                                 'the same problem reported by others. Updates arrive here.')
                             .replaceAll('{ticket}', issue.mergedFromTicket!),
-                        style: const TextStyle(fontSize: 11.5, color: _kMuted, height: 1.35),
+                        style: const TextStyle(
+                            fontSize: 11.5, color: _kMuted, height: 1.35),
                       ),
                     ),
 

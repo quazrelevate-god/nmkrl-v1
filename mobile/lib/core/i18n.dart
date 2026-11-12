@@ -122,6 +122,12 @@ class LangToggle extends ConsumerWidget {
 }
 
 /// English → Tamil dictionary. Keyed by the exact English source string.
+/// The Tamil table, for tests that need to MEASURE a string rather than
+/// render it — Tamil sets wider than English at the same point size, and
+/// two chips have overflowed because of it.
+@visibleForTesting
+Map<String, String> get taTable => _ta;
+
 const Map<String, String> _ta = {
   // ── Roles / toggle ──
   'Citizen': 'குடிமகன்',
@@ -232,8 +238,11 @@ const Map<String, String> _ta = {
 
   // ── Legend / statuses ──
   'Assigned': 'ஒதுக்கப்பட்டது',
-  'In Progress': 'செயலில் உள்ளது',
-  'Verification Pending': 'சரிபார்ப்பு நிலுவையில்',
+  // Shortened from 'செயலில் உள்ளது': the full phrase overflowed the status
+  // chip on a grievance card. Also matches the filter chip's wording.
+  'In Progress': 'செயலில்',
+  // Shortened from 'சரிபார்ப்பு நிலுவையில்', same reason.
+  'Verification Pending': 'சரிபார்ப்பில்',
   // Pilot audit v1 (M11): the fix is done and awaits the citizen's say-so —
   // distinct from 'Pending Verification' (office still reviewing).
   'Resolved — awaiting confirmation': 'தீர்க்கப்பட்டது — உங்கள் உறுதிப்படுத்தலுக்குக் காத்திருக்கிறது',
@@ -260,7 +269,7 @@ const Map<String, String> _ta = {
   // Shortened: the full "marked as false" spelled-out phrase ran so wide on
   // a card chip that it crowded the title into near-total ellipsis.
   'Marked as false petition': 'தவறான மனு',
-  'Pending Verification': 'சரிபார்ப்பு நிலுவையில்',
+  'Pending Verification': 'சரிபார்ப்பில்',
   'Completed': 'முடிந்தது',
   'Submitted': 'சமர்ப்பிக்கப்பட்டது',
   'Verification': 'சரிபார்ப்பு',

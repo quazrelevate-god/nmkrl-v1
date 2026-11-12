@@ -47,7 +47,7 @@ const double _kSheetMax = 0.86;
 /// coast, at the cost of 20dp of map.
 /// Same masthead geometry as the citizen home — banner, a floating bar over
 /// its foot, then the floating story panel. See the citizen screen for why.
-const double _kBarOverlap = 26;
+const double _kBarOverlap = 34;
 const double _kPanelGap = 12;
 
 double kCoordAppBarTop(double topInset, double screenWidth) {
@@ -180,7 +180,14 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
   /// The snap list the sheet is handed, rebuilt ONLY when the floor value
   /// moves. DraggableScrollableSheet re-snaps when snapSizes changes
   /// identity — fresh literals every build re-snap on every rebuild.
-  List<double> _snapCache = const [0.14, 0.28, 0.86];
+  List<double> _snapCache = const [0.28, 0.86];
+
+  static bool _sameStops(List<double> a, List<double> b) {
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
 
   /// Direction the incoming list travels from: +1 when moving toward a
   /// higher-index segment, -1 toward a lower one — the page enters from the
@@ -415,18 +422,32 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
   /// Parked low because of a map gesture.
   bool _mapCollapsed = false;
 
+  /// The floor as of the last build, so the collapse logic can tell when the
+  /// sheet is back at its resting size.
+  double _sheetFloorNow = 0.28;
+
   void _collapseForMap() {
     if (!_sheetCtrl.isAttached) return;
+    if (_collapsing || _mapCollapsed) return;
     if (_sheetCtrl.size <= _sheetMiniNow + 0.01) return;
-    _mapCollapsed = true;
+    // Mirrors the citizen sheet: the mini stop does not exist while the user
+    // owns the sheet, so the flag has to go up and that frame has to land
+    // before the animation, or minChildSize clamps it straight back.
     _collapsing = true;
-    _sheetCtrl
-        .animateTo(
-          _sheetMiniNow,
-          duration: _kSheetSnapDuration,
-          curve: Curves.easeInOutCubic,
-        )
-        .whenComplete(() => _collapsing = false);
+    setState(() => _mapCollapsed = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_sheetCtrl.isAttached) {
+        _collapsing = false;
+        return;
+      }
+      _sheetCtrl
+          .animateTo(
+            _sheetMiniNow,
+            duration: _kSheetSnapDuration,
+            curve: Curves.easeInOutCubic,
+          )
+          .whenComplete(() => _collapsing = false);
+    });
   }
 
   /// Web-Mercator zoom at which [b] just fills [viewport] — the zoom floor
@@ -852,6 +873,7 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
     final sheetFloor = _sheetFloorFraction(screenH);
     final sheetMini = _sheetMiniFraction(screenH);
     _sheetMiniNow = sheetMini;
+    _sheetFloorNow = sheetFloor;
     // The masthead: nature band + story rail. The coordinator always has the
     // composer tile, so the rail never collapses to nothing here.
     final screenW = MediaQuery.sizeOf(context).width;
@@ -870,10 +892,14 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
         .clamp(sheetFloor + 0.06, _kSheetMax);
     // Identity-stable snap list: refreshed only when a measured stop actually
     // moves (first sample landing, tab with a different ribbon, rail arriving).
-    if (_snapCache[0] != sheetMini ||
-        _snapCache[1] != sheetFloor ||
-        _snapCache[2] != sheetMax) {
-      _snapCache = [sheetMini, sheetFloor, sheetMax];
+    // The mini stop is only in the list while a map gesture owns the sheet;
+    // a downward drag bottoms out at the floor.
+    final wantSnaps = _mapCollapsed
+        ? <double>[sheetMini, sheetFloor, sheetMax]
+        : <double>[sheetFloor, sheetMax];
+    if (_snapCache.length != wantSnaps.length ||
+        !_sameStops(_snapCache, wantSnaps)) {
+      _snapCache = wantSnaps;
     }
 
     // Lock the map to the selected ward, fitting it into the band that stays
@@ -950,15 +976,21 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
                       left: 0,
                       right: 0,
                       child: NatureBackdrop(
-                        // Clamped to the panel's foot: on a wide screen the
-                        // band grows faster than the fixed-height panel, and
-                        // an unclamped fade would end in open map. The excess
-                        // comes off the bottom of the dissolve, where the
-                        // artwork is already transparent.
-                        height: math.min(
-                          bannerHeight(screenW),
-                          mastheadH,
-                        ),
+                        // Ends at the story panel's MIDDLE, which is the look
+                        // being chased: banner and map converge behind the
+                        // panel, so the join is never visible. It used to be
+                        // clamped to the panel's foot and only landed near the
+                        // middle by accident at one screen width.
+                        //
+                        // With no rail there is no panel to hide a join behind,
+                        // so the fade is left to run its full length and finish
+                        // softly in open map instead of being cut at the bar.
+                        height: railH > 0
+                            ? math.min(
+                                bannerHeight(screenW),
+                                backdropH + railH / 2,
+                              )
+                            : bannerHeight(screenW),
                         topInset: topInset,
                       ),
                     ),
@@ -1066,15 +1098,20 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
                   // map-collapsed state.
                   if (_mapCollapsed &&
                       !_collapsing &&
-                      n.extent > _sheetMiniNow + 0.04) {
-                    _mapCollapsed = false;
+                      n.extent >= _sheetFloorNow - 0.004) {
+                    // Fired during the sheet's own layout; setState must wait.
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (mounted && _mapCollapsed && !_collapsing) {
+                        setState(() => _mapCollapsed = false);
+                      }
+                    });
                   }
                   return false;
                 },
                 child: DraggableScrollableSheet(
                 controller: _sheetCtrl,
                 initialChildSize: sheetFloor,
-                minChildSize: sheetMini,
+                minChildSize: _mapCollapsed ? sheetMini : sheetFloor,
                 maxChildSize: sheetMax,
                 snap: true,
                 snapSizes: _snapCache,
