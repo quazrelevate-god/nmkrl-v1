@@ -69,6 +69,7 @@ class MapCard extends StatefulWidget {
     required this.issues,
     required this.selected,
     required this.onSelect,
+    this.onMarkerTap,
     required this.boundaries,
     required this.currentWard,
     this.locate,
@@ -97,6 +98,11 @@ class MapCard extends StatefulWidget {
   final List<Issue> issues;
   final Issue? selected;
   final ValueChanged<Issue?> onSelect;
+
+  /// Fired only when a PIN is tapped — not by the map's deselect tap and not
+  /// by the search results, both of which also go through [onSelect]. Null
+  /// leaves pin taps doing exactly what they did before.
+  final ValueChanged<Issue>? onMarkerTap;
   final BoundaryData? boundaries;
   final int? currentWard;
   final LocateResult? locate;
@@ -426,6 +432,7 @@ class _MapCardState extends State<MapCard> {
                             onTap: () {
                               HapticFeedback.selectionClick();
                               widget.onSelect(issue);
+                              widget.onMarkerTap?.call(issue);
                             },
                             child: _StatusPin(
                               status: issue.status,
@@ -824,7 +831,7 @@ class _LocateChip extends StatelessWidget {
                     size: 9, color: NkColors.slate500),
                 const SizedBox(width: 3),
                 Text(
-                  compactAC(ac),
+                  context.trAC(compactAC(ac)),
                   style: const TextStyle(
                       fontSize: 9,
                       fontWeight: FontWeight.w600,

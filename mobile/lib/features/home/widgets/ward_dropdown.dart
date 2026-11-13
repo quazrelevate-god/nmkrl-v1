@@ -96,10 +96,7 @@ class ConstituencyWardDropdown extends StatelessWidget {
           // Headings are not selectable, so they are plain widgets rather
           // than disabled buttons — a disabled MenuItemButton still takes a
           // focus stop on the way down the list.
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
-            child: _Heading(group: g),
-          ),
+          _Heading(group: g, first: g == groups.first),
           for (final w in g.wards)
             MenuItemButton(
               onPressed: () => onChanged(w),
@@ -110,17 +107,23 @@ class ConstituencyWardDropdown extends StatelessWidget {
                       : Colors.transparent,
                 ),
               ),
+              // Indented under its heading, and a step larger: the ward is
+              // the thing being chosen, the constituency is only where to
+              // look for it.
               child: Padding(
-                padding: const EdgeInsets.only(left: 10),
+                padding: const EdgeInsets.only(left: 22),
                 child: Text(
                   '${context.tr('Ward')} $w',
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    fontSize: 12.5,
+                    fontSize: 13.5,
+                    height: 1.1,
                     fontWeight: _itemValue(g, w) == selected
                         ? FontWeight.w800
-                        : FontWeight.w600,
-                    color: NkColors.slate700,
+                        : FontWeight.w500,
+                    color: _itemValue(g, w) == selected
+                        ? NkColors.refBlue
+                        : NkColors.slate800,
                   ),
                 ),
               ),
@@ -131,23 +134,48 @@ class ConstituencyWardDropdown extends StatelessWidget {
   }
 }
 
+/// The constituency band above its wards.
+///
+/// Heading and ward used to be 11/w800 and 12.5/w600 on the same background,
+/// a difference too small to read as two levels — the list looked like one
+/// long run of similar rows. The band, the tint and the indent under it are
+/// what separate them now, not a point of type size.
 class _Heading extends StatelessWidget {
-  const _Heading({required this.group});
+  const _Heading({required this.group, required this.first});
 
   final WardGroup group;
 
+  /// No rule above the first band — it would sit against the menu's own edge.
+  final bool first;
+
   @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.only(top: 6),
-        child: Text(
-          group.isUnmapped ? context.tr(group.label) : group.label,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            fontSize: 11,
-            fontWeight: FontWeight.w800,
-            letterSpacing: 0.3,
-            color: group.isUnmapped ? NkColors.rose600 : NkColors.refBlue,
-          ),
+  Widget build(BuildContext context) {
+    final unmapped = group.isUnmapped;
+    return Container(
+      width: double.infinity,
+      margin: EdgeInsets.only(top: first ? 0 : 6),
+      padding: const EdgeInsets.fromLTRB(12, 7, 12, 7),
+      decoration: BoxDecoration(
+        color: unmapped ? const Color(0xFFFFF1F2) : NkColors.slate50,
+        border: Border(
+          top: first
+              ? BorderSide.none
+              : const BorderSide(color: NkColors.slate100),
+          bottom: const BorderSide(color: NkColors.slate100),
         ),
-      );
+      ),
+      child: Text(
+        // trAC keeps the number and translates only the name.
+        unmapped ? context.tr(group.label) : context.trAC(group.label),
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          fontSize: 10.5,
+          height: 1.1,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 0.7,
+          color: unmapped ? NkColors.rose600 : NkColors.slate500,
+        ),
+      ),
+    );
+  }
 }

@@ -24,10 +24,21 @@ const double kBannerSolidFraction = 595 / 875;
 /// bar. The app bar is parked directly below it, so the mark is never clipped
 /// however tall the device's status bar is — which is exactly what went wrong
 /// when the bar's position was derived from the banner height alone.
-const double kWordmarkBand = 52;
+const double kWordmarkBand = 60;
 
 /// Height of the wordmark itself, centred in that band.
-const double kWordmarkHeight = 38;
+const double kWordmarkHeight = 44;
+
+/// How far right to nudge the mark so the WORD sits centred, not the mark.
+///
+/// The signal arcs hang off the right-hand end, so centring the artwork as a
+/// block leaves the lettering visibly left of centre. In the asset the word
+/// spans x 19.5..707.5 (centre 363.5) inside a viewBox of 9.5..841.5 (centre
+/// 425.5), so the word's centre sits 62 units left of the artwork's — 7.45%
+/// of the 832-unit width. Expressed against the height (aspect 3.5026) that
+/// is 0.261 per logical pixel of mark height, which holds if the height
+/// changes.
+const double kWordmarkCentringNudge = 0.261;
 
 /// What the whole asset occupies at [width], dissolve included, at its true
 /// proportions — never cropped and never stretched.
@@ -98,7 +109,11 @@ class NatureBackdrop extends StatelessWidget {
             left: 0,
             right: 0,
             height: kWordmarkBand,
-            child: const Center(child: BrandLogo(height: kWordmarkHeight)),
+            child: Transform.translate(
+              offset: const Offset(
+                  kWordmarkHeight * kWordmarkCentringNudge, 0),
+              child: const Center(child: BrandLogo(height: kWordmarkHeight)),
+            ),
           ),
         ],
       ),

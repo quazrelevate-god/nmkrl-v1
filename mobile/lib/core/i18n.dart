@@ -48,6 +48,19 @@ class AppL10n extends InheritedWidget {
   bool updateShouldNotify(AppL10n old) => old.lang != lang;
 }
 
+/// Compact Tamil for places with no room for the full phrase.
+///
+/// The long forms stay correct where they belong — a status chip reading
+/// "தீர்க்கப்பட்டது" is right on a card. In the coordinator's four-up segmented
+/// bar each label gets a quarter of the width, and those phrases ran past
+/// the pill's rounded end. English is unaffected: these are the same keys.
+const Map<String, String> _taShort = {
+  'Open': 'நிலுவை',
+  'Assigned': 'ஒதுக்கீடு',
+  'Escalated': 'மேல்முறை',
+  'Resolved': 'தீர்வு',
+};
+
 extension L10nX on BuildContext {
   AppLang get lang => AppL10n.of(this);
 
@@ -56,6 +69,32 @@ extension L10nX on BuildContext {
   String tr(String en) {
     if (AppL10n.of(this) == AppLang.en) return en;
     return _ta[en] ?? en;
+  }
+
+  /// Like [tr], but prefers a compact Tamil form where one exists. Use it
+  /// only where the space is genuinely fixed; everywhere else [tr] keeps the
+  /// fuller, more formal wording.
+  String trShort(String en) {
+    if (AppL10n.of(this) == AppLang.en) return en;
+    return _taShort[en] ?? _ta[en] ?? en;
+  }
+
+  /// Translate an assembly-constituency label, for DISPLAY only.
+  ///
+  /// Accepts a bare name ("Egmore"), the numbered label the ward dropdown
+  /// builds ("16 · Egmore") and the raw table key ("16 - Egmore"); the number
+  /// and separator are kept and only the name is translated. Never feed the
+  /// result back into a lookup or an API call — the English string is the key.
+  String trAC(String? label) {
+    final raw = (label ?? '').trim();
+    if (raw.isEmpty) return raw;
+    for (final sep in const [' · ', ' - ']) {
+      final i = raw.indexOf(sep);
+      if (i > 0) {
+        return raw.substring(0, i) + sep + tr(raw.substring(i + sep.length));
+      }
+    }
+    return tr(raw);
   }
 }
 
@@ -129,13 +168,64 @@ class LangToggle extends ConsumerWidget {
 Map<String, String> get taTable => _ta;
 
 const Map<String, String> _ta = {
+  // ── Assembly constituencies ──
+  // DISPLAY ONLY. The strings in domain/constituencies.dart ("16 - Egmore")
+  // are map keys into the ward table and travel to the server, so they are
+  // never translated in the data — only on the way to the screen, through
+  // [L10nX.trAC]. These keys are the SHORT form shortAC/compactAC produce.
+  'Dr. Radhakrishnan Nagar': 'டாக்டர் இராதாகிருஷ்ணன் நகர்',
+  'Perambur': 'பெரம்பூர்',
+  'Kolathur': 'கொளத்தூர்',
+  'Villivakkam': 'வில்லிவாக்கம்',
+  'Thiru-Vi-Ka-Nagar': 'திரு-வி-க-நகர்',
+  'Egmore': 'எழும்பூர்',
+  'Harbour': 'ஹார்பர்',
+  'Chepauk-Thiruvallikeni': 'சேப்பாக்கம்-திருவல்லிக்கேணி',
+  'Thousand Lights': 'ஆயிரம் விளக்கு',
+  'Anna Nagar': 'அண்ணா நகர்',
+  'Virugambakkam': 'விருகம்பாக்கம்',
+  'Saidapet': 'சைதாப்பேட்டை',
+  'Thiyagarayanagar': 'தியாகராய நகர்',
+  'Mylapore': 'மயிலாப்பூர்',
+  'Velachery': 'வேளச்சேரி',
+  'Shozhinganallur': 'சோழிங்கநல்லூர்',
+  // compactAC strips " Corporation", so both forms need an entry.
+  'Tambaram Corporation': 'தாம்பரம் மாநகராட்சி',
+  'Tambaram': 'தாம்பரம்',
+
+  // ── Search ──
+  'Search location, issue...': 'இடம், குறை...',
+
+  // ── Profile / settings (both apps) ──
+  'Profile': 'சுயவிவரம்',
+  'Staff': 'பணியாளர்',
+  'Mobile number': 'கைபேசி எண்',
+  'Full name': 'முழுப் பெயர்',
+  'User ID': 'பயனர் ஐடி',
+  'Role': 'பதவி',
+  'Constituency': 'தொகுதி',
+  'Username': 'பயனர்பெயர்',
+  'User': 'பயனர்',
+  'Profile editing coming soon': 'சுயவிவரத் திருத்தம் விரைவில்',
+  'Privacy policy': 'தனியுரிமைக் கொள்கை',
+  'Delete account': 'அக்கவுண்டை நீக்கு',
+  'Delete your account?': 'உங்கள் அக்கவுண்டை நீக்கவா?',
+  'Could not open the privacy policy.':
+      'தனியுரிமைக் கொள்கையைத் திறக்க முடியவில்லை.',
+  'This removes your name, phone number and voice notes for good. The '
+          'grievances you reported stay as anonymous civic records so they can '
+          'still be fixed. This cannot be undone.':
+      'இது உங்கள் பெயர், கைபேசி எண் மற்றும் குரல் குறிப்புகளை நிரந்தரமாக '
+          'நீக்கும். நீங்கள் பதிவு செய்த குறைகள் பெயரில்லா குடிமைப் '
+          'பதிவுகளாகத் தொடரும், அவை சரிசெய்யப்படும். இதை மீட்க முடியாது.',
+
   // ── Roles / toggle ──
   'Citizen': 'குடிமகன்',
   'Coordinator': 'ஒருங்கிணைப்பாளர்',
 
   // ── Splash / brand ──
   'CITIZEN SIGN IN': 'குடிமகன் உள்நுழைவு',
-  'One account per mobile number': 'ஒரு மொபைல் எண்ணுக்கு ஒரு கணக்கு',
+  'One account per mobile number': 'ஒரு மொபைல் எண்ணுக்கு ஒரு அக்கவுண்ட்',
   'COORDINATOR CONSOLE': 'ஒருங்கிணைப்பாளர் பலகை',
   'Constituency staff portal': 'தொகுதி பணியாளர் நுழைவாயில்',
 
@@ -164,7 +254,7 @@ const Map<String, String> _ta = {
   'PASSWORD': 'கடவுச்சொல்',
   'Sign In': 'உள்நுழை',
   'Accounts are created in the /admin coordinators panel — no demo profiles are shipped in the app.':
-      'கணக்குகள் /admin ஒருங்கிணைப்பாளர் பலகையில் உருவாக்கப்படுகின்றன — செயலியில் மாதிரி கணக்குகள் இல்லை.',
+      'அக்கவுண்டுகள் /admin ஒருங்கிணைப்பாளர் பலகையில் உருவாக்கப்படுகின்றன — செயலியில் மாதிரி அக்கவுண்டுகள் இல்லை.',
   'Invalid username or password.': 'தவறான பயனர்பெயர் அல்லது கடவுச்சொல்.',
 
   // ── Greetings ──
@@ -221,7 +311,7 @@ const Map<String, String> _ta = {
   'Proof of work': 'பணிக்கான ஆதாரம்',
   'Playing…': 'இயங்குகிறது…',
   'This account is no longer available. Sign in again.':
-      'இந்தக் கணக்கு இனி கிடைக்கவில்லை. மீண்டும் உள்நுழையவும்.',
+      'இந்த அக்கவுண்ட் இனி கிடைக்கவில்லை. மீண்டும் உள்நுழையவும்.',
   'Welcome back': 'மீண்டும் வருக',
   'In My Ward': 'என் வார்டில்',
   'My Reports': 'என் புகார்கள்',

@@ -844,13 +844,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   Widget _memoCard(String tab, Issue issue, {ValueChanged<Issue>? onUpvote}) {
     final key = '$tab|${issue.id}|${issue.status}|${issue.upvotes}';
-    return _cardMemo[key] ??= Padding(
+    // Only the CARD is memoised. The selection chrome used to be inside the
+    // cached widget while the key said nothing about selection, so once a card
+    // had been built unselected the memo handed back that same instance for
+    // ever and the gold ring could never appear. Keeping the chrome outside
+    // lets it rebuild while the expensive part — the card, with its image
+    // resolve and status-chip pulse — still comes from the cache.
+    final card = _cardMemo[key] ??=
+        GrievanceCard(issue: issue, onUpvote: onUpvote);
+    return Padding(
       key: ValueKey(key),
       padding: const EdgeInsets.only(bottom: 8),
-      child: _selectableCard(
-        issue,
-        GrievanceCard(issue: issue, onUpvote: onUpvote),
-      ),
+      child: _selectableCard(issue, card),
     );
   }
 
@@ -1025,7 +1030,29 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   /// same side the nav bar selection moved.
   double _slideDir = 1;
 
+  /// Bring a sheet parked at the mini snap by a map gesture back to the
+  /// floor. One already at the floor, or pulled up, is left where the user
+  /// put it.
+  void _liftSheetFromMap() {
+    if (!_mapCollapsed || _collapsing) return;
+    setState(() => _mapCollapsed = false);
+    // Clearing the flag raises minChildSize off the mini snap; let that frame
+    // land before animating, as [_collapseForMap] does in reverse.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_sheetCtrl.isAttached) return;
+      _sheetCtrl.animateTo(
+        _sheetFloorNow,
+        duration: _kSheetSnapDuration,
+        curve: _kTabCurve,
+      );
+    });
+  }
+
   void _selectTab(_HomeTab tab) {
+    // Before the early return: tapping the tab you are ALREADY on is still a
+    // reach for the list, so it lifts the sheet even though nothing else
+    // about the tab changes.
+    _liftSheetFromMap();
     if (_tab == tab) return;
     HapticFeedback.selectionClick();
     _slideDir = tab.index > _tab.index ? 1 : -1;
@@ -1268,6 +1295,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   /// near-full snap, the only lift available would bury the map you just tapped.
   /// The floor already shows ~2 cards, and ensureVisible scrolls the sheet's own
   /// list to the selected one.
+  /// A pin tap opens the full grievance card. [_onMapSelect] has already run,
+  /// so the pin stays selected and the sheet scrolls its card into view
+  /// underneath — dismissing the dialog leaves that card highlighted.
+  void _openFromMarker(Issue issue) {
+    GrievanceDialog.open(context, issue: issue, onUpvote: _upvoteOthers);
+  }
+
   void _onMapSelect(Issue? i) {
     setState(() {
       _selected = i;
@@ -1299,7 +1333,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 260),
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(18),
+          // GrievanceCard is radius 12 and the ring is 2 outside it, so 14
+          // hugs the corners. At 18 the ring bowed away from them.
+          borderRadius: BorderRadius.circular(14),
           border: selected
               ? Border.all(color: NkColors.gold300, width: 2)
               : Border.all(color: Colors.transparent, width: 2),
@@ -1418,6 +1454,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 issues: _applyStatusFilter(_tabIssues),
                 selected: _selected,
                 onSelect: _onMapSelect,
+                onMarkerTap: _openFromMarker,
                 boundaries: _boundaries,
                 currentWard: _currentWard,
                 locate: _locate,
@@ -3068,7 +3105,8 @@ class _WardPill extends StatelessWidget {
             // by the FittedBox above it, and a Flexible child under unbounded
             // constraints throws. Overflow is handled by that scale, not here.
             Text(
-              constituency,
+              // Display only - _currentConstituency stays the English key.
+              context.trAC(constituency),
               maxLines: 1,
               softWrap: false,
               style: const TextStyle(

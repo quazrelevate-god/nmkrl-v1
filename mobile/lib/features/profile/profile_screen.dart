@@ -61,9 +61,9 @@ class ProfileScreen extends ConsumerWidget {
                             size: 22, color: Colors.white),
                       ),
                       const SizedBox(width: 4),
-                      const Text(
-                        'Profile',
-                        style: TextStyle(
+                      Text(
+                        context.tr('Profile'),
+                        style: const TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.w800,
                           color: Colors.white,
@@ -192,7 +192,7 @@ class ProfileScreen extends ConsumerWidget {
                     children: [
                       Flexible(
                         child: Text(
-                          name.isNotEmpty ? name : 'User',
+                          name.isNotEmpty ? name : context.tr('User'),
                           textAlign: TextAlign.center,
                           style: const TextStyle(
                             fontSize: 20,
@@ -206,9 +206,10 @@ class ProfileScreen extends ConsumerWidget {
                         onTap: () {
                           HapticFeedback.selectionClick();
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Profile editing coming soon'),
-                              duration: Duration(seconds: 2),
+                            SnackBar(
+                              content:
+                                  Text(context.tr('Profile editing coming soon')),
+                              duration: const Duration(seconds: 2),
                             ),
                           );
                         },
@@ -239,8 +240,8 @@ class ProfileScreen extends ConsumerWidget {
                       ),
                       child: Text(
                         isCoordinator
-                            ? 'Staff · ${coordinator.role}'
-                            : 'Citizen',
+                            ? '${context.tr('Staff')} · ${coordinator.role}'
+                            : context.tr('Citizen'),
                         style: const TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w600,
@@ -267,8 +268,8 @@ class ProfileScreen extends ConsumerWidget {
                     ),
                     child: Column(
                       children: isCoordinator
-                          ? _coordTiles(coordinator)
-                          : _citizenTiles(prefs, ref),
+                          ? _coordTiles(context, coordinator)
+                          : _citizenTiles(context, prefs, ref),
                     ),
                   ),
 
@@ -371,15 +372,15 @@ class ProfileScreen extends ConsumerWidget {
                       color: const Color(0xFFFDECEA),
                       borderRadius: BorderRadius.circular(14),
                     ),
-                    child: const Row(
+                    child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(Icons.logout,
+                        const Icon(Icons.logout,
                             size: 18, color: Color(0xFFE53935)),
-                        SizedBox(width: 8),
+                        const SizedBox(width: 8),
                         Text(
-                          'Sign out',
-                          style: TextStyle(
+                          context.tr('Sign out'),
+                          style: const TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.w700,
                             color: Color(0xFFE53935),
@@ -397,38 +398,42 @@ class ProfileScreen extends ConsumerWidget {
     );
   }
 
-  List<Widget> _citizenTiles(dynamic prefs, WidgetRef ref) {
+  List<Widget> _citizenTiles(
+      BuildContext context, dynamic prefs, WidgetRef ref) {
     final phone = prefs.citizenPhone as String;
     final masked = phone.length >= 6
         ? '+91 ${phone.substring(0, 5)}${'x' * (phone.length - 5)}'
         : (phone.isNotEmpty ? phone : '—');
     return [
-      _tile(Icons.smartphone, 'Mobile number', masked),
+      _tile(context, Icons.smartphone, 'Mobile number', masked),
       _div(),
-      _tile(Icons.person_outline, 'Full name',
+      _tile(context, Icons.person_outline, 'Full name',
           (prefs.citizenName as String).isNotEmpty
               ? prefs.citizenName as String
               : '—'),
       _div(),
-      _tile(Icons.badge_outlined, 'User ID', ref.read(userIdProvider)),
+      _tile(context, Icons.badge_outlined, 'User ID', ref.read(userIdProvider)),
     ];
   }
 
-  List<Widget> _coordTiles(Coordinator me) {
+  List<Widget> _coordTiles(BuildContext context, Coordinator me) {
     return [
-      _tile(Icons.person_outline, 'Full name', me.name),
+      _tile(context, Icons.person_outline, 'Full name', me.name),
       _div(),
-      _tile(Icons.work_outline, 'Role', me.role),
+      _tile(context, Icons.work_outline, 'Role', me.role),
       _div(),
-      _tile(Icons.account_balance, 'Constituency', shortAC(me.constituency)),
+      _tile(context, Icons.account_balance, 'Constituency',
+          context.trAC(shortAC(me.constituency))),
       _div(),
-      _tile(Icons.place_outlined, 'Home ward', 'Ward ${me.homeWard}'),
+      _tile(context, Icons.place_outlined, 'Home ward',
+          '${context.tr('Ward')} ${me.homeWard}'),
       _div(),
-      _tile(Icons.badge_outlined, 'Username', me.username),
+      _tile(context, Icons.badge_outlined, 'Username', me.username),
     ];
   }
 
-  Widget _tile(IconData icon, String label, String value) {
+  /// [label] is translated here; [value] is data and arrives ready to show.
+  Widget _tile(BuildContext context, IconData icon, String label, String value) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 10),
       child: Row(
@@ -439,7 +444,7 @@ class ProfileScreen extends ConsumerWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(label,
+                Text(context.tr(label),
                     style: const TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w600,

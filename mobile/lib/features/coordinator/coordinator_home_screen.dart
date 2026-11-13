@@ -1074,10 +1074,11 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const MapStatusLegend(),
-                  const SizedBox(height: 8),
+                  // The status legend used to sit here. Removed: the pin
+                  // colours repeat the status chip on every card below, and it
+                  // covered a quarter of the map.
                   _CoordWardPill(
-                    constituency: compactAC(_me.constituency),
+                    constituency: context.trAC(compactAC(_me.constituency)),
                     ward: _ward.isEmpty ? context.tr('All') : _ward,
                   ),
                 ],
@@ -1310,25 +1311,25 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
                           (
                             CoordinatorTab.ward,
                             Icons.groups_outlined,
-                            context.tr('Open'),
+                            context.trShort('Open'),
                             parts.ward.length
                           ),
                           (
                             CoordinatorTab.mine,
                             Icons.description_outlined,
-                            context.tr('Assigned'),
+                            context.trShort('Assigned'),
                             parts.mine.length
                           ),
                           (
                             CoordinatorTab.escalated,
                             Icons.keyboard_double_arrow_up,
-                            context.tr('Escalated'),
+                            context.trShort('Escalated'),
                             parts.escalated.length
                           ),
                           (
                             CoordinatorTab.previous,
                             Icons.assignment_outlined,
-                            context.tr('Resolved'),
+                            context.trShort('Resolved'),
                             parts.previous.length
                           ),
                         ])
@@ -1350,16 +1351,31 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
                                             ? NkColors.slate900
                                             : NkColors.slate500),
                                     const SizedBox(height: 1),
-                                    Text(
-                                      '$label ($count)',
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.w700,
-                                        color: _tab == tab
-                                            ? NkColors.slate900
-                                            : NkColors.slate600,
+                                    // scaleDown as well as the compact
+                                    // wording: a label is a quarter of the bar
+                                    // and the next translation added here must
+                                    // not be able to run past the pill again.
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 2),
+                                      child: FittedBox(
+                                        fit: BoxFit.scaleDown,
+                                        child: Text(
+                                          '$label ($count)',
+                                          maxLines: 1,
+                                          style: TextStyle(
+                                            // Tamil sets wider than Latin at
+                                            // the same size, so it comes down
+                                            // 1.25 here. English stays at 10.
+                                            fontSize: context.lang == AppLang.ta
+                                                ? 8.75
+                                                : 10,
+                                            fontWeight: FontWeight.w700,
+                                            color: _tab == tab
+                                                ? NkColors.slate900
+                                                : NkColors.slate600,
+                                          ),
+                                        ),
                                       ),
                                     ),
                                   ],
@@ -1488,7 +1504,7 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
   /// travels even though its heading text changes per segment.
   Widget _buildListChrome(List<Issue> current) {
     final scope = _ward.isEmpty
-        ? shortAC(_me.constituency)
+        ? context.trAC(shortAC(_me.constituency))
         : '${context.tr('Ward')} $_ward';
     final headings = [
       '${context.tr('Open grievances')} · $scope',
@@ -1571,7 +1587,8 @@ class _CoordinatorHomeScreenState extends ConsumerState<CoordinatorHomeScreen>
     if (current.isEmpty) {
       final empties = [
         _ward.isEmpty
-            ? 'No unverified grievances in ${shortAC(_me.constituency)}.'
+            ? 'No unverified grievances in '
+                '${context.trAC(shortAC(_me.constituency))}.'
             : 'No unverified grievances in Ward $_ward.',
         'Verify grievances from the Open tab to see them here.',
         'Escalated grievances land here until resolved.',
@@ -2091,7 +2108,7 @@ class _CoordWardPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.fromLTRB(12, 6, 10, 6),
+      padding: const EdgeInsets.fromLTRB(10, 4, 8, 4),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(999),
@@ -2107,33 +2124,33 @@ class _CoordWardPill extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           const Icon(Icons.account_balance,
-              size: 15, color: NkColors.refBlueDeep),
+              size: 13, color: NkColors.refBlueDeep),
           if (constituency.isNotEmpty) ...[
-            const SizedBox(width: 8),
+            const SizedBox(width: 6),
             Text(
               constituency,
               style: const TextStyle(
-                fontSize: 13,
+                fontSize: 11.5,
                 fontWeight: FontWeight.w700,
                 color: NkColors.refBlueDeep,
               ),
             ),
           ],
-          const SizedBox(width: 8),
-          Container(width: 1, height: 14, color: NkColors.slate300),
-          const SizedBox(width: 8),
+          const SizedBox(width: 6),
+          Container(width: 1, height: 12, color: NkColors.slate300),
+          const SizedBox(width: 6),
           Text(
             context.tr('Ward'),
             style: const TextStyle(
-              fontSize: 13,
+              fontSize: 11.5,
               fontWeight: FontWeight.w500,
               color: NkColors.refBlueDeep,
             ),
           ),
-          const SizedBox(width: 7),
+          const SizedBox(width: 6),
           Container(
-            constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
-            padding: const EdgeInsets.symmetric(horizontal: 7),
+            constraints: const BoxConstraints(minWidth: 22, minHeight: 22),
+            padding: const EdgeInsets.symmetric(horizontal: 6),
             alignment: Alignment.center,
             decoration: BoxDecoration(
               color: NkColors.refBlueDeep,
@@ -2142,7 +2159,7 @@ class _CoordWardPill extends StatelessWidget {
             child: Text(
               ward,
               style: const TextStyle(
-                fontSize: 12,
+                fontSize: 11,
                 fontWeight: FontWeight.w800,
                 color: Colors.white,
               ),

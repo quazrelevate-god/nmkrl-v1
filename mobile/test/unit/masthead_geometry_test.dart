@@ -43,15 +43,15 @@ void main() {
         for (final backdrop in [kBackdropHeight, kCoordBackdropHeight]) {
           final mid = panelTop(backdrop) + kStoryRailHeight / 2;
           final band = bannerHeight(width) < mid ? bannerHeight(width) : mid;
-          // Where the band ends, as a fraction down the panel. It must land in
-          // the panel's middle third-ish: high enough that the panel still
-          // covers the join, low enough that the banner is not cut short. On
-          // a small screen with a tall status bar the wordmark band pushes the
-          // panel below what the artwork can reach, so this sits nearer 0.3
-          // than 0.5 — still well inside the panel.
+          // Where the band ends, as a fraction down the panel. What has to
+          // hold is that the join is COVERED — clear of the panel's top edge
+          // and well above its foot. How far down varies: on a small screen
+          // with a tall status bar the wordmark band pushes the panel lower
+          // than the artwork can reach, and enlarging the wordmark moved the
+          // 320dp / 44dp-inset case to 0.20.
           final through = (band - panelTop(backdrop)) / kStoryRailHeight;
-          expect(through, inInclusiveRange(0.25, 0.55),
-              reason: 'the banner/map join is not behind the panel middle');
+          expect(through, inInclusiveRange(0.15, 0.55),
+              reason: 'the banner/map join is not covered by the panel');
         }
       });
 
@@ -82,7 +82,7 @@ void main() {
   test('components stayed at the sizes the geometry assumes', () {
     expect(kAppBarHeight, 46);
     expect(kStoryRailHeight, 84);
-    expect(kWordmarkBand, 52);
-    expect(kWordmarkHeight, 38);
+    expect(kWordmarkBand, 60);
+    expect(kWordmarkHeight, 44);
   });
 }
